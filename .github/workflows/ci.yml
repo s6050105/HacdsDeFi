@@ -60,7 +60,12 @@ jobs:
           done < <(find . -name '*.json' -not -path '*/node_modules/*' -not -name 'package-lock.json')
           exit $fail
 
-      # 6) 仓库内不得出现私钥 / 钱包文件
+      # 6) 评分测试向量：本地评分模块必须在全部向量上给出与文件一致的 score
+      #    评分是确定性纯函数（name + number + visual_gene），可作回归基线
+      - name: Scoring vectors
+        run: node 评分自检.js
+
+      # 7) 仓库内不得出现私钥 / 钱包文件
       - name: No secrets in tree
         run: |
           bad=$(find . -type f \

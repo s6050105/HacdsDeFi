@@ -21,7 +21,6 @@ _*.py
 _*.json
 _*.hex
 _*.txt
-fuzz_vectors.txt
 
 # ---- 系统 ----
 Thumbs.db
@@ -30,3 +29,6 @@ desktop.ini
 
 # 随包交易引擎（必需，明确放行）
 !wallet-app/bin/hacds_txbuild.exe
+
+# 评分测试向量（回归基线，明确放行）
+!hacds_exchange/fuzz_vectors.txt

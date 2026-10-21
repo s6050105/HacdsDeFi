@@ -40,6 +40,7 @@ hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约�
 | `wallet-app/vendor/hacash_sdk.{js,wasm}` | 官方 HACD 转账 SDK（本地签名） |
 | `Whitepaper/` | 白皮书 / 说明书 / RPC 文档（各中英土三语）+ 架构图 |
 | `tools/` | 辅助脚本（生成密钥、赎回） |
+| `SECURITY.md` / `SECURITY.zh.md` | 安全说明（安全模型 + 已知限制） |
 
 ## 组成
 
@@ -90,6 +91,9 @@ npm run dist     # 打包到 dist/
 - **不托管**：hacds 是标准链上资产，放在用户自己的地址里。
 - **签名本地完成**：节点的 `/util/transaction/sign` 与 `/create/coin/transfer` 要求私钥经 HTTP 传输，**本项目不使用**。
 - 仓库内**不含任何私钥或 wallet 文件**；`.gitignore` 已设防。
+
+> ⚠️ **本项目已上主网管理真钱。合约未经第三方审计，管理员为单钥且不可更换。**
+> 完整安全模型与已知限制见 **[SECURITY.zh.md](SECURITY.zh.md)**。
 
 ## 许可证
 

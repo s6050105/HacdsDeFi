@@ -41,6 +41,7 @@ All releases: [Releases](https://github.com/s6050105/HacdsDeFi/releases).
 | `wallet-app/vendor/hacash_sdk.{js,wasm}` | Official HACD transfer SDK (local signing) |
 | `Whitepaper/` | Whitepaper / user guide / RPC reference (each zh + en + tr) + architecture |
 | `tools/` | Helper scripts (key generation, redemption) |
+| `SECURITY.md` / `SECURITY.zh.md` | Security model and known limitations |
 
 ## Components
 
@@ -91,6 +92,10 @@ npm run dist     # build into dist/
 - **Non-custodial**: hacds is a standard on-chain asset held in the user's own address.
 - **Signing is local**: the node's `/util/transaction/sign` and `/create/coin/transfer` require sending your private key over HTTP. **This project does not use them.**
 - The repository contains **no private keys and no wallet files**; `.gitignore` guards against it.
+
+> ⚠️ **This project is live on mainnet and handles real funds. The contract has not been
+> audited, and the admin is a single key that cannot be replaced.**
+> Full security model and known limitations: **[SECURITY.md](SECURITY.md)**.
 
 ## License
 
