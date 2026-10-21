@@ -2,8 +2,20 @@
 
 hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约、一个评分预言机、一个链下索引器和一个冷热分离的钱包组成。
 
-- 资产：hacds（serial **2000**，decimal 8）
-- 合约：`VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1`
+**hacds** 是链上标准资产（serial **2000**，decimal 8），不是铭文。
+
+- 合约：`VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1`（Hacash 主网，已上线）
+
+## 下载
+
+| 文件 | 说明 |
+|---|---|
+| [HacdsDeFi-Setup-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-Setup-0.1.0-x64.exe) | 安装版（Windows 64 位） |
+| [HacdsDeFi-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-x64.exe) | 免安装便携版 |
+
+全部发布物见 [Releases](https://github.com/s6050105/HacdsDeFi/releases)。
+
+## 文档
 - 白皮书：[Whitepaper/HacdsDeFi-白皮书.pdf](Whitepaper/HacdsDeFi-白皮书.pdf)（中 / 英 / 土三语）
 - 操作说明书：[Whitepaper/HacdsDeFi-操作说明书.pdf](Whitepaper/HacdsDeFi-操作说明书.pdf)
 - RPC 文档：[Whitepaper/HacdsDeFi-RPC文档.pdf](Whitepaper/HacdsDeFi-RPC文档.pdf)
