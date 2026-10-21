@@ -1,0 +1,1568 @@
+pragma fitsh 1.0.0
+
+// ============================================================================
+// HacdsDeFi — HACD / HAC DeFi 单合约（设计文档 v4）
+//
+// 记账范围（v4 锁定）：
+//   * hacds = 链上新发行资产（AssetCreate 一次性发行，issuer = 本合约地址，
+//     serial = 常量 HACDS_SERIAL，非 #1028）——标准 fungible asset，
+//     可在链上自由转账交易；合约内账本 = 「应付配额表」due:<addr>
+//     （ACTION TopOnly：钩子不能转资产，铸发/兑换出腿经顶层
+//     TransferAssetFromTo + PermitAsset 闸门领取）。
+//   * HAC 积分（zhu 计）= 另一条账本腿（storage bal:hac）。
+//   * 转入合约的 HACD 全部按 5 维评分 ×10⁸ 记 due 配额。
+//
+// 模块：存入/赎回、HAC 积分、AMM（开放 LP + 三分手续费）、质押奖励、
+//       金库、抵押借贷（抵押品 = due 配额）。
+//
+// 机制事实（全部从 fullnode 源码核实）：
+//   * ACTION 转账 TopOnly：钩子与 external 函数内都不能转账——
+//     转账全由顶层交易动作驱动，钩子只记账。
+//   * 8 个钩子缺一不可（缺 = CallNotExist(51) 致命）。
+//   * 钩子返回 0 = 放行；非零 = 整笔回滚。
+//   * ACTENV(tx_main_addr/block_height) policy=Any 钩子内可用；
+//     ACTVIEW(tx_message/balance_fungible 等) policy=ViewOnly 钩子内可读。
+//   * storage 三分支写入：stat→nil 则 new / live 则 edit / recover 则 rent+edit。
+//   * Message ≤255B（单证书 126B → 每条最多 2 份）；更多用 Blob+tx_blob。
+//   * 资产钩子 ABI：PermitAsset/PayableAsset(对方地址, serial u64, amount u64)。
+//
+// 结算不变式（v4）：
+//   * Σ bal:hac == tot:hac，Σ due == tot:ds（收益发放与本金变动同步计入
+//     总量，否则 rpu += fee×10¹²/tot 会超发/漏发）。
+//   * Σ due + amm:ds + Σ loan:coll ≤ 合约链上 hacds 资产余额。
+// ============================================================================
+
+contract HacdsDeFi {
+
+    deploy {
+        nonce: 1
+    }
+
+    // ---------------- 常量 ----------------
+
+    // score → hacds = score × 10⁸
+    const SCORE_SCALE : u128 = 100000000
+    // rpu 定点放大（费用 × 10¹² / 总质押量）
+    const RPU_SCALE   : u128 = 1000000000000
+    // 金库地址（写死，不可更换）
+    const TREASURY    : address = 1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK
+    // AMM 手续费三分（万分比）：LP 50 / 质押 30 / 金库 20（设计文档 §7/§8）
+    const LP_BPS      : u128 = 5000
+    const STAKE_BPS   : u128 = 3000
+    // 借贷利息二分（万分比）：质押 80 / 金库 20（利息无 LP 参与）
+    const INT_STAKE_BPS : u128 = 8000
+    // AMM 默认费率 0.5%（万分比 50）
+    const FEE_DEFAULT : u128 = 50
+    // 借贷默认年利率 5%（万分比 500）
+    const LOAN_RATE_DEFAULT : u128 = 500
+    // 年区块数 365×86400/300
+    const BLOCKS_PER_YEAR : u128 = 105120
+    // 抵押率 50%：债务 ≤ 抵押HAC价值 / 2
+    const COLL_RATIO : u128 = 2
+    // 清算奖励默认 2%（万分比）
+    const LIQ_BONUS_DEFAULT : u128 = 200
+    // 证书版本
+    const CERT_VERSION : u128 = 1
+    // 证书单份长度：消息 29B + 签名 97B
+    const CERT_LEN : u128 = 126
+    // 新键租期（period，1 period = 100 块 ≈ 8.3 小时）。
+    // gas 约束（实测，单桶 storage 上限 111,911）：最坏单笔是「冷池首次
+    // add_liquidity」——一次新增 8 个账本键（lpt:tot / amm:hac / amm:ds /
+    // lch:hac / lch:ds / chk:hac / chk:ds / lpt:<me>）。
+    // 每个新键消耗 = 1024（key_cost）+ 36（u128 值长 16 + 20）× period。
+    // period=300 → 8 × (1024 + 36×300) ≈ 94,592 + 编辑，落在 111,911 内。
+    // 故租期上限 ~318 period：300 period ≈ 30,000 块 ≈ 104 天，由管理员
+    // rent_batch 定期续租（gas 上限决定，不能采用「1 年期」的 1051）。
+    const RENT_PERIOD : u128 = 300
+    // hacds 资产 serial——**最终值 2000**（2026-10-20 主网核对后定）。
+    // 合法域（mint-core/src/exec/asset.rs）：1025 ≤ serial ≤ 1025+(height−765432)。
+    // 核对时主网高度 792309 → 上限 27902；链上已占用 = {1025,1026,1027,1028,1111}
+    // （1028 已被 ticker "HACDS"/"HACD Fragments" 占用——永不使用）。
+    // 2000 在合法域内且未被占用；AssetCreate 发行交易必须使用同一 serial。
+    const HACDS_SERIAL : u128 = 2000
+    // LP 首注单侧上限（防 hac×ds 乘积溢出 u128，见 add_liquidity）。
+    // 注意：份额本身不再额外定标——share = √(hac×ds) 直接取值。
+    // 若再乘 LP_SCALE(10¹⁸)，会使 lpt:tot 比手续费量大 10¹⁸ 倍，
+    // 令 LP 奖励增量 mul_div(lp_part, 10¹², lpt:tot) 恒为 0 → LP 分不到手续费。
+    const LP_MAX_SIDE : u128 = 1000000000000000000
+
+    // ---------------- 5 维评分（Diamond_Analyzer v0.1.1 语义） ----------------
+    //
+    // visual_gene 10 字节 = 20 个 hex 字符：
+    //   vg[0..2]   形状（2 hex）
+    //   vg[2..18]  样式色板（16 hex，位置 13..16 即 hex 索引 12..15 做位置规则）
+    //   vg[18..20] 颜色明暗备用（不直接用；色板即 16 位）
+    // 名字 6 字符 ∈ "WTYUIAHXVMEKBSZN"；编号 u64 十进制串。
+    //
+    // 总分 = 形状 + 颜色（Common 形状算样式，否则算颜色）+ 名字字母 + 编号，
+    // 最后 max(1, 总分)。全部整数/字节比较，无浮点。
+
+    // vg 的第 idx 个 hex 字符数值（idx 0..19）。
+    // 链上 visual_gene = 10 原始字节（DiamondVisualGene = Fixed10）；
+    // 20 个 hex 字符即 10 字节的高/低半字节序列：idx 偶 = byte(idx/2) 高 4 位，
+    // idx 奇 = byte(idx/2) 低 4 位。与 DA 以 20 字符 hex 串读法严格等价。
+    function vg_hex(vg: bytes, idx: u128) -> u128 {
+        var b = byte(vg, idx / 2)
+        if idx % 2 == 0 { return b / 16 }
+        return b % 16
+    }
+
+    // ---- 形状分（vg hex[0..2] 查表）----
+    function shape_score(vg: bytes) -> u128 {
+        var a = self.vg_hex(vg, 0)
+        var b = self.vg_hex(vg, 1)
+        if a == 0 {
+            if b == 1 { return 30 }   // 01 Square
+            if b == 2 { return 30 }   // 02 Ellipse
+            if b == 3 { return 50 }   // 03 Heart
+            if b == 4 { return 20 }   // 04 Triangle
+            if b == 5 { return 30 }   // 05 Teardrop
+            if b == 6 { return 30 }   // 06 Circle
+            if b == 7 { return 20 }   // 07 Rhombus
+            if b == 8 { return 20 }   // 08 Hexagon
+            return 0                  // 00 Common
+        }
+        return 0
+    }
+
+    // ---- 样式分（仅 Common 形状；style = vg hex[2..18] 16 位）----
+    // DA 语义：位置规则 elif 互斥链（首个命中）→ 色数 elif 链 → 明暗判定，
+    // 三组各自产出候选，最终取最高分（等分取先产出者）。
+    // 位置 13..16（1-based）= style[12..15] = vg hex 索引 14..17。
+    function style_score(vg: bytes) -> u128 {
+        var c13 = self.vg_hex(vg, 14)
+        var c14 = self.vg_hex(vg, 15)
+        var c15 = self.vg_hex(vg, 16)
+        var c16 = self.vg_hex(vg, 17)
+
+        // 候选 1：位置规则 elif 互斥链（DA 顺序，首个命中）
+        var pos_score = 0u128
+        if c13 == c14 && c14 == c15 && c15 == c16 {
+            pos_score = 250               // Pure
+        } else {
+            if c13 == c14 && c14 == c15 && c14 != c16 {
+                pos_score = 20            // Left three pure
+            } else {
+                if c13 == c15 && c15 == c16 && c14 != c13 {
+                    pos_score = 20        // Left mix pure
+                } else {
+                    if c13 == c14 && c14 == c16 && c15 != c13 {
+                        pos_score = 20    // Right three pure
+                    } else {
+                        if c14 == c15 && c15 == c16 && c14 != c13 {
+                            pos_score = 20 // Right mix pure（DA v0.1.1）
+                        } else {
+                            if c16 == c15 && c13 == c14 {
+                                pos_score = 20   // Color Symmetry
+                            } else {
+                                if c16 == c14 && c13 == c15 {
+                                    pos_score = 20 // Half divide
+                                } else {
+                                    if c15 * 16 + c13 == c14 * 16 + c16 {
+                                        pos_score = 20 // Double mix
+                                    } else {
+                                        if c13 == c14 && c15 != c16 {
+                                            pos_score = 3  // Center color
+                                        } else {
+                                            if c15 == c16 && c14 != c13 {
+                                                pos_score = 3 // Edge color
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 候选 2：色数规则（16 位去重，16 位 bitmap；elif 链）
+        // 半字节取值恒 0..15，天然落在 bitmap 内（原始字节读法无「非 hex 字符」）。
+        var cnt_score = 0u128
+        var bitmap = 0u128
+        var i = 2u128
+        while i < 18 {
+            bitmap = bitmap | (self.pow2(self.vg_hex(vg, i)))
+            i = i + 1
+        }
+        var distinct = self.popcount16(bitmap)
+        if distinct == 4 { cnt_score = 200 }     // Sum four color
+        else {
+            if distinct == 5 { cnt_score = 100 } // Sum five color
+            else {
+                if distinct == 6 { cnt_score = 50 }  // Sum six color
+                else {
+                    if distinct == 7 { cnt_score = 20 } // Sum seven color
+                    else {
+                        if distinct == 14 { cnt_score = 30 } // All 14 color
+                        else {
+                            if distinct == 15 { cnt_score = 100 } // All 15 color
+                            else {
+                                if distinct == 16 { cnt_score = 200 } // All 16 color
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 候选 3：明暗（全深 0-4 → dark 20 / 全浅 5-15 → light 20）
+        var dl_score = 0u128
+        var all_dark = 1u128
+        var all_light = 1u128
+        var j = 2u128
+        while j < 18 {
+            var v2 = self.vg_hex(vg, j)
+            if v2 > 4 { all_dark = 0 }
+            if v2 <= 4 { all_light = 0 }
+            j = j + 1
+        }
+        if all_dark == 1 { dl_score = 20 }
+        if all_light == 1 { dl_score = 20 }
+
+        // 取最高（等分取先产出者：位置 → 色数 → 明暗）
+        var best = pos_score
+        if cnt_score > best { best = cnt_score }
+        if dl_score > best { best = dl_score }
+        return best
+    }
+
+    // 2^k（k ≤ 16）：单条移位指令，替代循环乘 2（省 resource gas）。
+    function pow2(k: u128) -> u128 {
+        return 1u128 << k
+    }
+
+    // 16 位 bitmap 计数
+    function popcount16(bm: u128) -> u128 {
+        var n = 0u128
+        var i = 0u128
+        while i < 16 {
+            if (bm & (1u128 << i)) != 0 { n = n + 1 }
+            i = i + 1
+        }
+        return n
+    }
+
+    // ---- 颜色分（仅非 Common 形状；名字首字符查表 + 明暗加成）----
+    function color_score(vg: bytes, name: bytes) -> u128 {
+        var c = byte(name, 0)
+        var s = 0u128
+        // A 渐变红7 / B 青6 / E 灰1 / H 粉8 / I 红8 / K 渐变青8
+        // M 淡黄2 / N 黄青6 / S 绿6 / T 蓝8 / U 蓝紫3 / V 淡粉8
+        // W 深蓝3 / X 灰粉5 / Y 红紫3 / Z 黄金10
+        if c == 65 { s = 7 }     // A
+        if c == 66 { s = 6 }     // B
+        if c == 69 { s = 1 }     // E
+        if c == 72 { s = 8 }     // H
+        if c == 73 { s = 8 }     // I
+        if c == 75 { s = 8 }     // K
+        if c == 77 { s = 2 }     // M
+        if c == 78 { s = 6 }     // N
+        if c == 83 { s = 6 }     // S
+        if c == 84 { s = 8 }     // T
+        if c == 85 { s = 3 }     // U
+        if c == 86 { s = 8 }     // V
+        if c == 87 { s = 3 }     // W
+        if c == 88 { s = 5 }     // X
+        if c == 89 { s = 3 }     // Y
+        if c == 90 { s = 10 }    // Z
+
+        // 明暗加成（DA analyse_color：style = vg hex[2..19] 17 位含形状后 1 位；
+        // 全深 0-4 → dark 20 / 全浅 5-15 → light 20，取 max(颜色分, 明暗分)）
+        var all_dark = 1u128
+        var all_light = 1u128
+        var i = 2u128
+        while i < 19 {
+            var v = self.vg_hex(vg, i)
+            if v > 4 { all_dark = 0 }
+            if v <= 4 { all_light = 0 }
+            i = i + 1
+        }
+        var bonus = 0u128
+        if all_dark == 1 { bonus = 20 }
+        if all_light == 1 { bonus = 20 }
+        if bonus > s { return bonus }
+        return s
+    }
+
+    // ---- 名字字母分（6 字符；DA 语义：全部候选取最高分，等分取先产出者）----
+    // 候选产出顺序 = DA append 顺序：连击块 → Two/Three letters → ABCABC
+    // → Symmetric → AABCCD → ABBCDD。max 严格大于比较 → 等分取先产出者。
+    function nameliteral_score(name: bytes) -> u128 {
+        // 最长连击
+        var maxrun = 1u128
+        var run = 1u128
+        var i = 1u128
+        while i < 6 {
+            if byte(name, i) == byte(name, i - 1) {
+                run = run + 1
+                if run > maxrun { maxrun = run }
+            } else {
+                run = 1
+            }
+            i = i + 1
+        }
+        // 去重字符数（16 位 bitmap，字符集 16 种）
+        var bitmap = 0u128
+        i = 0
+        while i < 6 {
+            bitmap = bitmap | self.pow2(self.letter_idx(byte(name, i)))
+            i = i + 1
+        }
+        var distinct = self.popcount16(bitmap)
+
+        // 逐候选按 DA 顺序产出，max 严格大于更新（等分取先产出者）
+        var best = 0u128
+        // 连击块（repeat >= 3 才进块）
+        if maxrun >= 3 {
+            if maxrun == 6 {
+                if 200 > best { best = 200 }   // six repeat
+            } else {
+                if maxrun == 5 {
+                    if 50 > best { best = 50 }     // Penta repeat
+                } else {
+                    if maxrun == 4 {
+                        if 10 > best { best = 10 } // Quadro repeat
+                    } else {
+                        if 2 > best { best = 2 }   // Triple repeat
+                    }
+                }
+            }
+        }
+        // Two / Three letters（elif 互斥）
+        if distinct == 2 {
+            if 10 > best { best = 10 }        // Two letters
+        } else {
+            if distinct == 3 {
+                if 3 > best { best = 3 }      // Three letters
+            }
+        }
+        // ABCABC：前半 == 后半
+        if buf_cut(name, 0, 3) == buf_cut(name, 3, 3) {
+            if 20 > best { best = 20 }
+        }
+        // Symmetric letter：回文
+        if self.is_symmetric6(name) {
+            if 10 > best { best = 10 }
+        }
+        // AABCCD：1=2 且 4=5
+        if byte(name, 0) == byte(name, 1) && byte(name, 3) == byte(name, 4) {
+            if 10 > best { best = 10 }
+        }
+        // ABBCDD：2=3 且 5=6
+        if byte(name, 1) == byte(name, 2) && byte(name, 4) == byte(name, 5) {
+            if 10 > best { best = 10 }
+        }
+        return best
+    }
+
+    // 字母表 "WTYUIAHXVMEKBSZN" 索引；非成员返回 16
+    function letter_idx(c: u128) -> u128 {
+        if c == 87 { return 0 }   // W
+        if c == 84 { return 1 }   // T
+        if c == 89 { return 2 }   // Y
+        if c == 85 { return 3 }   // U
+        if c == 73 { return 4 }   // I
+        if c == 65 { return 5 }   // A
+        if c == 72 { return 6 }   // H
+        if c == 88 { return 7 }   // X
+        if c == 86 { return 8 }   // V
+        if c == 77 { return 9 }   // M
+        if c == 69 { return 10 }  // E
+        if c == 75 { return 11 }  // K
+        if c == 66 { return 12 }  // B
+        if c == 83 { return 13 }  // S
+        if c == 90 { return 14 }  // Z
+        if c == 78 { return 15 }  // N
+        return 16
+    }
+
+    function is_symmetric6(s: bytes) -> bool {
+        if byte(s, 0) != byte(s, 5) { return false }
+        if byte(s, 1) != byte(s, 4) { return false }
+        if byte(s, 2) != byte(s, 3) { return false }
+        return true
+    }
+
+    // ---- 编号分（十进制串；DA 语义：全部候选取最高分，等分取先产出者）----
+    // 候选产出顺序 = DA append 顺序：Single num → Repetition → Serial num
+    // → Number Symmetry → Tail 连击块（repeat >= 4 才进块）。
+    function numberliteral_score(num: u128) -> u128 {
+        var best = 0u128
+
+        // Single num：n < 10
+        if num < 10 {
+            if 30 > best { best = 30 }
+        }
+
+        // 十进制位数与数字串（u128 ≤ 39 位）
+        var digits = self.u128_to_ascii(num)
+        var n = size(digits)
+
+        // Repetition：全串同数字
+        var bitmap = 0u128
+        var i = 0u128
+        while i < n {
+            bitmap = bitmap | self.pow2(byte(digits, i) - 48)
+            i = i + 1
+        }
+        var distinct = self.popcount16(bitmap)
+        if distinct == 1 {
+            if 50 > best { best = 50 }
+        }
+
+        // Serial num 顺子：全串严格递增或递减
+        if self.is_sequential(digits) {
+            if 25 > best { best = 25 }
+        }
+
+        // Number Symmetry 回文（DA v0.1.1 启用）
+        if self.is_symmetric_dec(digits) {
+            if 10 > best { best = 10 }
+        }
+
+        // Tail 连击块（最长连击 ≥4 才进块）
+        var maxrun = 1u128
+        var run = 1u128
+        i = 1
+        while i < n {
+            if byte(digits, i) == byte(digits, i - 1) {
+                run = run + 1
+                if run > maxrun { maxrun = run }
+            } else {
+                run = 1
+            }
+            i = i + 1
+        }
+        if maxrun >= 4 {
+            if maxrun == 7 {
+                if 200 > best { best = 200 }   // Tail seven
+            } else {
+                if maxrun == 6 {
+                    if 100 > best { best = 100 } // Tail six
+                } else {
+                    if maxrun == 5 {
+                        if 50 > best { best = 50 }  // Tail five
+                    } else {
+                        if 20 > best { best = 20 }  // Tail four
+                    }
+                }
+            }
+        }
+        return best
+    }
+
+    // u128 → 十进制 ASCII 串
+    function u128_to_ascii(v: u128) -> bytes {
+        if v == 0 { return "0" }
+        var buf = ""
+        var x = v
+        while x > 0 {
+            var d = x % 10
+            buf = self.ascii_digit(d) ++ buf
+            x = x / 10
+        }
+        return buf
+    }
+
+    function ascii_digit(d: u128) -> bytes {
+        if d == 0 { return "0" }
+        if d == 1 { return "1" }
+        if d == 2 { return "2" }
+        if d == 3 { return "3" }
+        if d == 4 { return "4" }
+        if d == 5 { return "5" }
+        if d == 6 { return "6" }
+        if d == 7 { return "7" }
+        if d == 8 { return "8" }
+        return "9"
+    }
+
+    // 顺子：全串相邻数字差恰为 +1（升）或 -1（降）——DA is_sequential 语义。
+    // 相邻差必须恰好等于 ±1（12345 / 54321 命中；96541 这类仅单调不命中）。
+    // FitSH 减法是 checked_sub：下溢即报错，不能靠回绕。改为关系比较——
+    // cur = pre + 1 ⇔ cur > pre && cur - pre == 1（后者在比较内部不会下溢）。
+    function is_sequential(s: bytes) -> bool {
+        var n = size(s)
+        if n < 2 { return true }
+        var up = 1u128
+        var down = 1u128
+        var i = 1u128
+        while i < n {
+            var cur = byte(s, i) + 0u128
+            var pre = byte(s, i - 1) + 0u128
+            if cur <= pre { up = 0 } else { if cur - pre != 1 { up = 0 } }
+            if cur >= pre { down = 0 } else { if pre - cur != 1 { down = 0 } }
+            i = i + 1
+        }
+        if up == 1 { return true }
+        if down == 1 { return true }
+        return false
+    }
+
+    // 十进制串回文
+    function is_symmetric_dec(s: bytes) -> bool {
+        var n = size(s)
+        var i = 0u128
+        while i < n / 2 {
+            if byte(s, i) != byte(s, n - 1 - i) { return false }
+            i = i + 1
+        }
+        return true
+    }
+
+    // ---- 总分 ----
+    // 输入：name(6B) + visual_gene(10B) + number(u64)
+    // 输出：max(1, 形状+颜色+名字+编号)
+    function diamond_score(name: bytes, vg: bytes, num: u128) -> u128 {
+        var shape = self.shape_score(vg)
+        var colorish = 0u128
+        if shape == 0 {
+            colorish = self.style_score(vg)     // Common 形状 → 样式
+        } else {
+            colorish = self.color_score(vg, name)  // 非 Common → 颜色
+        }
+        var nl = self.nameliteral_score(name)
+        var nu = self.numberliteral_score(num)
+        var total = shape + colorish + nl + nu
+        if total < 1 { total = 1 }
+        return total
+    }
+
+    // ---------------- storage 账本（三分支写入） ----------------
+    //
+    // 键表（v4 设计文档 4.2）：
+    //   bal:hac:<addr21>  u128(zhu)      HAC 积分余额
+    //   due:<addr21>      u128(atoms)    合约应付 hacds 资产配额（v4 核心）
+    //   chk:hac:<addr21>  u128           HAC 奖励 rpu 检查点
+    //   chk:ds:<addr21>   u128           due 配额奖励 rpu 检查点
+    //   tot:hac / tot:ds  u128           总质押量（== Σbal:hac / Σdue）
+    //   rpu:hac / rpu:ds  u128(×10¹²)    每单位累计奖励
+    //   tre:hac / tre:ds  u128           金库待清扫累积额
+    //   amm:hac / amm:ds  u128           AMM 池两侧存量（记账，与链上余额分离）
+    //   amm:lastout       u128           换汇输出量临时通道（swap → 调用方）
+    //   lpt:<addr21>      u128           LP 份额（= √(hac×ds)，与费同量纲）
+    //   lpt:tot           u128           LP 份额总量
+    //   lpu:hac / lpu:ds  u128(×10¹²)    LP 每份额累计奖励
+    //   lch:hac/ds:<addr> u128           LP 奖励检查点
+    //   loan:debt:<addr>  u128(zhu)      已借本金+结转利息
+    //   loan:coll:<addr>  u128(atoms)    锁定抵押配额（不计入 tot:ds）
+    //   loan:last:<addr>  u64            上次计息块高
+    //   cfg:*（status 表）费率/暂停/预言机/admin
+
+    // 读取（nil 安全：不存在 = 0；recoverable 会报 StorageNotActive(108)，
+    // 由管理员续租恢复——账本键不应过期）
+    function ld_u128(key: bytes) -> u128 {
+        var v = storage_load(key)
+        if v is nil { return 0 }
+        return v
+    }
+
+    // 三分支写入：stat → nil 则 new / live>0 则 edit / 仅 recover 则 rent 复活后 edit
+    function wr_u128(key: bytes, val: u128) -> u32 {
+        var st = storage_stat(key)
+        if st is nil {
+            storage_new(key, val, RENT_PERIOD)
+            return 0
+        }
+        var live = item_get(st, 0)
+        if live > 0 {
+            storage_edit(key, val)
+            return 0
+        }
+        // recoverable：先 rent 补 live 复活，再 edit
+        storage_rent(key, RENT_PERIOD)
+        storage_edit(key, val)
+        return 0
+    }
+
+    // 余额变动 + 检查点结算（Synthetix rpu 模式）。
+    // 结算旧余额应得奖励后写新余额。kind: 0=HAC 1=DS。
+    // v4 不变式修复：收益发放必须同步计入总量（total_add），
+    // 否则 Σbal 可超 tot → rpu 分发超发 → 守恒破坏。
+    // 调用方约定：本函数只负责「结算 + 写余额」；总量变动由调用方
+    // 用 total_add/total_sub 显式表达（本金增减），收益部分由本函数
+    // 内部 total_add(gain) 补齐——两处合计保证 tot ≥ Σ 余额恒成立。
+    function settle_and_write(who: address, kind: u128, newbal: u128) -> u32 {
+        var sfx = self.kind_suffix(kind)
+        var balkey = self.bal_key(kind, who)
+        var oldbal = self.ld_u128(balkey)
+        var rpu = self.ld_u128("rpu:" ++ sfx)
+        var chkkey = "chk:" ++ sfx ++ who
+        var chk = self.ld_u128(chkkey)
+        // 应得 = oldbal × (rpu − chk) / 10¹²（MULDIV 256 位中间量）
+        if rpu > chk {
+            var gain = mul_div(oldbal, rpu - chk, RPU_SCALE)
+            if gain > 0 {
+                newbal = newbal + gain
+                // v4：收益计入总量，保持 Σ余额 == tot
+                self.total_add(kind, gain)
+            }
+        }
+        self.wr_u128(chkkey, rpu)
+        self.wr_u128(balkey, newbal)
+        return 0
+    }
+
+    // 余额键：kind 0 → bal:hac:<who>，kind 1 → due:<who>
+    function bal_key(kind: u128, who: address) -> bytes {
+        if kind == 0 { return "bal:hac:" ++ who }
+        return "due:" ++ who
+    }
+
+    function kind_suffix(kind: u128) -> bytes {
+        if kind == 0 { return "hac:" }
+        return "ds:"
+    }
+
+    // 加法版总量变动（delta 正数加）
+    function total_add(kind: u128, delta: u128) -> u32 {
+        var sfx = self.kind_suffix(kind)
+        var key = "tot:" ++ sfx
+        var tot = self.ld_u128(key)
+        self.wr_u128(key, tot + delta)
+        return 0
+    }
+
+    // 减法版总量变动（delta 正数减；不足由调用方先校验）
+    function total_sub(kind: u128, delta: u128) -> u32 {
+        var sfx = self.kind_suffix(kind)
+        var key = "tot:" ++ sfx
+        var tot = self.ld_u128(key)
+        self.wr_u128(key, tot - delta)
+        return 0
+    }
+
+    // 收费管道（AMM 手续费）：fee 按 50/30/20 三分进
+    // LP 奖励池 / 质押奖励池 / 金库累积额。kind: 0=HAC 1=DS（费源币种）。
+    // 边界：lpt:tot == 0 时 LP 部分并入质押；tot == 0 时质押部分并入金库。
+    function charge_fee_amm(kind: u128, fee: u128) -> u32 {
+        if fee == 0 { return 0 }
+        var sfx = self.kind_suffix(kind)
+        // 三分：LP 50% / 质押 30% / 金库 20%
+        var lp_part = mul_div(fee, LP_BPS, 10000)
+        var stake_part = mul_div(fee, STAKE_BPS, 10000)
+        var tre_part = fee - lp_part - stake_part
+        // LP 部分：lpu += lp_part × 10¹² / lpt:tot（无 LP 时并入质押）
+        var lpttot = self.ld_u128("lpt:tot")
+        if lpttot > 0 {
+            var lpukey = "lpu:" ++ sfx
+            var lpu = self.ld_u128(lpukey)
+            var inc = mul_div(lp_part, RPU_SCALE, lpttot)
+            self.wr_u128(lpukey, lpu + inc)
+        } else {
+            stake_part = stake_part + lp_part
+        }
+        // 质押部分：rpu += stake_part × 10¹² / tot（无质押人时并入金库）
+        var totkey = "tot:" ++ sfx
+        var tot = self.ld_u128(totkey)
+        if tot > 0 {
+            var rpukey = "rpu:" ++ sfx
+            var rpu = self.ld_u128(rpukey)
+            var inc2 = mul_div(stake_part, RPU_SCALE, tot)
+            self.wr_u128(rpukey, rpu + inc2)
+        } else {
+            tre_part = tre_part + stake_part
+        }
+        if tre_part > 0 {
+            var trekey = "tre:" ++ sfx
+            var tre = self.ld_u128(trekey)
+            self.wr_u128(trekey, tre + tre_part)
+        }
+        return 0
+    }
+
+    // 收费管道（借贷利息）：无 LP 参与，fee 按 80/20 切分进
+    // 质押奖励池 / 金库累积额。kind 固定 0（利息为 HAC 费源）。
+    function charge_fee_interest(kind: u128, fee: u128) -> u32 {
+        if fee == 0 { return 0 }
+        var sfx = self.kind_suffix(kind)
+        var stake_part = mul_div(fee, INT_STAKE_BPS, 10000)
+        var tre_part = fee - stake_part
+        var totkey = "tot:" ++ sfx
+        var tot = self.ld_u128(totkey)
+        if tot > 0 {
+            var rpukey = "rpu:" ++ sfx
+            var rpu = self.ld_u128(rpukey)
+            var inc = mul_div(stake_part, RPU_SCALE, tot)
+            self.wr_u128(rpukey, rpu + inc)
+        } else {
+            tre_part = fee
+        }
+        if tre_part > 0 {
+            var trekey = "tre:" ++ sfx
+            var tre = self.ld_u128(trekey)
+            self.wr_u128(trekey, tre + tre_part)
+        }
+        return 0
+    }
+
+    // ---------------- 证书解包与验签 ----------------
+    //
+    // 证书连排（Message ≤2 份 / Blob 多份）：每份 126B =
+    //   name(6) + visual_gene(10) + number(8 大端) + score(4 大端) + version(1)
+    //   + sign(97 = pubkey33 + sig64)
+    // 消息 29B → sha3_256 → verify_signature(hash, 预言机地址, sign)
+
+    // 从证书流取第 idx 份的 29B 消息
+    function cert_message(stream: bytes, idx: u128) -> bytes {
+        return buf_cut(stream, idx * CERT_LEN, 29)
+    }
+
+    // 从证书流取第 idx 份的 97B 签名
+    function cert_sign(stream: bytes, idx: u128) -> bytes {
+        return buf_cut(stream, idx * CERT_LEN + 29, 97)
+    }
+
+    // 验一份证书：验签 + 版本 + 链上重算评分与声称 score 比对。
+    // 返回重算得分（×10⁸ 前的原始分）；失败返回 0（调用方以 0 分拒绝）。
+    function verify_cert(stream: bytes, idx: u128, name: bytes) -> u128 {
+        var msg = self.cert_message(stream, idx)
+        if size(msg) != 29 { return 0 }
+        // 版本
+        if byte(msg, 28) != CERT_VERSION { return 0 }
+        // 名字必须与转账名单一致
+        if buf_cut(msg, 0, 6) != name { return 0 }
+        var vg = buf_cut(msg, 6, 10)
+        var num = buf_u64(msg, 16)
+        var claimed = buf_u32(msg, 24)
+        // 验签
+        var digest = sha3(msg)
+        var sign = self.cert_sign(stream, idx)
+        var oracle = self.ld_addr("cfg:oracle")
+        if oracle is nil { return 0 }
+        if !verify_signature(digest, oracle, sign) { return 0 }
+        // 链上重算评分
+        var sc = self.diamond_score(name, vg, num)
+        if sc != claimed { return 0 }
+        return sc
+    }
+
+    // ---------------- 8 个钩子 ----------------
+
+    // HAC 转入 → 记 HAC 积分（zhu 计）
+    abstract PayableHAC(cp: address, amount: bytes) -> u32 {
+        if status_get("cfg:paused") == 1 { return 1 }
+        var zhu = hac_to_zhu(amount)
+        var main = tx_main_addr()
+        var balkey = "bal:hac:" ++ main
+        var bal = self.ld_u128(balkey)
+        self.settle_and_write(main, 0, bal + zhu)
+        self.total_add(0, zhu)
+        return 0
+    }
+
+    // SAT 转入 → 拒绝
+    abstract PayableSAT(cp: address, count: u64) -> u32 {
+        return 1
+    }
+
+    // HACD 转入 → 全部计 hacds 应付配额（5 维评分 ×10⁸）
+    abstract PayableHACD(cp: address, count: u32, names: bytes) -> u32 {
+        if status_get("cfg:paused") == 1 { return 1 }
+        if !check_hacd_wire(count, names) { return 2 }
+
+        // 证书流：优先单条 Message；否则 Blob
+        var stream = ""
+        var ncert = count
+        var msgnum = tx_message_num()
+        if msgnum == 1 {
+            stream = tx_message_single()
+        } else {
+            if tx_blob_num() == 0 { return 3 }
+            stream = tx_blob(0, 0, tx_blob_size(0))
+        }
+        if size(stream) < ncert * CERT_LEN { return 4 }
+
+        // 逐颗验证书 + 重算评分
+        var idx = 0u128
+        var total = 0u128
+        while idx < ncert {
+            var nm = buf_cut(names, idx * 6, 6)
+            var sc = self.verify_cert(stream, idx, nm)
+            if sc == 0 { return 5 }
+            total = total + sc * SCORE_SCALE
+            idx = idx + 1
+        }
+
+        // 记应付配额（v4：due，领取经顶层 TransferAssetFromTo）
+        var main = tx_main_addr()
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        self.settle_and_write(main, 1, due + total)
+        self.total_add(1, total)
+        return 0
+    }
+
+    // 链上资产转入 → 只收本合约发行的 hacds（serial 校验）。
+    // 转入的 hacds 实物已入合约地址，记 due 配额（用户可再领取/划押/兑换）。
+    // 其它 serial 一律拒绝。
+    abstract PayableAsset(cp: address, serial: u64, amount: u64) -> u32 {
+        if status_get("cfg:paused") == 1 { return 1 }
+        if serial != HACDS_SERIAL { return 1 }
+        var main = tx_main_addr()
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        self.settle_and_write(main, 1, due + amount)
+        self.total_add(1, amount)
+        return 0
+    }
+
+    // HAC 转出 → 扣 HAC 积分（金库清扫特殊放行）
+    abstract PermitHAC(cp: address, amount: bytes) -> u32 {
+        var zhu = hac_to_zhu(amount)
+        var main = tx_main_addr()
+
+        // 金库清扫：收款方 == TREASURY 且金额 ≤ tre:hac: 累积额
+        // （kind_suffix(0) = "hac:"，charge_fee 写 "tre:hac:"——键必须一致）
+        if cp == TREASURY {
+            var tre = self.ld_u128("tre:hac:")
+            if zhu <= tre {
+                self.wr_u128("tre:hac:", tre - zhu)
+                return 0
+            }
+            return 10
+        }
+
+        // 普通转出：扣发送人（tx main）积分
+        var balkey = "bal:hac:" ++ main
+        var bal = self.ld_u128(balkey)
+        if bal < zhu { return 11 }
+        self.settle_and_write(main, 0, bal - zhu)
+        self.total_sub(0, zhu)
+        return 0
+    }
+
+    // SAT 转出 → 拒绝
+    abstract PermitSAT(cp: address, count: u64) -> u32 {
+        return 1
+    }
+
+    // HACD 转出（赎回）→ 证书 + 重算评分定价 + 扣 hacds 积分
+    abstract PermitHACD(cp: address, count: u32, names: bytes) -> u32 {
+        if !check_hacd_wire(count, names) { return 2 }
+
+        // 证书流
+        var stream = ""
+        var ncert = count
+        var msgnum = tx_message_num()
+        if msgnum == 1 {
+            stream = tx_message_single()
+        } else {
+            if tx_blob_num() == 0 { return 3 }
+            stream = tx_blob(0, 0, tx_blob_size(0))
+        }
+        if size(stream) < ncert * CERT_LEN { return 4 }
+
+        // 逐颗验证书 + 计价
+        var idx = 0u128
+        var need = 0u128
+        while idx < ncert {
+            var nm = buf_cut(names, idx * 6, 6)
+            var sc = self.verify_cert(stream, idx, nm)
+            if sc == 0 { return 5 }
+            need = need + sc * SCORE_SCALE
+            idx = idx + 1
+        }
+
+        // 扣赎回人配额（不足时自动经 AMM 用 HAC 积分补差额）
+        var main = tx_main_addr()
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        if due < need {
+            // 自动补足：差额经 AMM 用 HAC 换 hacds（swap_hac_to_ds 原语）
+            var shortfall = need - due
+            var ok = self.auto_topup_ds(main, shortfall)
+            if ok != 0 { return 12 }
+            due = self.ld_u128(duekey)
+            if due < need { return 12 }
+        }
+        self.settle_and_write(main, 1, due - need)
+        self.total_sub(1, need)
+        return 0
+    }
+
+    // 链上资产转出 → hacds 出账闸门（v4 核心）。
+    // ① 金库清扫：收款方 == TREASURY 且 amount ≤ tre:ds → 扣减放行；
+    // ② 普通领取：serial == HACDS_SERIAL 且 amount ≤ due:<main> →
+    //    扣 due 放行（链上资产移动完成交割，被扣配额消耗）。
+    // 其它 serial 一律拒绝。
+    abstract PermitAsset(cp: address, serial: u64, amount: u64) -> u32 {
+        if serial != HACDS_SERIAL { return 1 }
+        var main = tx_main_addr()
+
+        // 金库清扫（hacds 侧）
+        if cp == TREASURY {
+            var tre = self.ld_u128("tre:ds:")
+            if amount <= tre {
+                self.wr_u128("tre:ds:", tre - amount)
+                return 0
+            }
+            return 10
+        }
+
+        // 普通领取：扣 due 配额
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        if due < amount { return 11 }
+        self.settle_and_write(main, 1, due - amount)
+        self.total_sub(1, amount)
+        return 0
+    }
+
+    // ---------------- AMM（hacds ↔ HAC 恒定乘积，v4 开放 LP） ----------------
+    //
+    // 池：amm:hac（zhu）/ amm:ds（atoms）。报价 out = pool_out × in / (pool_in + in)。
+    // 费 0.5% 收输入腿（先扣费后报价），三分 50/30/20（LP/质押/金库）按费源币种。
+    // 池计数器与合约链上资产余额分离（不变式见文件头）。
+    // LP：任何人可注入/撤出，份额 = √(hac×ds)（首注）/ 按池比配额（后续），
+    // 奖励 lpu 检查点惰性结算。
+
+    // 内部换汇原语：不校验暂停（供自动补足复用）。
+    // dir: 0 = HAC→DS（in_zhu 换出 ds）；1 = DS→HAC（in_ds 换出 zhu）。
+    // 返回 0 成功（输出量写入 "amm:lastout" 供调用方读取）；非零 = 错误码。
+    // min_out 由调用方传入做滑点保护。
+    // 注意：输出量（zhu 计）远超 u32，不能用返回值承载——错误码与输出量分通道。
+    function amm_swap(dir: u128, in_amt: u128, min_out: u128) -> u32 {
+        var pool_hac = self.ld_u128("amm:hac")
+        var pool_ds = self.ld_u128("amm:ds")
+        if pool_hac == 0 { return 20 }
+        if pool_ds == 0 { return 20 }
+
+        var fee_bps = status_get("cfg:fee")
+        if fee_bps is nil {
+            fee_bps = FEE_DEFAULT
+        } else {
+            if fee_bps == 0 { fee_bps = FEE_DEFAULT }
+        }
+
+        if dir == 0 {
+            // HAC → DS：输入腿收 HAC 费
+            var fee = mul_div(in_amt, fee_bps, 10000)
+            var net_in = in_amt - fee
+            var out = mul_div(pool_ds, net_in, pool_hac + net_in)
+            if out < min_out { return 21 }
+            if out >= pool_ds { return 22 }
+            self.charge_fee_amm(0, fee)
+            self.wr_u128("amm:hac", pool_hac + net_in)
+            self.wr_u128("amm:ds", pool_ds - out)
+            self.wr_u128("amm:lastout", out)
+            return 0
+        }
+        // DS → HAC：输入腿收 DS 费
+        var fee2 = mul_div(in_amt, fee_bps, 10000)
+        var net_in2 = in_amt - fee2
+        var out2 = mul_div(pool_hac, net_in2, pool_ds + net_in2)
+        if out2 < min_out { return 21 }
+        if out2 >= pool_hac { return 22 }
+        self.charge_fee_amm(1, fee2)
+        self.wr_u128("amm:ds", pool_ds + net_in2)
+        self.wr_u128("amm:hac", pool_hac - out2)
+        self.wr_u128("amm:lastout", out2)
+        return 0
+    }
+
+    // 自动补足：who 的 due 配额缺 shortfall，用其 HAC 积分经 AMM 补足。
+    // 每笔只补一次（调用方保证 shortfall > 0）。
+    function auto_topup_ds(who: address, shortfall: u128) -> u32 {
+        // 池价估算 HAC 需求：hac_in ≈ shortfall × pool_hac / pool_ds（+费+滑点余量 1.02）
+        var pool_hac = self.ld_u128("amm:hac")
+        var pool_ds = self.ld_u128("amm:ds")
+        if pool_hac == 0 { return 30 }
+        if pool_ds == 0 { return 30 }
+        var hac_need = mul_div(shortfall, pool_hac, pool_ds)
+        hac_need = mul_div(hac_need, 102, 100) + 1
+
+        // 扣 who 的 HAC 积分
+        var balkey = "bal:hac:" ++ who
+        var bal = self.ld_u128(balkey)
+        if bal < hac_need { return 31 }
+        self.settle_and_write(who, 0, bal - hac_need)
+        self.total_sub(0, hac_need)
+
+        // 入池换出 hacds（min_out = shortfall）
+        var r = self.amm_swap(0, hac_need, shortfall)
+        if r != 0 { return 32 }
+        var got = self.ld_u128("amm:lastout")
+        if got < shortfall { return 32 }
+
+        // 换得 hacds 记给 who 的 due 配额（含找零）
+        var duekey = "due:" ++ who
+        var due = self.ld_u128(duekey)
+        self.settle_and_write(who, 1, due + got)
+        self.total_add(1, got)
+        return 0
+    }
+
+    // external：HAC → hacds 兑换（用户先有 HAC 积分）
+    // 交易布局：动作1 TransferHacTo(合约) → 动作2 MainCall(swap_hac_to_ds, hac数, min_out)
+    //   → [动作3 TransferAssetFromTo 领取 due 对应资产]（可选）
+    function external swap_hac_to_ds(hac_in: u128, min_out: u128) -> u32 {
+        if status_get("cfg:paused") == 1 { return 1 }
+        var main = tx_main_addr()
+        var balkey = "bal:hac:" ++ main
+        var bal = self.ld_u128(balkey)
+        if bal < hac_in { return 11 }
+        self.settle_and_write(main, 0, bal - hac_in)
+        self.total_sub(0, hac_in)
+        var r = self.amm_swap(0, hac_in, min_out)
+        if r != 0 { return r }
+        var got = self.ld_u128("amm:lastout")
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        self.settle_and_write(main, 1, due + got)
+        self.total_add(1, got)
+        return 0
+    }
+
+    // external：hacds → HAC 兑换（v4：暂停时保持开放——保护用户退出）
+    function external swap_ds_to_hac(ds_in: u128, min_out: u128) -> u32 {
+        var main = tx_main_addr()
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        if due < ds_in { return 11 }
+        self.settle_and_write(main, 1, due - ds_in)
+        self.total_sub(1, ds_in)
+        var r = self.amm_swap(1, ds_in, min_out)
+        if r != 0 { return r }
+        var got = self.ld_u128("amm:lastout")
+        var balkey = "bal:hac:" ++ main
+        var bal = self.ld_u128(balkey)
+        self.settle_and_write(main, 0, bal + got)
+        self.total_add(0, got)
+        return 0
+    }
+
+    // external：注入流动性（v4 开放所有人；先经普通流程持有两侧账目）。
+    // 首注（lpt:tot == 0 且池空）：share = √(hac×ds)（isqrt）。
+    // 后续：share = min(lpt:tot×hac_in/amm:hac, lpt:tot×ds_in/amm:ds)。
+    // 守卫：池非空但 lpt:tot == 0（份额尺度已定后归零）→ 拒绝（防重置盗池）。
+    function external add_liquidity(hac_amt: u128, ds_amt: u128) -> u32 {
+        if status_get("cfg:paused") == 1 { return 1 }
+        if hac_amt == 0 { return 2 }
+        if ds_amt == 0 { return 2 }
+        var main = tx_main_addr()
+        self.lp_settle(main)
+
+        var ph = self.ld_u128("amm:hac")
+        var pd = self.ld_u128("amm:ds")
+        var lpttot = self.ld_u128("lpt:tot")
+
+        var share = 0u128
+        if lpttot == 0 {
+            if ph != 0 { return 23 }   // 池非空但份额归零：拒绝（防尺度重置）
+            if pd != 0 { return 23 }
+            // 首注单侧上限 10¹⁸：hac×ds ≤ 10³⁶，防 u128 溢出
+            if hac_amt > LP_MAX_SIDE { return 26 }
+            if ds_amt > LP_MAX_SIDE { return 26 }
+            // 首注：几何平均定标（share = √(hac×ds)，与手续费同量纲）
+            share = self.isqrt(hac_amt * ds_amt)
+        } else {
+            // 双向比例配额（MULDIV 下取整）
+            var s1 = mul_div(lpttot, hac_amt, ph)
+            var s2 = mul_div(lpttot, ds_amt, pd)
+            share = s1
+            if s2 < share { share = s2 }
+            if share == 0 { return 24 }
+        }
+
+        // 扣两侧账目（HAC 积分 / due 配额）
+        var balkey = "bal:hac:" ++ main
+        var bal = self.ld_u128(balkey)
+        if bal < hac_amt { return 11 }
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        if due < ds_amt { return 11 }
+        self.settle_and_write(main, 0, bal - hac_amt)
+        self.total_sub(0, hac_amt)
+        self.settle_and_write(main, 1, due - ds_amt)
+        self.total_sub(1, ds_amt)
+
+        // 入池 + 记份额
+        self.wr_u128("amm:hac", ph + hac_amt)
+        self.wr_u128("amm:ds", pd + ds_amt)
+        var lptkey = "lpt:" ++ main
+        var lpt = self.ld_u128(lptkey)
+        self.wr_u128(lptkey, lpt + share)
+        self.wr_u128("lpt:tot", lpttot + share)
+        return 0
+    }
+
+    // external：撤出流动性（v4 新增）。按份额比例取回两侧：
+    // hac_out → bal:hac，ds_out → due。先结算 LP 奖励再烧份额。
+    function external remove_liquidity(share_burn: u128) -> u32 {
+        var main = tx_main_addr()
+        self.lp_settle(main)
+
+        var lptkey = "lpt:" ++ main
+        var lpt = self.ld_u128(lptkey)
+        if lpt < share_burn { return 25 }
+        if share_burn == 0 { return 2 }
+        var lpttot = self.ld_u128("lpt:tot")
+        if lpttot < share_burn { return 25 }
+
+        var ph = self.ld_u128("amm:hac")
+        var pd = self.ld_u128("amm:ds")
+        var hac_out = mul_div(ph, share_burn, lpttot)
+        var ds_out = mul_div(pd, share_burn, lpttot)
+
+        // 池扣减 + 烧份额
+        self.wr_u128("amm:hac", ph - hac_out)
+        self.wr_u128("amm:ds", pd - ds_out)
+        self.wr_u128(lptkey, lpt - share_burn)
+        self.wr_u128("lpt:tot", lpttot - share_burn)
+
+        // 出池记两侧账目
+        var balkey = "bal:hac:" ++ main
+        var bal = self.ld_u128(balkey)
+        self.settle_and_write(main, 0, bal + hac_out)
+        self.total_add(0, hac_out)
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        self.settle_and_write(main, 1, due + ds_out)
+        self.total_add(1, ds_out)
+        return 0
+    }
+
+    // external：物化 LP 待领取奖励（不动份额；两腿并入 bal:hac / due）。
+    // 份额不变时 LP 也可随时结算——无需为领奖增减流动性。
+    function external lp_harvest() -> u32 {
+        var main = tx_main_addr()
+        self.lp_settle(main)
+        return 0
+    }
+
+    // LP 奖励惰性结算（两腿）：份额变动前后调用。
+    // gain = lpt × (lpu − lch) / 10¹²，并入余额（settle_and_write 内
+    // 已同步 total_add，守恒保持）。
+    function lp_settle(who: address) -> u32 {
+        self.lp_settle_leg(who, 0)
+        self.lp_settle_leg(who, 1)
+        return 0
+    }
+
+    function lp_settle_leg(who: address, kind: u128) -> u32 {
+        var sfx = self.kind_suffix(kind)
+        var lptkey = "lpt:" ++ who
+        var lpt = self.ld_u128(lptkey)
+        var lpu = self.ld_u128("lpu:" ++ sfx)
+        var lchkey = "lch:" ++ sfx ++ who
+        var lch = self.ld_u128(lchkey)
+        if lpu > lch {
+            var gain = mul_div(lpt, lpu - lch, RPU_SCALE)
+            if gain > 0 {
+                var bal = self.ld_u128(self.bal_key(kind, who))
+                self.settle_and_write(who, kind, bal + gain)
+                // LP 收益同样计入总量（settle_and_write 只对质押增益
+                // total_add；此处传入的 lp 增益由本函数补记）
+                self.total_add(kind, gain)
+            }
+        }
+        self.wr_u128(lchkey, lpu)
+        return 0
+    }
+
+    // 整数平方根（Newton 迭代）：位长 → 种子 2^ceil(bits/2)，
+    // next = (s + a/s) / 2 收敛后末尾校正。
+    function isqrt(a: u128) -> u128 {
+        if a == 0 { return 0 }
+        if a < 4 { return 1 }
+        // 位长
+        var bits = 0u128
+        var t = a
+        while t > 0 {
+            t = t / 2
+            bits = bits + 1
+        }
+        // 种子 = 2^ceil(bits/2)
+        var s = 1u128
+        var i = 0u128
+        var half = (bits + 1) / 2
+        while i < half {
+            s = s * 2
+            i = i + 1
+        }
+        // Newton 迭代：s = (s + a/s) / 2，直到不再下降
+        var prev = 0u128
+        while s != prev {
+            prev = s
+            var q = a / s
+            s = (s + q) / 2
+            if s > prev {
+                s = prev
+                break
+            }
+        }
+        // 末尾校正：s 可能比真实根大 1
+        while s > 0 {
+            if s <= a / s { break }
+            s = s - 1
+        }
+        return s
+    }
+
+    // external 视图：当前池价（1 hacds 折多少 zhu，×10⁻⁸ 量纲换算）
+    // 返回 zhu_per_ds × 10⁸ / 10⁸ = pool_hac × 10⁸ / pool_ds
+    function external pool_price() -> u128 {
+        var pool_hac = self.ld_u128("amm:hac")
+        var pool_ds = self.ld_u128("amm:ds")
+        if pool_ds == 0 { return 0 }
+        return mul_div(pool_hac, SCORE_SCALE, pool_ds)
+    }
+
+    // ---------------- 抵押借贷（v4 第 9 节：抵押品 = due 配额） ----------------
+    //
+    // 抵押 due 配额借 HAC；50% 抵押率；惰性计息；利息侵蚀超线清算。
+    // 估值用 AMM 即时池价：coll_hac_value = coll × pool_hac / pool_ds。
+    // 锁定/解锁不动 tot:ds（配额再分类，Σdue + Σcoll 守恒）。
+
+    // 抵押品折 HAC 价值（zhu 计，MULDIV 256 位中间量）
+    function coll_to_hac(coll: u128) -> u128 {
+        var pool_hac = self.ld_u128("amm:hac")
+        var pool_ds = self.ld_u128("amm:ds")
+        if pool_ds == 0 { return 0 }
+        return mul_div(coll, pool_hac, pool_ds)
+    }
+
+    // 惰性结息：debt × (1 + rate × Δ块/105120)。
+    // 返回新债务；同时把利息经收费管道分配。
+    function accrue_interest(who: address) -> u32 {
+        var debtkey = "loan:debt:" ++ who
+        var debt = self.ld_u128(debtkey)
+        var lastkey = "loan:last:" ++ who
+        var last = self.ld_u128(lastkey)
+        var now = block_height()
+        if debt == 0 {
+            self.wr_u128(lastkey, now)
+            return 0
+        }
+        if now <= last { return 0 }
+        var rate = status_get("cfg:loan_rate")
+        if rate is nil { rate = 0 }
+        if rate == 0 {
+            self.wr_u128(lastkey, now)
+            return 0
+        }
+        // interest = debt × rate × Δ块 / (105120 × 10000)（rate 万分比年化）
+        // 单步 MULDIV：x=debt, y=rate×delta, z=105120×10000。
+        // 256 位中间量 debt×rate×delta：debt ≤ 10^25, rate ≤ 2000, delta ≤ 10^6
+        // → 乘积 ≤ 10^34 < 2^114，安全。先乘后除，无精度丢失。
+        var delta = now - last
+        var interest = mul_div(debt, rate * delta, BLOCKS_PER_YEAR * 10000)
+        if interest == 0 {
+            self.wr_u128(lastkey, now)
+            return 0
+        }
+        // 利息进 80/20 分配器（HAC 费源，无 LP 参与）
+        self.charge_fee_interest(0, interest)
+        self.wr_u128(debtkey, debt + interest)
+        self.wr_u128(lastkey, now)
+        return 0
+    }
+
+    // external：追加抵押（把 due 配额划入 loan:coll；不动 tot:ds）
+    function external loan_add_collateral(ds_amt: u128) -> u32 {
+        if status_get("cfg:paused") == 1 { return 1 }
+        var main = tx_main_addr()
+        self.accrue_interest(main)
+        var duekey = "due:" ++ main
+        var due = self.ld_u128(duekey)
+        if due < ds_amt { return 11 }
+        self.settle_and_write(main, 1, due - ds_amt)
+        var collkey = "loan:coll:" ++ main
+        var coll = self.ld_u128(collkey)
+        self.wr_u128(collkey, coll + ds_amt)
+        return 0
+    }
+
+    // external：借款（动作1 MainCall 借款 → 动作2 TransferHacFromTo 转出）
+    function external loan_borrow(hac_amt: u128) -> u32 {
+        if status_get("cfg:paused") == 1 { return 1 }
+        var main = tx_main_addr()
+        self.accrue_interest(main)
+
+        var debtkey = "loan:debt:" ++ main
+        var debt = self.ld_u128(debtkey)
+        var collkey = "loan:coll:" ++ main
+        var coll = self.ld_u128(collkey)
+
+        // 校验：新债务 ≤ 抵押HAC价值 / 2
+        var coll_hac = self.coll_to_hac(coll)
+        if mul_div(debt + hac_amt, COLL_RATIO, 1) > coll_hac { return 40 }
+
+        // 借款记账：债务增加；同时给借款人记等额 HAC 积分，使紧随的
+        // TransferHacFromTo(合约 → 借款人)（设计 §9.2 动作2）能经 PermitHAC
+        // 正常扣减放行。净效果：借款人拿到真币 HAC、积分不增（借入即转出，
+        // 两点相抵），债务成立；若同笔未转出则积分暂存（= 对合约 HAC 的索取权）。
+        // 合约真实 HAC 余额（Σbal + amm + 金库）不足时动作2 自然失败回滚。
+        self.wr_u128(debtkey, debt + hac_amt)
+        var balkey = "bal:hac:" ++ main
+        var bal = self.ld_u128(balkey)
+        self.settle_and_write(main, 0, bal + hac_amt)
+        self.total_add(0, hac_amt)
+        return 0
+    }
+
+    // external：还款（动作1 TransferHacTo 记 HAC 积分 → 动作2 MainCall 还款）
+    // 还款额从 HAC 积分扣；还清后抵押自动解锁回 due。
+    function external loan_repay(hac_amt: u128) -> u32 {
+        var main = tx_main_addr()
+        self.accrue_interest(main)
+
+        var debtkey = "loan:debt:" ++ main
+        var debt = self.ld_u128(debtkey)
+        if debt == 0 { return 41 }
+        var balkey = "bal:hac:" ++ main
+        var bal = self.ld_u128(balkey)
+
+        var pay = hac_amt
+        if pay > debt { pay = debt }
+        if bal < pay { return 11 }
+
+        self.settle_and_write(main, 0, bal - pay)
+        self.total_sub(0, pay)
+        var newdebt = debt - pay
+        self.wr_u128(debtkey, newdebt)
+
+        // 还清 → 抵押解锁回 due（不动 tot:ds）
+        if newdebt == 0 {
+            var collkey = "loan:coll:" ++ main
+            var coll = self.ld_u128(collkey)
+            if coll > 0 {
+                self.wr_u128(collkey, 0)
+                var duekey = "due:" ++ main
+                var due = self.ld_u128(duekey)
+                self.settle_and_write(main, 1, due + coll)
+            }
+        }
+        return 0
+    }
+
+    // external：清算（任何人可发起，无许可）
+    // 触发：债务 > 抵押HAC价值 / 2。清算奖励 2% 给清算人，其余并入合约。
+    function external loan_liquidate(borrower: address) -> u32 {
+        self.accrue_interest(borrower)
+
+        var debtkey = "loan:debt:" ++ borrower
+        var debt = self.ld_u128(debtkey)
+        var collkey = "loan:coll:" ++ borrower
+        var coll = self.ld_u128(collkey)
+        var coll_hac = self.coll_to_hac(coll)
+
+        // 实时校验触发条件（不成立回滚，防恶意清算）
+        if debt == 0 { return 42 }
+        if mul_div(debt, 1, 1) <= mul_div(coll_hac, 1, COLL_RATIO) { return 43 }
+
+        // 清算奖励 = coll × bonus_bps / 10000（hacds 积分计）
+        var bonus_bps = status_get("cfg:liq_bonus")
+        if bonus_bps is nil { bonus_bps = LIQ_BONUS_DEFAULT }
+        if bonus_bps == 0 { bonus_bps = LIQ_BONUS_DEFAULT }
+        var bonus = mul_div(coll, bonus_bps, 10000)
+        if bonus > coll { bonus = coll }
+
+        // 债务清零、抵押清零
+        self.wr_u128(debtkey, 0)
+        self.wr_u128(collkey, 0)
+
+        // 奖励记给清算人（tx main）due 配额，其余销毁归合约
+        // （tot:ds 同步加 bonus：销毁部分 = 从流通回收，资产留合约
+        // 形成松弛量；bonus 部分是新增应付，须计入总量）
+        if bonus > 0 {
+            var main = tx_main_addr()
+            var duekey = "due:" ++ main
+            var due = self.ld_u128(duekey)
+            self.settle_and_write(main, 1, due + bonus)
+            self.total_add(1, bonus)
+        }
+        return 0
+    }
+
+    // external 视图：借款人状态（债务 zhu / 抵押 hacds / 抵押HAC价值 / 健康度×100）
+    function external loan_status(who: address) -> u128 {
+        var debt = self.ld_u128("loan:debt:" ++ who)
+        var coll = self.ld_u128("loan:coll:" ++ who)
+        var coll_hac = self.coll_to_hac(coll)
+        // 健康度 = coll_hac × 100 / debt（debt=0 → 999 最大值）
+        if debt == 0 {
+            if coll_hac == 0 { return 0 }
+            return 999
+        }
+        return mul_div(coll_hac, 100, debt)
+    }
+
+    // ---------------- 管理与查询 ----------------
+
+    function only_admin() -> bool {
+        var admin = self.ld_addr("cfg:admin")
+        if admin is nil { return false }
+        return admin == tx_main_addr()
+    }
+
+    // 部署后第一步：固化 admin 与 oracle（部署者调用）
+    // admin/oracle 地址存 storage（status 表 128B 上限装不下两个 21B 地址值），
+    // 数值配置存 status（小整数）。
+    function external init_admin(oracle: address) -> u32 {
+        if status_get("cfg:inited") is not nil { return 1 }
+        status_put("cfg:inited", 1)
+        self.wr_addr("cfg:admin", tx_main_addr())
+        self.wr_addr("cfg:oracle", oracle)
+        status_put("cfg:fee", FEE_DEFAULT)
+        status_put("cfg:loan_rate", LOAN_RATE_DEFAULT)
+        status_put("cfg:liq_bonus", LIQ_BONUS_DEFAULT)
+        status_put("cfg:paused", 0)
+        return 0
+    }
+
+    // 地址键值读写（storage，三分支；值 = 21B 地址）
+    function wr_addr(key: bytes, val: address) -> u32 {
+        var st = storage_stat(key)
+        if st is nil {
+            storage_new(key, val, RENT_PERIOD)
+            return 0
+        }
+        var live = item_get(st, 0)
+        if live > 0 {
+            storage_edit(key, val)
+            return 0
+        }
+        storage_rent(key, RENT_PERIOD)
+        storage_edit(key, val)
+        return 0
+    }
+
+    function ld_addr(key: bytes) -> address {
+        var v = storage_load(key)
+        if v is nil { return nil }
+        return v
+    }
+
+    function external set_oracle(o: address) -> u32 {
+        if !self.only_admin() { return 1 }
+        self.wr_addr("cfg:oracle", o)
+        return 0
+    }
+
+    // 费率 0–3%（万分比 0–300）
+    function external set_fee(bps: u128) -> u32 {
+        if !self.only_admin() { return 1 }
+        if bps > 300 { return 2 }
+        status_put("cfg:fee", bps)
+        return 0
+    }
+
+    // 利率 0–20%（万分比 0–2000）
+    function external set_loan_rate(bps: u128) -> u32 {
+        if !self.only_admin() { return 1 }
+        if bps > 2000 { return 2 }
+        status_put("cfg:loan_rate", bps)
+        return 0
+    }
+
+    // 清算奖励 0–10%（万分比 0–1000）
+    function external set_liquidate_bonus(bps: u128) -> u32 {
+        if !self.only_admin() { return 1 }
+        if bps > 1000 { return 2 }
+        status_put("cfg:liq_bonus", bps)
+        return 0
+    }
+
+    function external set_paused(p: u8) -> u32 {
+        if !self.only_admin() { return 1 }
+        status_put("cfg:paused", p)
+        return 0
+    }
+
+    // 批量续租（管理员）：keys 连排（定长 klen/键），period 统一
+    function external rent_batch(keys: bytes, klen: u128, period: u128) -> u32 {
+        if !self.only_admin() { return 1 }
+        if klen == 0 { return 2 }
+        if size(keys) % klen != 0 { return 3 }
+        var n = size(keys) / klen
+        var i = 0u128
+        while i < n {
+            var k = buf_cut(keys, i * klen, klen)
+            var st = storage_stat(k)
+            if st is not nil {
+                var live = item_get(st, 0)
+                if live == 0 {
+                    storage_rent(k, period)   // recoverable → 复活
+                } else {
+                    storage_rent(k, period)   // active → 补 live
+                }
+            }
+            i = i + 1
+        }
+        return 0
+    }
+
+    // ---------------- 查询视图 ----------------
+
+    function external balance_hac(who: address) -> u128 {
+        return self.ld_u128("bal:hac:" ++ who)
+    }
+
+    // v4：hacds 侧余额 = due 配额（链上资产余额另经 balance_fungible 查询）
+    function external balance_ds(who: address) -> u128 {
+        return self.ld_u128("due:" ++ who)
+    }
+
+    function external treasury_pending(kind: u128) -> u128 {
+        return self.ld_u128("tre:" ++ self.kind_suffix(kind))
+    }
+
+    function external amm_reserves() -> u128 {
+        // 打包返回：pool_hac × 10¹⁸ + pool_ds（两个 u128 拼数值不便，
+        // 用 pool_price 近似；分别查询单独提供）
+        return self.ld_u128("amm:hac")
+    }
+
+    function external amm_reserve_ds() -> u128 {
+        return self.ld_u128("amm:ds")
+    }
+
+    // 评分试算（任何人可离线验证）
+    function external quote_score(name: bytes, vg: bytes, num: u128) -> u128 {
+        return self.diamond_score(name, vg, num)
+    }
+
+    // 借贷账户原始数据（debt, coll, last 三项供前端拼装）
+    function external loan_debt_of(who: address) -> u128 {
+        return self.ld_u128("loan:debt:" ++ who)
+    }
+
+    function external loan_coll_of(who: address) -> u128 {
+        return self.ld_u128("loan:coll:" ++ who)
+    }
+
+    // 总质押量
+    function external total_staked(kind: u128) -> u128 {
+        return self.ld_u128("tot:" ++ self.kind_suffix(kind))
+    }
+
+    // LP 份额与待结算奖励（份额 / 两腿 pending，前端拼装）
+    function external lp_share_of(who: address) -> u128 {
+        return self.ld_u128("lpt:" ++ who)
+    }
+
+    function external lp_pending_hac(who: address) -> u128 {
+        var lpt = self.ld_u128("lpt:" ++ who)
+        var lpu = self.ld_u128("lpu:hac:")
+        var lch = self.ld_u128("lch:hac:" ++ who)
+        if lpu <= lch { return 0 }
+        return mul_div(lpt, lpu - lch, RPU_SCALE)
+    }
+
+    function external lp_pending_ds(who: address) -> u128 {
+        var lpt = self.ld_u128("lpt:" ++ who)
+        var lpu = self.ld_u128("lpu:ds:")
+        var lch = self.ld_u128("lch:ds:" ++ who)
+        if lpu <= lch { return 0 }
+        return mul_div(lpt, lpu - lch, RPU_SCALE)
+    }
+
+    // LP 份额总量
+    function external lp_total() -> u128 {
+        return self.ld_u128("lpt:tot")
+    }
+}

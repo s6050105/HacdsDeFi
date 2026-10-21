@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4 landscape; margin: 8mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 11.5px/1.42 "Microsoft YaHei","Segoe UI",sans-serif; color:#1a2233;
+         background:#fff; width:281mm; padding:2mm 1mm; }
+  h1 { font-size:17px; letter-spacing:.5px; }
+  .sub { color:#6a7688; font-size:10.5px; margin-top:2px; }
+  .rule { height:2px; background:#1a2233; margin:5px 0 8px; }
+
+  .layer { border:1.3px solid #33405c; border-radius:7px; padding:5px 8px; margin-bottom:6px; position:relative; }
+  .layer > .tag { position:absolute; top:-7px; left:10px; background:#fff; padding:0 5px;
+                  font-size:10px; font-weight:700; color:#33405c; letter-spacing:.5px; }
+
+  .row { display:flex; gap:7px; }
+  .box { flex:1; border:1px solid #9aa7bd; border-radius:5px; padding:4px 7px; background:#f7f9fc; }
+  .box.hi { background:#eef4ff; border-color:#4f7fd6; }
+  .box.warn { background:#fff6ec; border-color:#d99a49; }
+  .box.gold { background:#fffaf0; border-color:#c9a227; }
+  .box .t { font-weight:700; font-size:11px; margin-bottom:1px; }
+  .box .d { font-size:10px; color:#54627a; line-height:1.4; }
+  code { font-family:Consolas,monospace; font-size:9.5px; background:#eceff5; padding:0 3px; border-radius:3px; }
+
+  .flow { display:flex; align-items:center; justify-content:center; gap:6px;
+          color:#6a7688; font-size:10px; padding:0; }
+  .arrow { color:#33405c; font-weight:700; }
+
+  .two { display:flex; gap:8px; }
+  .two > div { flex:1; }
+
+  table { border-collapse:collapse; width:100%; font-size:10px; margin-top:3px; }
+  th,td { border:1px solid #c3ccdb; padding:2px 5px; text-align:left; }
+  th { background:#eaeff7; font-weight:700; }
+  .foot { margin-top:5px; color:#6a7688; font-size:9.5px; border-top:1px dashed #c3ccdb; padding-top:4px; }
+</style>
+</head>
+<body>
+
+<h1>HacdsDeFi · 系统架构图</h1>
+<div class="sub">重构后（2026-10-21 定稿）· 合约 / 预言机 / 索引器 / 钱包+DeFi 控制台</div>
+<div class="rule"></div>
+
+<!-- ============ 链上 ============ -->
+<div class="layer">
+  <span class="tag">① 链上（Hacash 主网）</span>
+  <div class="row">
+    <div class="box hi">
+      <div class="t">HacdsDeFi 合约（HVM / fitsh）</div>
+      <div class="d">
+        <code>VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1</code><br>
+        AMM（恒定乘积 + 手续费三分）· LP 质押 · 借贷（50% 抵押率、惰性计息）· 金库<br>
+        管理员：<code>set_fee / set_loan_rate / set_liquidate_bonus / set_paused / set_oracle / rent_batch</code>
+      </div>
+    </div>
+    <div class="box gold">
+      <div class="t">hacds 资产（serial 2000）</div>
+      <div class="d">
+        <code>decimal = 8</code>　供给 <code>5,963,298,700,000,000</code> atoms<br>
+        <code>1 分 = 1 个 hacds = 1e8 atoms</code><br>
+        标准同质化资产（<b>非铭文</b>，全链可流通 / 可上交易所）
+      </div>
+    </div>
+    <div class="box">
+      <div class="t">HACD 钻石</div>
+      <div class="d">
+        价值来源：按 HIP-5 评分为 hacds<br>
+        存入合约 → 记 <code>due</code> 配额；赎回走证书验签
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="flow"><span class="arrow">▲</span> 交易广播 / 只读查询（HTTP）<span class="arrow">▼</span></div>
+
+<!-- ============ 服务端 ============ -->
+<div class="layer">
+  <span class="tag">② 服务端（43.251.101.101）</span>
+  <div class="row">
+    <div class="box warn" style="flex:1.1">
+      <div class="t">全节点 API　:8082</div>
+      <div class="d"><code>/query/balance</code> · <code>/query/diamond</code> · <code>/query/contract/sandboxcall</code> · <code>/util/transaction/check</code> · <code>/submit/transaction</code><br>
+      <b>沙箱每 IP 并发上限 = 2</b> → 客户端串行化 + 退避重试</div>
+    </div>
+    <div class="box warn">
+      <div class="t">预言机　:8123</div>
+      <div class="d"><code>GET /cert?name=X</code> → 126B 证书（评分 + 签名）<br>
+      <code>GET /health</code><br>
+      私钥 <b>只在服务端</b>；地址由 <code>init_admin</code> 固化，不可自建</div>
+    </div>
+    <div class="box warn">
+      <div class="t">索引器　:8124</div>
+      <div class="d"><code>GET /watchlist</code>（钱包唯一入口）<br>
+      扫链建借款人台账 → 健康度快照<br>
+      <b>钱包不本地扫链</b></div>
+    </div>
+  </div>
+</div>
+
+<div class="flow"><span class="arrow">▲</span> 证书 / 台账 / 状态<span class="arrow">▼</span>　（钱包只调 HTTP，不持有服务端私钥）</div>
+
+<!-- ============ 客户端 ============ -->
+<div class="layer">
+  <span class="tag">③ 客户端（PC 控制台 · Electron）</span>
+  <div class="two">
+    <div class="box">
+      <div class="t">渲染进程 renderer/</div>
+      <div class="d">原生 HTML/CSS/JS，无框架<br>
+      资产总览 · 协议状态 · <b>借贷状态常驻卡</b> · AMM 报价 · HACD 收藏 · 离线/组合/清算页<br>
+      文案 i18n（中/英/土 460 词条）· HACD 图样（官方 HIP-5）</div>
+    </div>
+    <div class="box">
+      <div class="t">主进程 main.js</div>
+      <div class="d">IPC 白名单（preload.js）· 钱包 keystore · 手续费迭代估算 · HTTP 调节点/预言机/索引器 · spawn 引擎</div>
+    </div>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <div class="box hi">
+      <div class="t">交易引擎 hacds_txbuild（Rust，随包）</div>
+      <div class="d">构建 + <b>本地签名</b>（私钥只在主进程内存，环境变量注入子进程，<b>不落盘、不触网</b>）<br>
+      模式：<code>asset / deploy / call / hacd / redeem-hacd / combo / transfer / sign</code></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 冷热分离 ============ -->
+<div class="layer">
+  <span class="tag">④ 冷热分离（核心形态）</span>
+  <div class="row">
+    <div class="box">
+      <div class="t">冷端（离线机）</div>
+      <div class="d">构建未签名体 → 校验 → 签名 → 出码/存文件<br><b>完全不联网</b></div>
+    </div>
+    <div class="box">
+      <div class="t">热端（联网机）</div>
+      <div class="d">查询 / 图样 / 证书 / 翻译 / 广播</div>
+    </div>
+  </div>
+  <div class="flow" style="padding-top:3px">
+    <span>离线构建+签名</span><span class="arrow">── 二维码（分片）/ 文件 / 文本 ──▶</span><span>联网广播</span>
+  </div>
+  <div class="d" style="font-size:10px;color:#6a7688;padding-top:2px">
+    技术依据：Hacash 交易<b>无 nonce、无时间戳过期</b> → 离线签好的交易长期有效，联网后再广播即可。
+  </div>
+</div>
+
+<!-- ============ 契约 ============ -->
+<div class="layer">
+  <span class="tag">⑤ 接口契约（钱包 ↔ 服务端）</span>
+  <table>
+    <tr><th style="width:22%">接口</th><th style="width:30%">用途</th><th>要点</th></tr>
+    <tr><td><code>GET /cert?name=X</code>（:8123）</td><td>HACD 评分证书</td><td>126B；兑换/赎回必需</td></tr>
+    <tr><td><code>sandboxcall</code>（:8082）</td><td>读合约状态</td><td>每 IP 并发 ≤ 2，需串行</td></tr>
+    <tr><td><code>GET /watchlist</code>（:8124）</td><td>借款人台账 + 健康度</td><td>一次性快照，替代本地扫链</td></tr>
+    <tr><td><code>POST /submit/transaction</code></td><td>广播</td><td><code>ret:0</code> 仅代表进内存池；出块 300s</td></tr>
+  </table>
+</div>
+
+<div class="foot">
+  口径唯一出处：<code>wallet-app/设计文档.md §0 事实总纲</code>　|　单位约定：HAC 用 HAC、hacds 全端用 raw atoms（不做 ÷1e8 换算）　|　VM 三桶上限：compute 18,009 / resource 6,100 / storage 111,911
+</div>
+
+</body>
+</html>

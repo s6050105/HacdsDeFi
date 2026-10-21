@@ -1,0 +1,250 @@
+:root{
+  --bg:#0f1420; --panel:#161d2c; --panel2:#1d2638; --line:#2a3550;
+  --fg:#e6ecf5; --muted:#8b98b3; --accent:#4f9dff; --ok:#3ddc97; --warn:#ffc857; --err:#ff6b6b;
+  --gold:#f7af34;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--fg);
+  font:13px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  display:flex; flex-direction:column; height:100vh; overflow:hidden;
+}
+.top{
+  display:flex; align-items:center; gap:16px; padding:10px 14px;
+  background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap;
+}
+.brand{font-weight:600; font-size:14px}
+.brand .ver{color:var(--muted); font-weight:400; margin-left:6px}
+.brand .slogan{color:var(--gold); font-weight:400; font-size:12px; margin-left:8px}
+.net{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.net label{color:var(--muted); display:flex; align-items:center; gap:5px}
+input,select{
+  background:var(--panel2); border:1px solid var(--line); color:var(--fg);
+  border-radius:6px; padding:5px 8px; font:inherit; outline:none;
+}
+input:focus,select:focus{border-color:var(--accent)}
+#node,#oracle{width:170px} #contract{width:300px}
+
+button{
+  background:var(--panel2); border:1px solid var(--line); color:var(--fg);
+  border-radius:6px; padding:6px 12px; cursor:pointer; font:inherit;
+}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent); border-color:var(--accent); color:#04203f; font-weight:600}
+button.ghost{background:transparent}
+button.danger{background:transparent; border-color:var(--err); color:var(--err)}
+button:disabled{opacity:.5; cursor:not-allowed}
+
+.acct{
+  display:flex; align-items:center; gap:10px; padding:9px 14px;
+  background:var(--panel2); border-bottom:1px solid var(--line); flex-wrap:wrap;
+}
+.acct #lockedView, .acct #unlockedView{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.acct #unlockedView[hidden], .acct #lockedView[hidden]{display:none}
+.grow{flex:1}
+.chip{font-size:14px}
+.addr{font-family:Consolas,monospace; color:var(--ok)}
+.admin-badge{background:var(--gold); color:#3a2600; font-weight:700; font-size:11px;
+  padding:2px 7px; border-radius:10px}
+.muted{color:var(--muted)} .sep{color:var(--muted)}
+
+/* 首区：资产总览 + 协议状态 */
+.overview{display:flex; gap:12px; padding:12px 14px 0; flex-wrap:wrap}
+.overview[hidden]{display:none}
+.ov-card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+  padding:12px 14px; flex:1; min-width:360px}
+.ov-card[hidden]{display:none}
+.ov-title{color:var(--muted); font-size:12px; margin-bottom:10px; letter-spacing:.5px}
+.asset-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px}
+.asset{display:flex; align-items:center; gap:9px; background:var(--panel2);
+  border:1px solid var(--line); border-radius:8px; padding:9px 11px}
+.asset img,.asset svg{width:26px; height:26px; flex:none}
+.asset .a-body{min-width:0}
+.asset .a-name{color:var(--muted); font-size:11px}
+.asset .a-val{font-family:Consolas,monospace; font-size:14px; white-space:nowrap}
+.asset .a-sub{color:var(--muted); font-size:11px}
+.ov-note{color:var(--muted); font-size:11px; margin-top:8px}
+.proto-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px}
+.proto-row{display:flex; justify-content:space-between; gap:8px; padding:5px 9px;
+  background:var(--panel2); border-radius:6px; font-size:12px}
+.proto-row .k{color:var(--muted)}
+.proto-row .v{font-family:Consolas,monospace}
+
+.tabs{display:flex; gap:4px; padding:10px 14px 0; flex-wrap:wrap}
+.tabs button{border-bottom-left-radius:0;border-bottom-right-radius:0;border-bottom:none}
+.tabs button.on{background:var(--panel); border-color:var(--accent); color:var(--accent)}
+
+main{flex:1; overflow:auto; padding:14px}
+main[hidden]{display:none}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+  padding:16px; max-width:880px; margin-bottom:14px}
+.card h3{margin:0 0 4px; font-size:14px}
+.card p.desc{margin:0 0 14px; color:var(--muted)}
+.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px}
+.field{display:flex; flex-direction:column; gap:4px}
+.field label{color:var(--muted)}
+.field .hint{color:var(--muted); font-size:11px}
+.row{display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap}
+.adv{margin-top:10px; border-top:1px dashed var(--line); padding-top:10px}
+.adv summary{cursor:pointer; color:var(--muted)}
+.readout{margin-top:12px; background:var(--panel2); border:1px solid var(--line);
+  border-radius:8px; padding:10px; font-family:Consolas,monospace; white-space:pre-wrap;
+  max-height:240px; overflow:auto; font-size:12px}
+.qval{font-size:15px; color:var(--ok); font-family:Consolas,monospace}
+.qerr{color:var(--err)} .qhint{color:var(--warn); font-size:11px}
+
+/* HACD 收藏 */
+.hacd-panel{flex:1; display:flex; overflow:hidden; padding:14px; gap:12px}
+.hacd-panel[hidden]{display:none}
+.hacd-left{flex:1; display:flex; flex-direction:column; min-width:0}
+.hacd-filter{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px}
+.hacd-filter select,.hacd-filter input{font-size:12px; padding:4px 7px}
+.hacd-grid{flex:1; overflow:auto; display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:10px; align-content:start}
+.hacd-card{background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+  padding:7px; text-align:center; cursor:pointer; transition:border-color .12s; position:relative}
+.hacd-card:hover{border-color:var(--accent)}
+.hacd-card.on{border-color:var(--gold)}
+.hacd-card.picked{border-color:var(--ok); box-shadow:0 0 0 1px var(--ok) inset}
+.hacd-card.picked.on{border-color:var(--gold); box-shadow:0 0 0 1px var(--ok) inset}
+.hacd-card .hc-badge{position:absolute; top:3px; right:5px; z-index:2;
+  background:var(--ok); color:#04281a; font-weight:700; font-size:11px; line-height:1;
+  border-radius:8px; padding:3px 5px}
+.hacd-card svg{width:100%; height:auto; display:block; border-radius:5px}
+.hacd-card .hc-name{font-family:Consolas,monospace; font-size:11px; margin-top:4px}
+.hacd-card .hc-score{color:var(--gold); font-size:11px}
+.hacd-right{width:360px; flex:none; background:var(--panel); border:1px solid var(--line);
+  border-radius:10px; padding:14px; overflow:auto}
+.hacd-right svg{width:100%; height:auto; border-radius:8px}
+.hacd-right .det{margin-top:10px; font-size:12px}
+.hacd-right .det div{display:flex; justify-content:space-between; gap:8px; padding:3px 0;
+  border-bottom:1px solid var(--line)}
+.hacd-right .det .k{color:var(--muted)}
+.hacd-right .det .v{font-family:Consolas,monospace; word-break:break-all; text-align:right}
+.hacd-right .acts{margin-top:12px; display:flex; gap:8px; flex-wrap:wrap}
+
+/* 模态框 */
+.modal{position:fixed; inset:0; background:rgba(4,8,16,.72); display:flex;
+  align-items:center; justify-content:center; z-index:50}
+.modal[hidden]{display:none}
+.modal-box{background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  width:520px; max-width:94vw; max-height:88vh; overflow:auto; padding:18px;
+  box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal-box h3{margin:0 0 12px}
+.modal-box .grid{margin-bottom:6px}
+.modal-box .warnbox{background:#3a2a12; border:1px solid #6b4d1a; color:var(--warn);
+  border-radius:8px; padding:8px 10px; margin-top:10px; font-size:12px}
+.modal-box .secret{font-family:Consolas,monospace; background:var(--panel2);
+  border:1px solid var(--line); border-radius:8px; padding:10px; word-break:break-all;
+  user-select:all; margin-top:8px}
+.modal-foot{display:flex; justify-content:flex-end; gap:10px; margin-top:16px}
+.wtable{width:100%; border-collapse:collapse; font-size:12px; margin-top:8px}
+.wtable th,.wtable td{text-align:left; padding:6px 8px; border-bottom:1px solid var(--line)}
+.wtable th{color:var(--muted); font-weight:400}
+.wtable td.mono{font-family:Consolas,monospace}
+.wtable button{padding:3px 8px; font-size:11px}
+
+/* 预览 */
+.preview{margin:0 14px 10px; background:var(--panel); border:1px solid var(--accent);
+  border-radius:10px; padding:12px}
+.preview[hidden]{display:none}
+.pv-head{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.pv-head b{flex:1}
+.meta{display:flex; gap:18px; color:var(--muted); margin:8px 0; flex-wrap:wrap}
+.meta code{color:var(--fg)}
+.ok{color:var(--ok)} .err{color:var(--err)} .warn{color:var(--warn)}
+.feenote{font-size:12px; color:var(--muted); margin:-2px 0 8px; line-height:1.6}
+.feenote b{color:var(--fg)} .feenote .up{color:var(--warn)}
+#pvHex{width:100%; height:110px; background:var(--panel2); border:1px solid var(--line);
+  color:var(--fg); border-radius:8px; padding:8px; font-family:Consolas,monospace;
+  font-size:11px; resize:vertical}
+
+.logwrap{border-top:1px solid var(--line); background:var(--panel)}
+.logwrap[hidden]{display:none}
+.loghead{display:flex; justify-content:space-between; align-items:center;
+  padding:6px 14px; color:var(--muted); border-bottom:1px solid var(--line)}
+.log{height:130px; overflow:auto; padding:8px 14px; font-family:Consolas,monospace; font-size:12px}
+.log div{white-space:pre-wrap}
+.log .t{color:var(--muted); margin-right:6px}
+
+
+/* ===================== 笔记本/小屏适配（D49） =====================
+   问题：交易区 main{flex:1} 只拿「剩余空间」，被上方固定高度的
+   资产总览 + 协议状态 + 日志区挤到很矮（笔记本 1366×768 上仅百余 px）。
+   对策：① 收窄基础字号与留白 ② 面板可折叠 ③ 日志可拖拽高度。      */
+
+/* ① 全局收紧：字号/留白按小屏优化，14 寸笔记本上也能多显示内容 */
+body{font-size:12.5px}
+.overview{padding:8px 12px 0; gap:8px}
+.ov-card{padding:8px 10px; min-width:300px}
+.ov-title{margin-bottom:6px; font-size:11.5px; display:flex; align-items:center; gap:6px}
+.asset-grid{grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:7px}
+.asset{padding:6px 9px; gap:7px}
+.asset img,.asset svg{width:22px; height:22px}
+.asset .a-val{font-size:13px}
+.proto-grid{grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); gap:6px}
+.proto-row{padding:3px 8px; font-size:11.5px}
+.card{padding:12px 14px; margin-bottom:10px}
+.card p.desc{margin:0 0 10px}
+.grid{grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:9px}
+.row{margin-top:10px}
+main{padding:10px 12px}
+.tabs{padding:7px 12px 0}
+.acct{padding:7px 12px}
+.top{padding:8px 12px; gap:10px}
+
+/* 标题旁的小胶囊标签（借贷状态卡的「50% 抵押率」） */
+.ov-tag{background:var(--panel2); border:1px solid var(--line); color:var(--muted);
+  border-radius:10px; padding:1px 7px; font-size:10.5px; letter-spacing:0}
+
+/* 折叠控件 */
+.ov-toggle{background:none; border:none; color:var(--muted); cursor:pointer;
+  font:inherit; line-height:1; padding:0 2px; transition:transform .15s}
+.ov-toggle[aria-expanded="false"]{transform:rotate(-90deg)}
+.ov-body{overflow:hidden}
+.ov-collapsed .ov-body{display:none}
+.logwrap.ov-collapsed .log{display:none}
+.logwrap.ov-collapsed .log-resize{display:none}
+
+/* ③ 日志区：高度可拖拽（默认更矮），并允许拖到很高看细节 */
+.log{height:96px}
+.log-resize{height:5px; cursor:ns-resize; background:transparent;
+  border-top:1px solid var(--line); margin-top:-1px}
+.log-resize:hover{background:var(--accent)}
+
+/* 交易预览区在矮屏下更紧凑 */
+#pvHex{height:88px}
+.readout{max-height:180px}
+
+/* 超矮屏（<700px 高）：进一步压缩，把空间让给交易区 */
+@media (max-height:700px){
+  .overview{padding:6px 12px 0}
+  .log{height:72px}
+  #pvHex{height:70px}
+  .loghead{padding:4px 12px}
+}
+/* 窄屏（<1100px）：资产总览/协议状态改为上下堆叠，避免左右挤压 */
+@media (max-width:1100px){
+  .overview{flex-direction:column}
+  .ov-card{min-width:0}
+}
+
+/* 清算 / 结算页（D51） */
+.liq-sec{border-top:1px dashed var(--line); margin-top:12px; padding-top:10px}
+.liq-sec:first-of-type{border-top:none; margin-top:4px}
+.liq-sec > b{color:var(--gold); font-size:12.5px}
+.liq-sec .row{margin-top:8px}
+.liq-sec .hint{color:var(--muted); font-size:11px; margin-top:6px}
+#liqTable .wtable td{font-size:11.5px}
+#liqProg{color:var(--accent)}
+
+/* 批量操作方向横幅（防呆，D54） */
+.dirbanner{padding:8px 10px; border-radius:7px; font-weight:600; font-size:12.5px;
+  margin-bottom:8px; line-height:1.5}
+.dirbanner.dir-in{background:#2a1f10; border:1px solid #8a5a1a; color:var(--gold)}
+.dirbanner.dir-out{background:#10261f; border:1px solid #1f6b4d; color:var(--ok)}
+
+/* 顶部地址可点击（切换钱包，D58） */
+.addr.clickable{cursor:pointer; border-bottom:1px dashed transparent}
+.addr.clickable:hover{border-bottom-color:var(--ok); color:#8ff0c8}

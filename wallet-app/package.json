@@ -1,0 +1,70 @@
+{
+  "name": "hacds-defi-wallet",
+  "version": "0.1.0",
+  "description": "HacdsDeFi 可视化控制台 —— HACD 兑换 hacds、AMM、借贷、HAC 存取",
+  "main": "main.js",
+  "author": "HacdsDeFi",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^44.9.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "org.hacds.defi.wallet",
+    "productName": "HacdsDeFi控制台",
+    "files": [
+      "main.js",
+      "preload.js",
+      "keystore.js",
+      "fee.js",
+      "contract-errors.js",
+      "indexer.js",
+      "keccak.js",
+      "hacd-transfer.js",
+      "vendor/**/*",
+      "renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "HacdsDeFi-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "multiLanguageInstaller": true,
+      "displayLanguageSelector": true,
+      "installerLanguages": [
+        "zh_CN",
+        "en_US",
+        "tr_TR"
+      ],
+      "language": "2052",
+      "artifactName": "HacdsDeFi-Setup-${version}-${arch}.${ext}"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+# ---- 密钥：绝不入库 ----
+*.key
+*.pem
+hacash_keys/
+*.keystore
+wallet-*.json
+.env
+.env.*
+
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+tmp/
+tmp_analysis/
+__pycache__/
+*.pyc
+*.exe            # 引擎二进制按需放行见下
+
+# ---- 调试临时件 ----
+_*.py
+_*.json
+_*.hex
+_*.txt
+fuzz_vectors.txt
+
+# ---- 系统 ----
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 随包交易引擎（必需，明确放行）
+!wallet-app/bin/hacds_txbuild.exe

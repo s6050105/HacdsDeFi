@@ -1,0 +1,17 @@
+[Unit]
+Description=HacdsDeFi on-chain indexer (borrower watchlist for the liquidation console)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hacds-indexer
+# 索引器是只读消费者：只 GET 节点 RPC，从不提交交易、不需要私钥、不需要余额。
+ExecStart=/usr/bin/python3 /opt/hacds-indexer/hacds_indexer.py serve --node http://127.0.0.1:8082 --port 8124 --interval 60 --window 500 --workers 4
+Restart=always
+RestartSec=10
+User=root
+StandardOutput=append:/var/log/hacds-indexer.log
+StandardError=append:/var/log/hacds-indexer.log
+
+[Install]
+WantedBy=multi-user.target

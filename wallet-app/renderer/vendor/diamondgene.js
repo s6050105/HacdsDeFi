@@ -1,0 +1,2 @@
+function DiamondLifeGeneConvertVisualGene(e,r){var a={W:"0",T:"1",Y:"2",U:"3",I:"4",A:"5",H:"6",X:"7",V:"8",M:"9",E:"a",K:"b",B:"c",S:"d",Z:"e",N:"f"},n={0:"0",1:"1",2:"2",3:"3",4:"4",5:"5",6:"6",7:"7",8:"8",9:"9",10:"a",11:"b",12:"c",13:"d",14:"e",15:"f"};let f=new Array(20);for(var o=2,t=0;t<6;t++){var i=a[r[t]]||"0";f[o]=i,o++}for(t=40;t<62;t+=2){var v=e[t]+e[t+1];let r=parseInt(v,16),a=n[r%=16]||"0";f[o]=a,o++}return f[19]="0",f[0]=e[62],f[1]=e[63],f.join("")}
+
