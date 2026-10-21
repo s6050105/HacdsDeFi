@@ -1,5 +1,7 @@
 # HacdsDeFi
 
+[English](README.en.md) | **简体中文**
+
 hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约、一个评分预言机、一个链下索引器和一个冷热分离的钱包组成。
 
 **hacds** 是链上标准资产（serial **2000**，decimal 8），不是铭文。
