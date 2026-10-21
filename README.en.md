@@ -34,6 +34,7 @@ All releases: [Releases](https://github.com/s6050105/HacdsDeFi/releases).
 | `hacds_exchange/HacdsDeFi.deploy.json` | Deployment action body (no keys) |
 | `hacds_exchange/oracle/` | Scoring oracle (Python, stdlib only) |
 | `hacds_exchange/indexer/` | Off-chain indexer (Python, stdlib only) |
+| `DESIGN.md` | Contract design overview (English) |
 | `hacds_exchange/DeFi设计文档-v1..v4.md` | Contract design iterations (Chinese) |
 | `wallet-app/` | Wallet + DeFi console (Electron) |
 | `wallet-app/bin/hacds_txbuild.exe` | Bundled tx engine (Rust; build + local signing) |

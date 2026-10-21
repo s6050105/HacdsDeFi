@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    name: Consistency & syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 1) 文档一致性：口径常量 / 小节编号 / 引用 / 决策覆盖 / 表格
+      #    （词条数由 i18n.js 实测，文档必须与代码一致）
+      - name: Design docs consistency
+        run: python -I Whitepaper/文档自检.py
+
+      # 2) 多语言键集合三语一致、无重复键
+      - name: i18n key alignment
+        run: python -I Whitepaper/i18n自检.py
+
+      # 3) JS 语法（跳过随包的第三方库）
+      - name: JS syntax
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if ! node --check "$f"; then echo "FAIL $f"; fail=1; fi
+          done < <(find wallet-app -name '*.js' \
+                     -not -path '*/vendor/*' -not -path '*/node_modules/*')
+          exit $fail
+
+      # 4) Python 语法
+      - name: Python syntax
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if ! python -I -m py_compile "$f"; then echo "FAIL $f"; fail=1; fi
+          done < <(find . -name '*.py' -not -path '*/node_modules/*')
+          exit $fail
+
+      # 5) JSON 合法性（跳过 lockfile）
+      - name: JSON validity
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if ! python -I -c "import json,sys; json.load(open(sys.argv[1],encoding='utf-8'))" "$f"; then
+              echo "FAIL $f"; fail=1
+            fi
+          done < <(find . -name '*.json' -not -path '*/node_modules/*' -not -name 'package-lock.json')
+          exit $fail
+
+      # 6) 仓库内不得出现私钥 / 钱包文件
+      - name: No secrets in tree
+        run: |
+          bad=$(find . -type f \
+                  \( -iname '*.key' -o -iname '*.pem' -o -iname '*.keystore' \
+                     -o -iname 'wallet-*.json' \) \
+                  -not -path './.git/*' | head)
+          if [ -n "$bad" ]; then
+            echo "密钥类文件不应入库："; echo "$bad"; exit 1
+          fi
+          if [ -d hacds_exchange/hacash_keys ]; then
+            echo "hacash_keys/ 不应入库"; exit 1
+          fi
+          echo "OK: no key files"

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """设计文档一致性自检（PC 与 Android 两份）。
 
-用法：  cd wallet-app && python -I 文档自检.py
+用法：  python -I Whitepaper/文档自检.py          # 自动定位 wallet-app/
+         python -I 文档自检.py --dir <含设计文档的目录>
 退出码： 0 = 全部通过；1 = 有错（逐条打印）
 
 核对项：
@@ -13,11 +14,18 @@
   6. 代码块围栏成对；表格每行列数一致
 """
 import io
+import os
 import re
 import sys
 
-PC = '设计文档.md'
-AN = 'Android设计文档.md'
+# 文档位置：默认从脚本自身位置推导，不依赖当前工作目录
+# （CI / 任意目录下调用都能跑；本地也可用 --dir 指定）
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_DEF = os.path.join(_HERE, '..', 'wallet-app')
+if '--dir' in sys.argv:
+    _DEF = sys.argv[sys.argv.index('--dir') + 1]
+PC = os.path.join(_DEF, '设计文档.md')
+AN = os.path.join(_DEF, 'Android设计文档.md')
 
 # Windows 控制台默认 GBK，直接输出中文/符号会 UnicodeEncodeError
 try:
@@ -34,9 +42,29 @@ def read(p):
     return io.open(p, encoding='utf-8').read()
 
 
+def _real_i18n_count():
+    """从 renderer/i18n.js 实测唯一键数（不写死，文档必须与代码一致）。"""
+    p = os.path.join(_DEF, 'renderer', 'i18n.js')
+    if not os.path.isfile(p):
+        return None
+    s = io.open(p, encoding='utf-8').read()
+    i = s.find("'zh-CN': {")
+    if i == -1:
+        return None
+    nxt = len(s)
+    for l2 in ('zh-CN', 'en', 'tr'):
+        k = s.find("'%s': {" % l2, i + 9)
+        if k != -1 and k < nxt:
+            nxt = k
+    return len(set(re.findall(r"""['"]([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+)['"]\s*:""", s[i:nxt])))
+
+
 def check_constants(pc, an):
     # 必须同时出现在两份文档中的口径
-    shared = ['18,009', '6,100', '111,911', '460']
+    n_i18n = _real_i18n_count()
+    shared = ['18,009', '6,100', '111,911']
+    if n_i18n:
+        shared.append(str(n_i18n))     # 词条数由 i18n.js 实测得出
     for k in shared:
         if not pc.count(k):
             errors.append('PC 文档缺少口径常量：%s' % k)

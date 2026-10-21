@@ -253,7 +253,7 @@ Dört katman: zincir üstündeki kontrat ve varlıklar, sunucu tarafındaki dü�
       <div class="t">Renderer süreci renderer/</div>
       <div class="d">Sade HTML/CSS/JS, çerçeve yok<br>
       Varlıklar · Protokol durumu · <b>kredi durumu kartı</b> · AMM fiyatları · HACD galerisi · çevrimdışı / kombo / tasfiye sayfaları<br>
-      i18n metinleri (zh/en/tr, 460 kayıt) · HACD görseli (resmî HIP-5)</div>
+      i18n metinleri (zh/en/tr, 475 kayıt) · HACD görseli (resmî HIP-5)</div>
     </div>
     <div class="box">
       <div class="t">Ana süreç main.js</div>
@@ -353,7 +353,7 @@ Cüzdanın ihtiyaç duyduğu tek uç nokta: `GET /watchlist`, özeti ve sağlık
 
 Cüzdan bir Electron uygulamasıdır, soğuk/sıcak birleşik: çevrimdışı makine oluşturur ve imzalar, çevrimiçi makine sorgular ve yayınlar.
 
-Arayüz, çerçevesiz sade HTML/CSS/JS'tir. Varlık özeti, protokol durumu, kalıcı kredi durumu kartı, canlı AMM fiyatları, HACD galerisi, çevrimdışı imzalama, atomik işlemler, tasfiye konsolu ve yönetici sayfası içerir. Metinler Çince, İngilizce ve Türkçe olarak yerelleştirilmiştir, 460 kayıt.
+Arayüz, çerçevesiz sade HTML/CSS/JS'tir. Varlık özeti, protokol durumu, kalıcı kredi durumu kartı, canlı AMM fiyatları, HACD galerisi, çevrimdışı imzalama, atomik işlemler, tasfiye konsolu ve yönetici sayfası içerir. Metinler Çince, İngilizce ve Türkçe olarak yerelleştirilmiştir, 475 kayıt.
 
 Ana süreç IPC beyaz listesini, cüzdan keystore'unu, yinelemeli ücret tahminini ve üç servise HTTP'yi yönetir.
 
@@ -409,7 +409,7 @@ Doğruladıklarımız:
 - İki elmas yatırma `OutOfGas(31): resource ... used 6101 > limit 6100` bildiriyor, beklendiği gibi
 - Gerçek makinede 3 elmas toplu yatırma: 3/3 başarılı; aynı zaman damgasıyla oluşturulan işlemlerin hash'leri farklı
 - Paketlenmiş öz test `RESULT = ALL OK`, sekiz motor modunun tamamı mevcut
-- Üç dilin her birinde 460 kayıt, anahtar kümeleri eşleşiyor
+- Üç dilin her birinde 475 kayıt, anahtar kümeleri eşleşiyor
 
 ---
 

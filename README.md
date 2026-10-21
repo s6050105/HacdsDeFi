@@ -34,6 +34,7 @@ hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约�
 | `hacds_exchange/oracle/` | 评分预言机（Python，纯标准库） |
 | `hacds_exchange/indexer/` | 链下索引器（Python，纯标准库） |
 | `hacds_exchange/DeFi设计文档-v1..v4.md` | 合约设计演进 |
+| `DESIGN.md` | 合约设计概览（英文） |
 | `wallet-app/` | 钱包 + DeFi 控制台（Electron） |
 | `wallet-app/bin/hacds_txbuild.exe` | 随包交易引擎（Rust，构建+本地签名） |
 | `wallet-app/vendor/hacash_sdk.{js,wasm}` | 官方 HACD 转账 SDK（本地签名） |
