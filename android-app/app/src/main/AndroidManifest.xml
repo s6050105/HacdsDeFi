@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 联网：节点 / 预言机 / 索引器（冷端可完全不联网，见 D-A5） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 相机：扫二维码 / 扫钻石地址（可选功能，运行时申请） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:name=".HacdsApp"
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:localeConfig="@xml/locales_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.HacdsDeFi"
+        android:usesCleartextTraffic="true">
+
+        <!--
+          AppCompat 的 per-app language 在 API <33 需要这个 Service 才能自动重建 Activity。
+          正常情况下 AppCompat 会经 manifest merger 自动注入；本工程未自动注入，
+          故在此显式声明（否则日志报 "AppLocalesMetadataHolderService : Service not found"，
+          语言切换不生效）。
+        -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

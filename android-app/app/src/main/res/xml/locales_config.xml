@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- per-app language（API 33+）：声明 App 支持的语言，供 AppCompatDelegate.setApplicationLocales 使用 -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="zh-CN"/>
+    <locale android:name="en"/>
+    <locale android:name="tr"/>
+</locale-config>

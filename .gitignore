@@ -32,3 +32,7 @@ desktop.ini
 
 # 评分测试向量（回归基线，明确放行）
 !hacds_exchange/fuzz_vectors.txt
+
+# 签名口令文件（不入库）
+keystore.properties
+android-app/keystore.properties

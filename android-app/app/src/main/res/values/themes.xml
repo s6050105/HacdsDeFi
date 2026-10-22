@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      必须继承 AppCompat 主题：MainActivity 用 AppCompatActivity（为了 per-app language
+      与 BiometricPrompt）。Compose 只负责绘制，实际的窗口装饰由这个主题提供。
+    -->
+    <style name="Theme.HacdsDeFi" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">@android:color/background_dark</item>
+    </style>
+</resources>

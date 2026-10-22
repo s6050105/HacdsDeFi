@@ -14,6 +14,7 @@ hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约�
 |---|---|
 | [HacdsDeFi-Setup-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-Setup-0.1.0-x64.exe) | 安装版（Windows 64 位） |
 | [HacdsDeFi-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-x64.exe) | 免安装便携版 |
+| [HacdsDeFi-0.1.0-arm64.apk](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-arm64.apk) | Android（arm64-v8a，直接安装） |
 
 全部发布物见 [Releases](https://github.com/s6050105/HacdsDeFi/releases)。
 
@@ -35,7 +36,8 @@ hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约�
 | `hacds_exchange/indexer/` | 链下索引器（Python，纯标准库） |
 | `hacds_exchange/DeFi设计文档-v1..v4.md` | 合约设计演进 |
 | `DESIGN.md` | 合约设计概览（英文） |
-| `wallet-app/` | 钱包 + DeFi 控制台（Electron） |
+| `wallet-app/` | 钱包 + DeFi 控制台（Electron，桌面） |
+| `android-app/` | **钱包 + DeFi 控制台（Android，原生 Kotlin / Compose）** |
 | `wallet-app/bin/hacds_txbuild.exe` | 随包交易引擎（Rust，构建+本地签名） |
 | `wallet-app/vendor/hacash_sdk.{js,wasm}` | 官方 HACD 转账 SDK（本地签名） |
 | `Whitepaper/` | 白皮书 / 说明书 / RPC 文档（各中英土三语）+ 架构图 |
@@ -57,6 +59,12 @@ hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约�
 **钱包 + DeFi 控制台**（`wallet-app/`）
 Electron。冷端离线构建+签名，热端联网查询+广播，私钥不触网。
 含资产总览、协议状态、借贷额度提示、AMM 实时报价、HACD 收藏、HACD 点对点转账、离线签名、原子交易、清算台。中英土三语。
+
+**Android 钱包 + DeFi 控制台**（`android-app/`）
+原生 Kotlin / Jetpack Compose，功能与桌面版对齐。**与桌面版共用同一份 Rust 交易引擎**
+（经 JNI 调用，交易字节级一致）；冷端离线构建/签名 + 分片二维码，热端扫码广播；
+钱包用 Android Keystore 保护，且兼容桌面版 keystore 格式（可互相导入导出）。
+中英土三语、HACD 图样（官方 HIP-5）、资产图标齐全。
 
 > **HACD 点对点转账**：链上一级转账（kind 6），**不经过合约、无需证书、一笔最多 200 颗**。
 > 签名由官方 `hacash_sdk.wasm` 在主进程本地完成，只把 `tx_body` 交给节点广播 —— 私钥不出主进程。
@@ -84,6 +92,22 @@ npm install
 npm start        # 开发运行
 npm run dist     # 打包到 dist/
 ```
+
+Android
+
+```bash
+cd android-app
+# 1) 交叉编译 Rust 引擎（需要 NDK；产出 jniLibs 下的 .so）
+./build-engine.sh both
+# 2) 构建 APK
+export JAVA_HOME=<你的 JDK17>
+./gradlew :app:assembleRelease          # arm64-v8a（正式分发）
+./gradlew -Pabi=x86_64 :app:assembleDebug   # x86_64（模拟器）
+```
+
+> 首次构建前请在 `android-app/` 下建 `local.properties` 指向本机 SDK：
+> `sdk.dir=/path/to/Android/sdk`。
+> 发布签名密钥库不入库（见 `android-app/README.md` 的签名说明）。
 
 ## 安全
 

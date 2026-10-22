@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用名独立成文件：strings.xml 由 tools/gen_i18n.py 自动生成，会被覆盖 -->
+<resources>
+    <string name="app_name">HacdsDeFi</string>
+</resources>

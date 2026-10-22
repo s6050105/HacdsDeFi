@@ -14,6 +14,7 @@ hacds is a DeFi protocol on the Hacash mainnet: one HVM contract, a scoring orac
 |---|---|
 | [HacdsDeFi-Setup-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-Setup-0.1.0-x64.exe) | Installer (Windows 64-bit) |
 | [HacdsDeFi-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-x64.exe) | Portable, no install |
+| [HacdsDeFi-0.1.0-arm64.apk](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-arm64.apk) | Android (arm64-v8a, sideload) |
 
 All releases: [Releases](https://github.com/s6050105/HacdsDeFi/releases).
 
@@ -36,7 +37,8 @@ All releases: [Releases](https://github.com/s6050105/HacdsDeFi/releases).
 | `hacds_exchange/indexer/` | Off-chain indexer (Python, stdlib only) |
 | `DESIGN.md` | Contract design overview (English) |
 | `hacds_exchange/DeFi设计文档-v1..v4.md` | Contract design iterations (Chinese) |
-| `wallet-app/` | Wallet + DeFi console (Electron) |
+| `wallet-app/` | Wallet + DeFi console (Electron, desktop) |
+| `android-app/` | **Wallet + DeFi console (Android, native Kotlin / Compose)** |
 | `wallet-app/bin/hacds_txbuild.exe` | Bundled tx engine (Rust; build + local signing) |
 | `wallet-app/vendor/hacash_sdk.{js,wasm}` | Official HACD transfer SDK (local signing) |
 | `Whitepaper/` | Whitepaper / user guide / RPC reference (each zh + en + tr) + architecture |
@@ -58,6 +60,13 @@ The contract cannot enumerate borrowers, so the indexer scans the chain off-chai
 **Wallet + DeFi console** (`wallet-app/`)
 Electron. The cold side builds and signs offline; the hot side queries and broadcasts. The private key never touches the network.
 Includes asset overview, protocol status, borrow-limit hints, live AMM quotes, HACD gallery, HACD peer-to-peer transfer, offline signing, atomic transactions, and a liquidation console. Localised into Chinese, English and Turkish.
+
+**Android wallet + DeFi console** (`android-app/`)
+Native Kotlin / Jetpack Compose, feature-parity with the desktop build. **Shares the exact same Rust
+transaction engine as the desktop app** (called over JNI, byte-identical transactions); cold-side
+offline build/sign with sharded QR codes, hot-side scan-and-broadcast. The wallet is protected by the
+Android Keystore and is compatible with the desktop keystore format (interchangeable import/export).
+Chinese/English/Turkish, HACD artwork (official HIP-5), full asset icon set.
 
 > **HACD peer-to-peer transfer**: a first-class chain transfer (kind 6) — **does not go through the contract, needs no certificate, up to 200 diamonds per transaction**.
 > Signing is done locally in the main process by the official `hacash_sdk.wasm`; only the `tx_body` is handed to the node for broadcast, so the private key never leaves the main process.
@@ -85,6 +94,22 @@ npm install
 npm start        # run in development
 npm run dist     # build into dist/
 ```
+
+Android
+
+```bash
+cd android-app
+# 1) Cross-compile the Rust engine (needs the NDK; outputs .so under jniLibs/)
+./build-engine.sh both
+# 2) Build the APK
+export JAVA_HOME=<your JDK17>
+./gradlew :app:assembleRelease            # arm64-v8a (release)
+./gradlew -Pabi=x86_64 :app:assembleDebug # x86_64 (emulator)
+```
+
+> Before the first build, create `android-app/local.properties` pointing at your SDK:
+> `sdk.dir=/path/to/Android/sdk`.
+> The release signing keystore is not committed (see `android-app/README.md`).
 
 ## Security
 
