@@ -2,6 +2,13 @@
 
 [English](README.en.md) | **简体中文**
 
+> ⚠️ **2026-10-24 更新：旧版合约 #2000 已关闭**
+>
+> 合约池已清空，用户资产全部赎回。关闭前发生的一次性操作已完整披露。
+> 详见 [旧合约关闭与结算说明](Whitepaper/2026-10-24-公告-旧合约关闭与结算说明.md)。
+>
+> **新版合约 #3000 待 HVM 支持 `hacd_info` 内置后部署。**
+
 hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约、一个评分预言机、一个链下索引器和一个冷热分离的钱包组成。
 
 **hacds** 是链上标准资产（serial **2000**，decimal 8），不是铭文。
@@ -24,7 +31,8 @@ hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约�
 - RPC 文档：[Whitepaper/HacdsDeFi-RPC文档.pdf](Whitepaper/HacdsDeFi-RPC文档.pdf)
 - 架构图：[Whitepaper/hacds-架构图.pdf](Whitepaper/hacds-架构图.pdf)
 
-> ⚠️ 早期的「HACD 铭文」方案已废弃。曾上线 xeggex.com 与 nonkyc.io，后停牌。当前版本是重写后的合约方案。
+> ⚠️ 早期的「HACD 铭文」方案已废开。
+> 曾上线 xeggex.com 与 nonkyc.io，后停牌。当前版本是重写后的合约方案。
 
 ## 目录
 
