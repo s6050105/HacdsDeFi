@@ -119,6 +119,13 @@
 
       // ---- App ----
       'nav.back': '返回首页',
+      'legacy.title': '⚠️ 本页内容描述的是已停用的 #2000 版本',
+      'legacy.desc': '#3000 已删除预言机、证书与管理员：HACD 评分改为合约链上直读基因自算，无证书流、无 init_admin / set_paused / set_oracle；资产参数为 serial 3000 / decimal 0。',
+      'legacy.refs': '当前实现请以',
+      'legacy.home': '首页',
+      'legacy.econ': '经济设计（定稿）',
+      'legacy.audit': '终审安全报告',
+      'legacy.note': '为准。#3000 白皮书将随正式版发布。',
       'app.connect': '连接钱包',
       'app.welcome': '连接你的钱包',
       'app.connectHint': '使用 MoneyNex 浏览器插件钱包。网站只负责构建交易，签名与广播都在你的钱包里完成。',
@@ -312,6 +319,13 @@
 
       // ---- App ----
       'nav.back': 'Back',
+      'legacy.title': '⚠️ This page describes the retired #2000 version',
+      'legacy.desc': '#3000 removes the oracle, certificates and the admin: HACD scoring is computed on-chain from the diamond gene, with no certificate stream and no init_admin / set_paused / set_oracle. Asset parameters are now serial 3000 / decimal 0.',
+      'legacy.refs': 'For the current implementation, see',
+      'legacy.home': 'Home',
+      'legacy.econ': 'Economic design (final)',
+      'legacy.audit': 'Final audit report',
+      'legacy.note': 'The #3000 whitepaper will ship with the official release.',
       'app.connect': 'Connect Wallet',
       'app.welcome': 'Connect your wallet',
       'app.connectHint': 'Uses the MoneyNex browser extension. The site builds transactions only - signing and broadcasting happen inside your wallet.',
@@ -505,6 +519,13 @@
 
       // ---- App ----
       'nav.back': 'Geri',
+      'legacy.title': '⚠️ Bu sayfa kullanımdan kaldırılmış #2000 sürümünü açıklar',
+      'legacy.desc': '#3000 oracle, sertifika ve yöneticiyi kaldırır: HACD puanlaması artık elmas geninden zincir üzerinde hesaplanır; sertifika akışı ve init_admin / set_paused / set_oracle yoktur. Varlık parametreleri serial 3000 / decimal 0.',
+      'legacy.refs': 'Güncel uygulama için bkz:',
+      'legacy.home': 'Ana sayfa',
+      'legacy.econ': 'Ekonomik tasarım (kesin)',
+      'legacy.audit': 'Nihai güvenlik denetimi',
+      'legacy.note': 'Bu belgenin #3000 sürümü resmi sürümle birlikte yayımlanacaktır.',
       'app.connect': 'Cuzdan Bagla',
       'app.welcome': 'Cuzdaninizi baglayin',
       'app.connectHint': 'MoneyNex tarayici eklentisini kullanir. Site yalnizca islem olusturur - imzalama ve yayin cuzdaninizda yapilir.',

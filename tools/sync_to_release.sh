@@ -78,6 +78,7 @@ WHITELIST=(
   "wallet-app"
   "android-app"
   "hacds.com"
+  "hacds.com/部署指南.md"
   "tools"
 
   # 审计报告与底稿（公开审计输入）

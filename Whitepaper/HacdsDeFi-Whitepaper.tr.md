@@ -2,6 +2,22 @@
 
 2026-10-21　Sürüm 2
 
+> ⚠️ **Bu belge, kullanımdan kaldırılmış #2000 sürümünü açıklar. Güncel uygulama referansı olarak kullanmayın.**
+>
+> #3000, **oracle, sertifika ve yöneticiyi** kaldırır: HACD puanlaması artık elmas geninden
+> zincir üzerinde hesaplanır; sertifika akışı ve `init_admin` / `set_paused` / `set_oracle` yoktur.
+> Varlık parametreleri serial 3000 / decimal 0 olarak değişti; kontrat adresi
+> `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`.
+>
+> **Güncel uygulama için bkz:**
+> - [README](../README.md)
+> - [Ekonomik tasarım (kesin)](../hacds_exchange/HacdsDeFi3000-经济设计-定稿.md)
+> - [Dağıtım parametreleri](../hacds_exchange/发行参数-正式.md)
+> - [Nihai güvenlik denetimi](../安全审计/上线前安全审计报告-2026-10-27-终审.md)
+>
+> Bu belgenin #3000 sürümü, kontrat dağıtıldıktan sonra resmi sürümle birlikte yayımlanacaktır.
+
+
 ## Başlamadan önce
 
 hacds, Hacash ana ağında bir zincir üstü varlıktır, serial 2000. Takas, piyasa yapıcılığı, stake, kredi ve hazine işlevlerinin tamamı tek bir HVM kontratında çalışır. Oracle, indeksleyici ve cüzdan da tarafımızca yazıldı ve kendi sunucularımızda çalışıyor.

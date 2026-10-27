@@ -2,6 +2,22 @@
 
 2026-10-21　For wallet version 0.1.0 (Windows 64-bit)
 
+> ⚠️ **This document describes the retired #2000 version. Do not use it as the current implementation reference.**
+>
+> #3000 removes the **oracle, certificates, and the admin**: HACD scoring is now computed
+> on-chain from the diamond gene, with no certificate stream and no `init_admin` / `set_paused` /
+> `set_oracle`. Asset parameters are now serial 3000 / decimal 0, and the contract address is
+> `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`.
+>
+> **For the current implementation, refer to:**
+> - [README](../README.en.md)
+> - [Economic design (final)](../hacds_exchange/HacdsDeFi3000-经济设计-定稿.md)
+> - [Deployment parameters](../hacds_exchange/发行参数-正式.md)
+> - [Final audit report](../安全审计/上线前安全审计报告-2026-10-27-终审.md)
+>
+> The #3000 edition of this document will ship with the official release after the contract is deployed.
+
+
 ## Who this guide is for
 
 Anyone who has the wallet, has opened it for the first time, and does not know where to click.

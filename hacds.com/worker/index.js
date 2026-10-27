@@ -37,6 +37,12 @@ export default {
             message: '交易构建服务尚未部署。请在 Wallet 中配置 BUILD_ORIGIN 指向 hacds_build_server。',
           }, 502, cors);
         }
+        if (r.error === 'node_origin_unconfigured') {
+          return json({
+            error: 'node_origin_unconfigured',
+            message: 'Worker 未配置 NODE_ORIGIN。请在 Settings → Variables 里填节点地址（http://）。',
+          }, 502, cors);
+        }
         return json({ error: 'unknown_route', path: url.pathname }, 404, cors);
       }
       const { origin, path } = r;
@@ -83,6 +89,11 @@ function route(url, env) {
   const p = url.pathname;
   const NODE = env.NODE_ORIGIN;
   const IDX = env.INDEXER_ORIGIN;
+
+  // 未配 NODE_ORIGIN 时所有转发都会失败。明确报错，不要让调用方以为是路由问题。
+  if (!NODE && p !== '/api/build') {
+    return { error: 'node_origin_unconfigured' };
+  }
 
   // 交易构建（后端 txbuild 服务）
   //

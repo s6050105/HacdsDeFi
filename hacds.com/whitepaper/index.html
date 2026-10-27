@@ -30,6 +30,16 @@
   .wp-body strong { color: var(--text); }
   .wp-body code { background: var(--bg-elev); border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: var(--blue); }
   .wp-body hr { border: none; border-top: 1px solid var(--border); margin: var(--sp-6) 0; }
+  .wp-legacy-banner {
+    border: 1px solid var(--amber, #d97706); border-left: 4px solid var(--amber, #d97706);
+    background: rgba(217, 119, 6, .08);
+    padding: var(--sp-4) var(--sp-5); margin-bottom: var(--sp-6);
+    border-radius: 0 var(--radius) var(--radius) 0; font-size: 14px; line-height: 1.75;
+  }
+  .wp-legacy-banner strong { display: block; margin-bottom: 8px; font-size: 15px; }
+  .wp-legacy-banner p { margin: 6px 0 0; color: var(--text-dim); }
+  .wp-legacy-banner code { font-size: 12px; }
+  .wp-legacy-banner a { color: var(--blue); text-decoration: underline; }
   .wp-download { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-6); }
 </style>
 </head>
@@ -56,6 +66,17 @@
 <div class="wp-wrap">
   <h1 class="wp-title">HacdsDeFi 白皮书</h1>
   <div class="wp-meta">2026-10-21 · 第二版</div>
+
+  <div class="wp-legacy-banner">
+    <strong data-i18n="legacy.title"></strong>
+    <p data-i18n="legacy.desc"></p>
+    <p><span data-i18n="legacy.refs"></span>
+      <a href="/" data-i18n="legacy.home"></a> ·
+      <a href="https://github.com/s6050105/HacdsDeFi/blob/v3000/hacds_exchange/HacdsDeFi3000-经济设计-定稿.md" data-i18n="legacy.econ"></a> ·
+      <a href="https://github.com/s6050105/HacdsDeFi/blob/v3000/安全审计/上线前安全审计报告-2026-10-27-终审.md" data-i18n="legacy.audit"></a>
+    </p>
+    <p data-i18n="legacy.note"></p>
+  </div>
 
   <div class="wp-download">
     <a href="/whitepaper/HacdsDeFi-白皮书.pdf" class="btn btn-primary btn-sm" download>下载 PDF（中文）</a>
