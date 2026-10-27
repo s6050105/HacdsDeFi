@@ -8,6 +8,20 @@ hacds is a DeFi protocol on the Hacash mainnet: one HVM contract, an off-chain i
 > The previous #2000 is retired: oracle shut down, all user assets redeemed, contract abandoned.
 > Legacy source is kept under the git tag [`v2000-legacy`](../../releases/tag/v2000-legacy), for reference only.
 
+## 🚫 About the installers in Releases
+
+**`v0.1.0` in Releases is the legacy #2000 build — do not use it.**
+
+Its contract address is `VKNwXFFM…` (abandoned), the oracle service is shut down, and
+HACD deposit/redeem will fail. It supports none of #3000's features.
+
+The #3000 installers will be published after the contract is deployed. Until then,
+build from source to test:
+
+```bash
+git checkout v3000 && cd wallet-app && npm install && npm start
+```
+
 ## Core parameters
 
 | Item | Value |

@@ -6,6 +6,19 @@ hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约�
 > 旧版 #2000 已停用：预言机关闭、用户资产全部赎回、合约废弃。
 > 旧版源码见 git 标签 [`v2000-legacy`](../../releases/tag/v2000-legacy)，仅供查阅。
 
+## 🚫 关于 Releases 里的安装包
+
+**Releases 中的 `v0.1.0` 是旧版 #2000 的安装包，请勿使用。**
+
+它的合约地址是 `VKNwXFFM…`（已废弃），预言机服务已关闭，
+HACD 存入/赎回会失败；且它不支持 #3000 的任何功能。
+
+#3000 的安装包将在合约部署后发布。在那之前，如需测试请自行从源码构建：
+
+```bash
+git checkout v3000 && cd wallet-app && npm install && npm start
+```
+
 ## 核心参数
 
 | 项 | 值 |
