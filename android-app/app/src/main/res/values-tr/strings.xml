@@ -27,7 +27,7 @@
     <string name="admin_setPausedD">1=durdur, 0=devam.</string>
     <string name="admin_title">Yönetici işlemleri</string>
     <string name="adv_title">Gelişmiş (ücret / gas)</string>
-    <string name="amm_inTpl">Giren &lt;b&gt;%1$s&lt;/b&gt; → beklenen çıkış ≈ &lt;b class=\"qval\"&gt;%1$s&lt;/b&gt;</string>
+    <string name="amm_inTpl">Giren &lt;b&gt;%1$s&lt;/b&gt; → beklenen çıkış ≈ &lt;b class=\"qval\"&gt;%2$s&lt;/b&gt;</string>
     <string name="amm_poolStatus">Havuz durumu</string>
     <string name="amm_quoteLine">Fiyat 1→%1$s   Ücret %2$s%% (varsayılan)   Havuz %3$s / %4$s</string>
     <string name="app_slogan">Soğuk &amp; sıcak çift cüzdan + DeFi konsolu</string>
@@ -93,7 +93,7 @@
     <string name="f_dsSideAtoms">hacds tarafi (atoms)</string>
     <string name="f_feeAdv">İşlem ücreti (boş = otomatik)</string>
     <string name="f_feeAdvHint">Varsayılan düğüm oranına göre</string>
-    <string name="f_gasMax">gas_max bayt (varsayılan 99)</string>
+    <string name="f_gasMax">gas_max baytı (boş = otomatik: HAC/HACD 1, hacds 50, kontrat 99)</string>
     <string name="f_hacAmt">Tutar (örn. 1:248 = 1 HAC)</string>
     <string name="f_hacAmt2">Tutar (örn. 0.5 veya 1:248)</string>
     <string name="f_hacIn">Giren HAC puanı</string>
@@ -358,8 +358,8 @@
     <string name="p_poolHac">Havuz HAC</string>
     <string name="p_price">Fiyat</string>
     <string name="p_rate">Teminat orani</string>
-    <string name="p_stakedDs">Stake hacds</string>
-    <string name="p_stakedHac">Stake HAC</string>
+    <string name="p_stakedDs">Tutucu ödülü (kota)</string>
+    <string name="p_stakedHac">Tutucu ödülü (HAC mevduat)</string>
     <string name="p_treDs">Hazine bekleyen hacds</string>
     <string name="p_treHac">Hazine bekleyen HAC</string>
     <string name="pv_bytes">Bayt</string>
@@ -373,7 +373,7 @@
     <string name="q_fieldWho">Adres</string>
     <string name="q_hac">HAC puanı</string>
     <string name="q_lpShare">LP payı</string>
-    <string name="q_stake">Toplam stake</string>
+    <string name="q_stake">Toplam tutulan</string>
     <string name="q_title">Salt-okunur sorgular</string>
     <string name="qb_coll">Teminatımı sorgula</string>
     <string name="qb_debt">Borcumu sorgula</string>
@@ -385,7 +385,7 @@
     <string name="qb_poolDs">Hacds havuzunu sorgula</string>
     <string name="qb_poolHac">Hac havuzunu sorgula</string>
     <string name="qb_price">Fiyatı sorgula</string>
-    <string name="qb_stake">Stake toplamını sorgula</string>
+    <string name="qb_stake">Toplam tutulanı sorgula</string>
     <string name="qr_hint">Mobil sıcak cüzdanla tara; büyük işlemler parçalara ayrılır, hepsini tara.</string>
     <string name="qr_next">Sonraki</string>
     <string name="qr_part">Parça %1$s/%1$s</string>
@@ -491,6 +491,7 @@ Kimsenin izlemediğinden emin olun. Devam?</string>
     <string name="x_poolEmptyNoVal">Havuz boş; teminat değerlenemiyor</string>
     <string name="x_overBorrow">✘ Borç limiti aşıldı</string>
     <string name="x_canBorrow">✔ Borç alınabilir</string>
+    <string name="x_decimalNote">hacds ondaligi 0dir; en kucuk birim tam olarak 1 hacdstir. Puanlar 1 puan = 100 milyon olarak olceklenir, bu yuzden 1 puanlik bir elmas 100.000.000 hacds basar. Bu tasarim geregidir, hata degildir.</string>
     <string name="x_sandboxNote">Sorgular düğüm sandboxcall kullanır; serileştirme + geri çekilme (D45).</string>
     <string name="x_protoHint">Ana sayfada "Protokol durumu"nu yenileyin veya aşağıdaki düğmeleri kullanın</string>
     <string name="x_coldNote">Soğuk taraf: çevrimdışı oluşturup imzalayın; imzalı hex\'i çevrimiçi cihaza verin.</string>
@@ -600,4 +601,8 @@ Kimsenin izlemediğinden emin olun. Devam?</string>
     <string name="x_qrPrev">Önceki</string>
     <string name="x_qrNext">Sonraki</string>
     <string name="x_qrTotal">Toplam %1$s parça; sıcak tarafta tek tek tarayın; tamamlanınca CRC doğrulanır.</string>
+  <string name="op_sweepHac_t">Hazine tara (sözleşme→hazine, HAC)</string>
+  <string name="op_sweepHac_d">Sözleşmede biriken HAC ücretlerini hazineye aktar (PermitHAC tre:hac düşer).</string>
+  <string name="op_sweepDs_t">Hazine tara (sözleşme→hazine, hacds)</string>
+  <string name="op_sweepDs_d">Sözleşmede biriken hacds ücretlerini hazineye aktar (PermitAsset tre:ds düşer).</string>
 </resources>

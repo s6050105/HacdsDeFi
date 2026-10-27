@@ -13,6 +13,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -25,6 +26,7 @@ import com.hacds.defi.AppViewModel
 import com.hacds.defi.ui.Op
 import com.hacds.defi.ui.OpKind
 import com.hacds.defi.ui.Ops
+import java.math.BigInteger
 import com.hacds.defi.ui.components.KV
 import com.hacds.defi.ui.components.MonoText
 import com.hacds.defi.ui.components.Notice
@@ -37,6 +39,12 @@ fun OpTabScreen(vm: AppViewModel, tab: String, ops: List<Op> = Ops.MAIN) {
     val session by vm.session.collectAsState()
     val last by vm.lastBuilt.collectAsState()
     val batchLog by vm.batchLog.collectAsState()
+
+    // 保险：AMM 页需要池储备才能出报价；若尚未加载，进入时拉一次。
+    val proto by vm.protocol.collectAsState()
+    LaunchedEffect(tab) {
+        if (tab == "amm" && proto == null) vm.refreshProtocolPublic()
+    }
 
     LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
@@ -99,11 +107,12 @@ fun OpCard(vm: AppViewModel, op: Op, unlocked: Boolean) {
                 singleLine = true,
             )
         }
-        // D62：加流动性两侧按池内比例联动；D58：借贷实时额度提示
+        // D62：加流动性两侧按池内比例联动；D58：借贷实时额度提示；AMM 实时报价
         when (op.id) {
             "addLiq" -> LiquidityHint(vm, values, onSet = { k, v -> values[k] = v })
             "borrow", "coll" -> LoanHint(vm, op, values)
         }
+        if (op.quote != null) QuoteHint(vm, op, values)
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = fee, onValueChange = { fee = it },
@@ -159,6 +168,47 @@ fun OpCard(vm: AppViewModel, op: Op, unlocked: Boolean) {
     }
 }
 
+
+/**
+ * AMM 实时报价（对齐 PC 版 `quoteUpdate`，修复 Android 报价缺失）。
+ *
+ * 量纲（务必分清，D37/D55）：
+ *   poolHac / swapH2D 的输入 hac_in / swapD2H 的输出  → zhu（÷1e8 = HAC）
+ *   poolDs  / swapD2H 的输入 ds_in  / swapH2D 的输出  → atoms（hacds，raw）
+ * 恒定乘积（费 0.5% 收输入腿）：out = poolOut × net / (poolIn + net)。
+ */
+@Composable
+fun QuoteHint(vm: AppViewModel, op: Op, values: Map<String, String>) {
+    val proto by vm.protocol.collectAsState()
+    val p = proto ?: return
+    val ph = p.poolHac?.toBigIntegerOrNull()
+    val pd = p.poolDs?.toBigIntegerOrNull()
+    if (ph == null || pd == null) { Notice(tr("ov_loading")); return }
+    if (ph.signum() == 0 || pd.signum() == 0) { Notice(tr("ov_noPool")); return }
+
+    val isH2D = op.id == "swapH2D"
+    // 输入（人类单位）→ 链上单位：HAC 腿填 HAC（×1e8 = zhu）；hacds 腿填 atoms。
+    val inAmt: BigInteger = if (isH2D) {
+        com.hacds.defi.ui.hacInputToZhu(values["hac_in"] ?: "")?.toBigIntegerOrNull()
+            ?: BigInteger.ZERO
+    } else {
+        values["ds_in"]?.toBigIntegerOrNull() ?: BigInteger.ZERO
+    }
+    if (inAmt.signum() <= 0) return
+
+    val feeBps = BigInteger.valueOf(50)                    // 默认 0.5%（cfg:fee 无只读接口）
+    val net = inAmt - inAmt.multiply(feeBps).divide(BigInteger.valueOf(10000))
+    val out = if (isH2D) pd.multiply(net).divide(ph + net)      // → atoms
+              else ph.multiply(net).divide(pd + net)            // → zhu
+
+    val inText = if (isH2D) com.hacds.defi.core.Units.zhuToHacString(inAmt) + " HAC"
+                 else inAmt.toString() + " hacds"
+    val outText = if (isH2D) out.toString() + " hacds"
+                  else com.hacds.defi.core.Units.zhuToHacString(out) + " HAC"
+    Notice(tr("amm_inTpl", inText, outText))
+    Notice(tr("amm_quoteLine", "0.005", "0.50",
+        com.hacds.defi.core.Units.zhuToHacString(ph) + " HAC", pd.toString() + " hacds"))
+}
 
 /**
  * D62：加流动性两侧联动。改一侧 → 按池内比例自动配平另一侧；不匹配时告警。

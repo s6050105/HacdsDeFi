@@ -9,31 +9,36 @@
 const CONTRACT_CODES = {
   // ===== 兑换 =====
   swap_hac_to_ds: {
-    1:  '合约已暂停',
+    2:  '兑换量为 0',
     11: 'HAC 积分不足（先“充 HAC”再兑换）',
     20: '流动性池为空（尚无 LP，无法兑换）',
     21: '滑点保护触发：实际得到低于你设定的下限（可放宽 min_out）',
     22: '兑换量过大，超出池子储备',
+    59: '交易已过期（deadline 已过），请重新签名',
   },
   swap_ds_to_hac: {
     11: '待领取 hacds（due 配额）不足',
     20: '流动性池为空',
     21: '滑点保护触发（可放宽 min_out）',
     22: '兑换量过大，超出池子储备',
+    59: '交易已过期（deadline 已过），请重新签名',
   },
 
   // ===== 流动性 =====
   add_liquidity: {
-    1:  '合约已暂停',
     2:  '投入量为 0',
     11: '注入所需的 HAC 积分或 hacds 配额不足',
     23: '池状态异常（份额尺度已定但份额归零，已拒绝以防重置）',
     24: '注入量太小，算得 LP 份额为 0',
-    26: '单侧投入超出上限（1e18）',
+    26: '单侧投入超出上限，或首注份额过小（需大于死份额 1000）',
+    56: '滑点保护触发：实际份额低于 min_share（池子可能被抢先交易）',
+    59: '交易已过期（deadline 已过），请重新签名',
   },
   remove_liquidity: {
     2:  '份额为 0',
     25: 'LP 份额不足',
+    56: '滑点保护触发：取回的 HAC 或 hacds 低于设定下限',
+    59: '交易已过期（deadline 已过），请重新签名',
   },
   lp_harvest: {
     1: '合约已暂停',
@@ -45,15 +50,22 @@ const CONTRACT_CODES = {
     11: '待领取 hacds（due 配额）不足以作为抵押',
   },
   loan_borrow: {
-    1:  '合约已暂停',
-    40: '超过可借额度（抵押率不足：新债务 > 抵押价值/2）',
+    40: '超过可借额度（抵押率不足：新债务超过抵押价值的 50%）',
     11: 'HAC 积分不足（利息结算需要）',
+    50: '全局利用率已达上限（50%），暂时无法新增借款',
+    51: '借款已熔断（协议出现坏账赤字，暂停新增借款）',
+    52: '超过单借款人上限（不超过总可出借额的 20%）',
   },
   loan_repay: {
     41: '当前没有债务（无需还款）',
     11: 'HAC 积分不足以还款',
   },
   loan_liquidate: {
+    44: '清算额过小（低于最小清算额 1 HAC）',
+    45: '抵押交割量低于 min_coll_out（保护清算人）',
+    46: '深水接管需按抵押市值全额付款（repay 不足）',
+    47: '参考价尚未初始化，暂不能清算',
+    11: 'HAC 积分不足以垫付清算款',
     42: '该账户没有债务，无法清算',
     43: '该账户健康（未超线），不能清算',
   },
@@ -90,19 +102,24 @@ const CONTRACT_CODES = {
   },
 
   // ===== 钩子：HACD（存入/赎回）=====
+  //
+  // #3000 起合约**不读证书**：PayableHACD/PermitHACD 直接链上读基因自算分，
+  // 返回码集合实测为 {0, 2, 5, 48, 53, 54}。原表里的 3/4（证书流）与重复的
+  // 第二个 5（证书校验失败）都是 #2000 遗留，已删除 —— 否则键 5 被后者覆盖，
+  // 用户存入失败会看到「证书校验失败」这个 #3000 根本不存在的概念。
   PayableHACD: {
-    1: '合约已暂停',
-    2: '钻石名单格式不合法',
-    3: '缺少证书流（既无 Message 也无 Blob）',
-    4: '证书流长度不足（每颗需 126 字节）',
-    5: '证书校验失败（验签不过 / 链上重算评分与声称不符 / 名字对不上）',
+    2:  '钻石名单格式不合法',
+    5:  '该钻石名无法读取基因（名字非法或链上不存在）',
+    48: '单笔只能 1 颗 HACD（VM resource 限制）',
+    53: '超过 hacds 总供应上限，无法再铸造',
+    54: '覆盖率低于下限，暂停铸造',
   },
   PermitHACD: {
     2:  '钻石名单格式不合法',
-    3:  '缺少证书流',
-    4:  '证书流长度不足',
-    5:  '证书校验失败',
+    5:  '该钻石名无法读取基因（名字非法或链上不存在）',
     12: '兑换所需 hacds 不足，且自动经 AMM 补足失败（需先充 HAC 或先兑换）',
+    48: '单笔只能 1 颗 HACD（VM resource 限制）',
+    61: '合约池内没有可赎回的 HACD 记录（分数不足或池已空）',
   },
 
   // ===== 钩子：资产 =====
@@ -142,14 +159,28 @@ const CONTRACT_CODES = {
 // ---- 节点 / 沙箱英文错误：按正则匹配（不区分大小写）----
 // text = 中文说明；hint = 可操作建议（可空）
 const NODE_ERRORS = [
+  // 「交易已存在」—— 同一笔交易（hash 相同）此前已经上链或被池接受。
+  // 这**不是失败**：链上已经有这笔交易了，资产状态已由它决定。
+  // 早先钱包把每一笔都写死同一个 timestamp 构造交易，导致重复提交时整批命中这里。
+  // 用捕获组取出高度，便于告诉用户「已在区块 N 上链」。
+  { match: /tx\s+([0-9a-f]{64})\s+already exists in height\s+(\d+)/i,
+    text: '交易已上链（无需重复提交）', hint: '该交易此前已提交并打进区块，链上状态已生效，不必再发一次。',
+    chain: true },
+  { match: /already exists in the (?:tx\s*)?pool|already in the pool|tx\s+([0-9a-f]{64})\s+already/i,
+    text: '交易已在待打包池中（无需重复提交）', hint: '这笔交易已经在节点的 mempool 里等待打包，稍等即可上链。',
+    chain: true },
   { match: /invalid address argument|address .* format invalid|InvalidBase58Character/i,
     text: '地址为空或格式不对', hint: '检查是否漏填、或复制不完整' },
   { match: /base58check failed|InvalidChecksum/i,
     text: '地址校验位不对', hint: '可能复制时漏字符，请重新复制完整地址' },
   { match: /contract address (format|version)/i,
     text: '合约地址格式错误', hint: '请核对合约地址（配置项）' },
+  { match: /asset is insufficient/i,
+    text: '资产余额不足', hint: '该地址的对应 serial 资产不足；核对数量与 serial（hacds=2000/3000）。' },
+  { match: /balance .* is insufficient/i,
+    text: 'HAC 余额不足', hint: 'Type-3 交易会按 gas_max 预扣 HAC（99≈0.56 HAC、50≈0.0203 HAC、1≈0.000735 HAC，执行后退回）。纯 HAC/HACD 转账可用 1；hacds 资产转账约 50；涉及合约的转账/调用需 99。' },
   { match: /insufficient|is insufficient/i,
-    text: '余额不足', hint: '沙箱调用需要该地址持有少量 HAC 以预扣 gas' },
+    text: '余额不足', hint: '检查该地址的 HAC 与资产余额；纯转账优先降低 gas_max。' },
   { match: /state changed/i,
     text: '链上状态已变化，请重试', hint: '' },
   // 单桶 gas 上限（与总预算 gas_max 无关，提高 gas_max 无效）——必须先于通用 OutOfGas 匹配
@@ -163,7 +194,7 @@ const NODE_ERRORS = [
     text: 'storage gas 单桶上限超出（与 gas_max 无关）',
     hint: 'VM storage 桶消耗超过协议硬上限（主网 111,911）。该笔写入的新键/租期过多，请减少动作或降低租期。' },
   { match: /gas has run out|OutOfGas/i,
-    text: 'gas 不足', hint: '提高 gas_max（高级选项）或手续费' },
+    text: 'gas 不足', hint: '提高 gas_max（高级选项）；手续费不增加 gas 预算。hacds 资产转账建议 ≥50，合约调用建议 99。' },
   { match: /CallNotExist/i,
     text: '合约里没有这个函数', hint: '检查函数名拼写' },
   { match: /CallArgvTypeFail|argument type/i,
@@ -200,7 +231,17 @@ function translateContractReturn(fnName, retVal) {
 function translateNodeError(rawText) {
   const s = String(rawText || '');
   for (const e of NODE_ERRORS) {
-    if (e.match.test(s)) return { text: e.text, hint: e.hint || '' };
+    const m = e.match.exec(s);
+    if (!m) continue;
+    const r = { text: e.text, hint: e.hint || '' };
+    // 「已上链」类错误带上链上高度与 hash，供调用方判定为「已生效」而非失败
+    if (e.chain) {
+      r.chain = true;
+      r.height = m[2] || null;
+      r.hash = (m[1] && /^[0-9a-f]{64}$/i.test(m[1])) ? m[1].toLowerCase() : null;
+      if (r.height) r.text = '交易已上链（区块 ' + r.height + '，无需重复提交）';
+    }
+    return r;
   }
   // 兜底：精简原文（去首尾、截断）
   return { text: s.slice(0, 160), hint: '' };

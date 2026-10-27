@@ -62,7 +62,7 @@ function loadCfg() {
     return c;
   } catch {
     const base = { node: 'http://43.251.101.101:8082', oracle: 'http://43.251.101.101:8123',
-                   contract: 'VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1' };
+                   contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH' };
     const il = installerLang(); if (il) base.lang = il;
     return base;
   }
@@ -72,12 +72,52 @@ function saveCfg(cfg) {
   return true;
 }
 
+// ---- 交易时间戳（唯一性来源）----
+// Hacash Type-3 **没有 nonce / sequence**，交易哈希 = hash_with_fee(
+//   ty, timestamp, addrlist, fee, actions, gas_max, ano_mark )
+// （protocol/src/codec/tx.rs::tx_hash）。其中唯一能变的就是 timestamp ——
+// 同一组操作参数 + 同一个秒级 timestamp ⇒ **逐字节相同** ⇒ 同一个 hash。
+// 早先这里一律传 '0'，于是「同样 3 颗钻石、同样的 fee」每次都构造出完全相同的交易，
+// 第二次提交必然被节点拒绝：`tx … already exists in height N`（protocol/src/exec/tx.rs:95）。
+// 修复：每次构建取当前时间，并保证**本进程内严格单调递增**（同一秒内连发也不会撞）。
+// 链上只校验 timestamp 不得超前于当前时间（chain/src/verify.rs:107、engine.rs:788），
+// 不校验下限，所以「递增到下一秒再发」是安全的；最多等 1 秒。
+let _lastTxTime = 0;
+async function nextTxTime() {
+  let t = Math.floor(Date.now() / 1000);
+  if (t <= _lastTxTime) {
+    // 本秒内已经用过 → 等时钟走过下一秒（不能直接 +1，超前时间戳会被节点拒绝）
+    const waitMs = (_lastTxTime + 1) * 1000 - Date.now() + 5;
+    if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+    t = Math.floor(Date.now() / 1000);
+    // 极端情况：系统时钟回拨导致仍未前进，则继续等（上限 5 秒后放弃单调，用当前值）
+    for (let i = 0; i < 50 && t <= _lastTxTime; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      t = Math.floor(Date.now() / 1000);
+    }
+  }
+  _lastTxTime = t;
+  return String(t);
+}
+
+// 各模式的 argv 布局统一为 <mode> <main> <ts> ...（'sign' / 'addr' 无 ts）。
+// 时间戳在这里统一注入，而不是让各调用点自己拼 —— 早先每个调用点都写死 '0'，
+// 正是漏改一处就会重新引入「同 hash」的根因。
+const TX_MODES_WITH_TS = new Set(['asset', 'deploy', 'call', 'hacd', 'redeem-hacd',
+                                  'combo', 'transfer', 'combined']);
+
 // ---- 调 txbuild，收集 stdout ----
-function runTxbuild(args, env) {
+// ts 省略时自动分配（见 nextTxTime）；同一笔逻辑交易的多次重试应传入同一个 ts，
+// 否则「估算 fee 的中间轮次」会白白消耗掉一串秒级时间戳。
+async function runTxbuild(args, env, ts) {
+  const argv = (args || []).slice();
+  if (TX_MODES_WITH_TS.has(argv[0]) && argv.length >= 3) {
+    argv[2] = ts != null ? String(ts) : await nextTxTime();   // 覆盖调用方传入的 ts 占位
+  }
   return new Promise((resolve, reject) => {
     let exe;
     try { exe = txbuildPath(); } catch (e) { return reject(e.message); }
-    const child = spawn(exe, args, {
+    const child = spawn(exe, argv, {
       env: { ...process.env, ...(env || {}) },
       windowsHide: true,
     });
@@ -101,6 +141,7 @@ function parseTxOutput(out) {
   const res = { raw: out };
   res.unsigned = field(out, 'unsigned_tx_hex');
   res.signed = field(out, 'signed_tx_hex');
+  res.signedBytes = res.signed ? Math.floor(res.signed.length / 2) : null;
   res.digest = field(out, 'sign_digest');
   res.txbytes = (field(out, 'tx_bytes') || '').match(/\d+/)?.[0] || null;   // 取数字，忽略 "actions=… signers=…" 尾巴
   res.actions = (out.match(/actions\s*=\s*(\d+)/) || [])[1] || null;
@@ -220,10 +261,74 @@ ipcMain.handle('key:addr', async (_e, p) => {
   return parseTxOutput(out).address;
 });
 
+// ⚠ H-5：把 http:get 限制在用户配置的「节点 / 索引器 / 预言机」三个端点上。
+// 原实现把任意 url 直接透传，渲染层被控时可当内网探测与数据外带通道
+// （如读 http://127.0.0.1:<port>/…，再把结果经 buildTx 的错误回显带出）。
+function isAllowedEndpoint(u) {
+  try {
+    const t = new URL(String(u));
+    const cfg = loadCfg() || {};
+    const allowed = [
+      cfg.node, cfg.indexer, cfg.oracle,
+      'https://explorer.hacash.org',
+    ].filter(Boolean).map(s => { try { return new URL(s).origin; } catch { return null; } }).filter(Boolean);
+    // 只比 origin（协议+主机+端口），路径任意
+    return allowed.includes(t.origin);
+  } catch { return false; }
+}
+
 ipcMain.handle('http:get', async (_e, { url }) => {
-  try { return { ok: true, data: await httpGetJson(url) }; }
-  catch (e) { return { ok: false, error: String(e) }; }
+  try {
+    if (!isAllowedEndpoint(url)) return { ok: false, error: 'endpoint not allowed' };
+    return { ok: true, data: await httpGetJson(url) };
+  } catch (e) { return { ok: false, error: String(e) }; }
 });
+
+// Type-3 gas_max 决定费付地址的 HAC 预扣额（gas 预算 × 纯度下限）。
+// gas_max=99（预算 111911）约预扣 0.56 HAC；纯转账不触发 VM，可用 1（约 0.000735 HAC）。
+// 涉及合约的转账（from/to = 合约）会触发 Permit*/Payable* 钩子，必须保留 99。
+// hacds 资产转账是 extra9 动作：每笔约 500+ gas。按笔数选 gas_max，
+// 预算取自协议表（50=4065 / 60=7996 / 70=15730 / 80=30944 / 90=60872 / 99=111911）。
+function gasByteForAssetCount(n) {
+  if (n <= 6) return 50;
+  if (n <= 12) return 60;
+  if (n <= 24) return 70;
+  if (n <= 48) return 80;
+  if (n <= 96) return 90;
+  return 99;
+}
+
+function gasMaxFor(mode, req) {
+  const contract = (req && req.contract) || '';
+  const isContract = (a) => !!contract && String(a) === contract;
+  if (mode === 'transfer') {
+    const a = (req && req.args) || [];
+    const sub = a[2];
+    const addrs = [];
+    if (sub === 'hac-to' || sub === 'asset-to' || sub === 'hacd-to') addrs.push(a[3]);
+    else if (sub === 'hac-from-to' || sub === 'asset-from-to') { addrs.push(a[3], a[4]); }
+    else if (sub === 'hac-from' || sub === 'asset-from') addrs.push(a[3]);
+    if (addrs.some(isContract)) return null;   // 触发合约钩子 -> 99
+    // TransferAsset* 是 extra9 动作：gas = 动作编码字节数 × 9（约 500+）。
+    // gas_max=1（预算 147）会 OutOfGas；50（预算 4065）实测可用。
+    if (sub === 'asset-to' || sub === 'asset-from-to' || sub === 'asset-from') return gasByteForAssetCount(1);
+    return 1;
+  }
+  if (mode === 'combo') {
+    let spec = req && (req.spec || req.specObject || req.specPath);
+    if (typeof spec === 'string') {
+      try { spec = JSON.parse(fs.readFileSync(spec, 'utf8')); } catch { spec = null; }
+    }
+    const acts = (spec && spec.actions) || [];
+    if (!acts.length) return null;
+    const hasCall = acts.some(x => x && (x.type === 'call' || x.type === 'deploy'));
+    const hasContract = acts.some(x => x && (isContract(x.from) || isContract(x.to) || isContract(x.contract)));
+    if (hasCall || hasContract) return null;   // 合约调用/钩子 -> 99
+    const nAsset = acts.filter(x => x && (x.type === 'asset-to' || x.type === 'asset-from-to' || x.type === 'asset-from')).length;
+    return nAsset > 0 ? gasByteForAssetCount(nAsset) : 1;
+  }
+  return null;
+}
 
 // 构建交易：req = { mode, args: [...], keyPath, fee, gasMax }
 ipcMain.handle('tx:build', async (_e, req) => {
@@ -236,9 +341,10 @@ ipcMain.handle('tx:build', async (_e, req) => {
   } else {
     return { ok: false, error: '未解锁钱包，也未指定私钥文件' };
   }
-  if (req.gasMax) env.HACDS_GAS_MAX = String(req.gasMax);
   const mode = req.mode;
   const args = req.args;
+  const gm = req.gasMax || gasMaxFor(mode, req);
+  if (gm) env.HACDS_GAS_MAX = String(gm);
 
   try {
     // 手动指定 fee：直接构建
@@ -259,10 +365,13 @@ ipcMain.handle('tx:build', async (_e, req) => {
 async function buildWithAutoFee(mode, args, baseEnv, node) {
   const MIN = await fetchMinPurity(node);
   const DEFAULT_FEE = '0.0002';
+  // 同一笔逻辑交易的所有估算轮次共用一个时间戳：每次重试都换 ts 会白白吃掉秒数
+  // （批量 3 笔 × 最多 6 轮 ≈ 18 秒），而最终只广播最后一轮的结果。
+  const ts = await nextTxTime();
   let feeStr = DEFAULT_FEE, rounds = [], out = null;
   for (let i = 0; i < 6; i++) {
     const env = { ...baseEnv, HACDS_FEE: feeStr };
-    out = await runTxbuild([mode, ...args], env);
+    out = await runTxbuild([mode, ...args], env, ts);
     const parsed = parseTxOutput(out);
     const size = parsed.signed ? parsed.signed.length / 2 : Number(parsed.txbytes || 0);
     rounds.push({ round: i + 1, fee: feeStr, size });
@@ -425,25 +534,18 @@ function addrFromHex(hex) {
   });
 }
 
-// HACD -> hacds：向预言机逐颗取证书，拼 126B/份 的流，写临时文件后调 hacd 模式。
+// HACD -> hacds：只需 TransferHacdTo，合约自行链上读基因算分。
+//
+// ⚠ D-1（上线前审计）：#3000 **已删除证书与预言机**（`HacdsDeFi3000.fitsh`
+//   全文 0 处读取 tx_message/blob）。旧实现向预言机逐颗取 126B 证书再塞进
+//   交易，在 #3000 下不仅无效，还因预言机已停用而直接报网络错误 →
+//   存入功能完全不可用。
+//   现在不再取证书，`hacd` 模式不传 certfile（引擎已支持可省略）。
+//   `oracle` 参数保留仅为兼容旧调用方签名，不再使用。
 ipcMain.handle('tx:redeem', async (_e, req) => {
-  const { names, oracle, node, keyPath, contract, fee, gasMax, mainAddr } = req;
-  const tmp = [];
+  const { names, node, keyPath, contract, fee, gasMax, mainAddr } = req;
   try {
-    let stream = '', totalScore = 0, detail = [];
-    for (const nm of names) {
-      const c = await httpGetJson(oracle.replace(/\/$/, '') + '/cert?name=' + nm);
-      if (c.error) throw new Error(`${nm}: 预言机返回 ${c.error}`);
-      if (!c.cert_message_hex || c.cert_message_hex.length !== 58) throw new Error(`${nm}: 证书消息应 29B`);
-      if (!c.sign_hex || c.sign_hex.length !== 194) throw new Error(`${nm}: 签名应 97B`);
-      stream += c.cert_message_hex + c.sign_hex;
-      totalScore += parseInt(c.score, 10);
-      detail.push({ name: nm, score: c.score, vg: c.visual_gene });
-    }
-    const certPath = path.join(app.getPath('temp'), 'hacds_' + Date.now() + '.cert.hex');
-    fs.writeFileSync(certPath, stream);
-    tmp.push(certPath);
-
+    var totalScore = 0, detail = [];
     const env = {};
     if (sessionKeyHex) {
       env.HACDS_SIGN_KEY_HEX = sessionKeyHex;
@@ -454,7 +556,8 @@ ipcMain.handle('tx:redeem', async (_e, req) => {
       throw new Error('未解锁钱包，也未指定私钥文件');
     }
     if (gasMax) env.HACDS_GAS_MAX = String(gasMax);
-    const hargs = ['hacd', mainAddr, '0', contract, names.join(','), certPath];
+    // #3000：不传 certfile（引擎 hacd 模式第 6 个参数已改为可选）
+    const hargs = ['hacd', mainAddr, '0', contract, names.join(',')];
     let res;
     if (fee) { env.HACDS_FEE = fee; res = { ok: true, ...parseTxOutput(await runTxbuild(hargs, env)), feeUsed: fee, feeAuto: false }; }
     else { res = await buildWithAutoFee('hacd', hargs.slice(1), env, node); }
@@ -462,8 +565,6 @@ ipcMain.handle('tx:redeem', async (_e, req) => {
     return { ...res, certs: detail, totalScore };
   } catch (e) {
     return { ok: false, error: String(e) };
-  } finally {
-    for (const f of tmp) { try { fs.unlinkSync(f); } catch {} }
   }
 });
 
@@ -474,7 +575,9 @@ ipcMain.handle('tx:broadcast', async (_e, { node, hex }) => {
     // 节点通常以 HTTP 200 + {ret:1, err:"..."} 报错 —— 翻译成人话一并返回
     if (d && d.ret !== undefined && d.ret !== 0) {
       const tr = errs.translateNodeError(d.err || ('ret=' + d.ret));
-      return { ok: true, data: d, translated: tr.text, hint: tr.hint };
+      // chain=true 表示「这笔交易已经在链上/池里」，调用方应按成功处理
+      return { ok: true, data: d, translated: tr.text, hint: tr.hint,
+               chain: !!tr.chain, height: tr.height || null };
     }
     return { ok: true, data: d };
   } catch (e) { return { ok: false, error: String(e) }; }
@@ -494,7 +597,8 @@ ipcMain.handle('tx:translate', async (_e, { node, hex }) => {
 // 构建"未签名交易体"：不注入任何密钥；返回 unsigned_tx_hex + sign_digest。
 ipcMain.handle('tx:buildUnsigned', async (_e, req) => {
   const env = {};
-  if (req.gasMax) env.HACDS_GAS_MAX = String(req.gasMax);
+  const gm = req.gasMax || gasMaxFor(req.mode, req);
+  if (gm) env.HACDS_GAS_MAX = String(gm);
   if (req.fee) env.HACDS_FEE = req.fee;
   const tmp = [];
   try {
@@ -543,7 +647,8 @@ ipcMain.handle('tx:combo', async (_e, req) => {
   } else {
     return { ok: false, error: '未解锁钱包，也未指定私钥文件' };
   }
-  if (req.gasMax) env.HACDS_GAS_MAX = String(req.gasMax);
+  const gm = req.gasMax || gasMaxFor('combo', req);
+  if (gm) env.HACDS_GAS_MAX = String(gm);
   const tmp = [];
   try {
     // 规格既可直接给对象，也可给路径
@@ -566,32 +671,20 @@ ipcMain.handle('tx:combo', async (_e, req) => {
   }
 });
 
-// ---- HACD 赎回（D9）：可复用 tx:redeem 的证书取用，此处提供独立入口 ----
+// ---- HACD 赎回（D9）：hacds -> HACD 实物流出 ----
+// ⚠ D-1：#3000 不再需要证书，直接 TransferHacdFromTo 驱动 PermitHACD。
 ipcMain.handle('tx:redeemHacd', async (_e, req) => {
-  const { names, oracle, node, keyPath, contract, toAddr, fee, gasMax, mainAddr } = req;
-  const tmp = [];
+  const { names, node, keyPath, contract, toAddr, fee, gasMax, mainAddr } = req;
   try {
-    let stream = '', totalScore = 0, detail = [];
-    for (const nm of names) {
-      const c = await httpGetJson(oracle.replace(/\/$/, '') + '/cert?name=' + nm);
-      if (c.error) throw new Error(`${nm}: 预言机返回 ${c.error}`);
-      if (!c.cert_message_hex || c.cert_message_hex.length !== 58) throw new Error(`${nm}: 证书消息应 29B`);
-      if (!c.sign_hex || c.sign_hex.length !== 194) throw new Error(`${nm}: 签名应 97B`);
-      stream += c.cert_message_hex + c.sign_hex;
-      totalScore += parseInt(c.score, 10);
-      detail.push({ name: nm, score: c.score, vg: c.visual_gene });
-    }
-    const certPath = path.join(app.getPath('temp'), 'hacds_' + Date.now() + '.cert.hex');
-    fs.writeFileSync(certPath, stream);
-    tmp.push(certPath);
-
+    var totalScore = 0, detail = [];
     const env = {};
     if (sessionKeyHex) { env.HACDS_SIGN_KEY_HEX = sessionKeyHex; env.HACDS_SIGN_KEY_LABEL = sessionAddr || '<wallet>'; }
     else if (keyPath) { env.HACDS_SIGN_KEY = keyPath; }
     else throw new Error('未解锁钱包，也未指定私钥文件');
     if (gasMax) env.HACDS_GAS_MAX = String(gasMax);
 
-    const hargs = ['redeem-hacd', mainAddr, '0', contract, toAddr, names.join(','), certPath];
+    // #3000：不传 certfile（引擎 redeem-hacd 第 7 个参数已改为可选）
+    const hargs = ['redeem-hacd', mainAddr, '0', contract, toAddr, names.join(',')];
     let res;
     if (fee) { env.HACDS_FEE = fee; res = { ok: true, ...parseTxOutput(await runTxbuild(hargs, env)), feeUsed: fee, feeAuto: false }; }
     else { res = await buildWithAutoFee('redeem-hacd', hargs.slice(1), env, node); }
@@ -599,8 +692,6 @@ ipcMain.handle('tx:redeemHacd', async (_e, req) => {
     return { ...res, certs: detail, totalScore };
   } catch (e) {
     return { ok: false, error: String(e) };
-  } finally {
-    for (const f of tmp) { try { fs.unlinkSync(f); } catch {} }
   }
 });
 
@@ -662,20 +753,20 @@ async function redeemBatchCore(req) {
   if (gasMax) env.HACDS_GAS_MAX = String(gasMax);
 
   // 逐颗：取证书 → 写 126B 证书文件 → 构建（单颗）→ 广播
+  const seenHex = new Set();      // 本批已提交的交易体：同一 hex = 同一 hash，重复广播必被拒
+  const seenName = new Set();     // 同一颗钻石在一批里只处理一次（前端可能传重名）
   for (const nm of names) {
     const tmp = [];
     try {
-      const c = await httpGetJson(oracle.replace(/\/$/, '') + '/cert?name=' + nm);
-      if (c.error) throw new Error(`预言机返回 ${c.error}`);
-      if (!c.cert_message_hex || c.cert_message_hex.length !== 58) throw new Error('证书消息应 29B');
-      if (!c.sign_hex || c.sign_hex.length !== 194) throw new Error('签名应 97B');
-      const certPath = path.join(app.getPath('temp'), 'hacds_b_' + Date.now() + '_' + nm + '.cert.hex');
-      fs.writeFileSync(certPath, c.cert_message_hex + c.sign_hex);
-      tmp.push(certPath);
+      if (seenName.has(nm)) { items.push({ name: nm, ok: false, error: '名单内重复，已跳过' }); continue; }
+      seenName.add(nm);
 
+      // ⚠ D-1：#3000 已无证书（合约 0 处读取 tx_message/blob），
+      //   这里不再向预言机取证书，直接构建转账动作。
+      // 第 2 个参数是 ts 占位，runTxbuild 会用本笔唯一的时间戳覆盖它
       const hargs = isOut
-        ? ['redeem-hacd', mainAddr, '0', contract, toAddr, nm, certPath]
-        : ['hacd', mainAddr, '0', contract, nm, certPath];
+        ? ['redeem-hacd', mainAddr, '0', contract, toAddr, nm]
+        : ['hacd', mainAddr, '0', contract, nm];
       let res;
       if (fee) { env.HACDS_FEE = fee; res = { ok: true, ...parseTxOutput(await runTxbuild(hargs, env)), feeUsed: fee, feeAuto: false }; }
       else { res = await buildWithAutoFee(isOut ? 'redeem-hacd' : 'hacd', hargs.slice(1), env, node); }
@@ -683,13 +774,25 @@ async function redeemBatchCore(req) {
 
       const hex = res.signed || res.unsigned;
       if (!hex) throw new Error('未得到交易体 hex');
+      // 兜底防重：即便上层唯一性失效（例如时间戳被改回固定值），也不把同一笔发两次
+      if (seenHex.has(hex)) throw new Error('本批已提交过完全相同的交易，已跳过（交易唯一性构造异常）');
+      seenHex.add(hex);
+
       const b = await httpPost(node.replace(/\/$/, '') + '/submit/transaction?hexbody=true', hex);
       if (b && b.ret === 0) {
         items.push({ name: nm, ok: true, hash: b.hash, bytes: res.txbytes, fee: res.feeUsed });
       } else {
         const raw = (b && (b.err || b.error)) || ('ret=' + (b && b.ret));
         const tr = errs.translateNodeError(raw);
-        items.push({ name: nm, ok: false, error: raw, translated: tr.text, hint: tr.hint });
+        // 「already exists in height N」说明这笔交易此前已经上链 —— 资产状态已生效，
+        // 不是失败。计为成功并标出链上高度，避免用户以为要重发而反复提交。
+        if (tr.chain) {
+          items.push({ name: nm, ok: true, alreadyOnChain: true, height: tr.height,
+                       hash: b && b.hash, bytes: res.txbytes, fee: res.feeUsed,
+                       note: tr.text, hint: tr.hint, error: raw });
+        } else {
+          items.push({ name: nm, ok: false, error: raw, translated: tr.text, hint: tr.hint });
+        }
       }
     } catch (e) {
       items.push({ name: nm, ok: false, error: String(e) });
@@ -700,8 +803,9 @@ async function redeemBatchCore(req) {
     await new Promise(r => setTimeout(r, 120));
   }
   const okCount = items.filter(x => x.ok).length;
+  const chainCount = items.filter(x => x.alreadyOnChain).length;
   return { ok: true, kind: kind || 'in', total: names.length, succeeded: okCount,
-           failed: names.length - okCount, items };
+           failed: names.length - okCount, onChain: chainCount, items };
 }
 
 // ============================================================================
@@ -919,22 +1023,35 @@ ipcMain.handle('protocol:overview', async (_e, { node, contract, address }) => {
 });
 
 // ---- 钱包列表增强（D2）----
+// ⚠ H-5（上线前审计）：把路径限制在钱包目录内。
+// 渲染层一旦被控（H-4、或诱导粘贴恶意 combo JSON），原实现可删/改任意
+// 当前用户可写文件。这里统一走 safeWalletPath() 断言。
+function safeWalletPath(filePath) {
+  const dir = walletsDir();
+  const safe = path.resolve(dir, path.basename(String(filePath || '')));
+  const root = path.resolve(dir) + path.sep;
+  if (!safe.startsWith(root)) throw new Error('invalid wallet path');
+  return safe;
+}
+
 ipcMain.handle('wallet:rename', async (_e, { filePath, label }) => {
   try {
-    const j = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const fp = safeWalletPath(filePath);
+    const j = JSON.parse(fs.readFileSync(fp, 'utf8'));
     j.label = String(label || '');
-    fs.writeFileSync(filePath, JSON.stringify(j, null, 2));
+    fs.writeFileSync(fp, JSON.stringify(j, null, 2));
     return { ok: true };
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 ipcMain.handle('wallet:delete', async (_e, { filePath }) => {
   try {
+    const fp = safeWalletPath(filePath);
     if (sessionAddr) {
       // 若删除的是当前解锁钱包，先锁定
-      const j = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const j = JSON.parse(fs.readFileSync(fp, 'utf8'));
       if (j.address === sessionAddr) { sessionKeyHex = null; sessionAddr = null; }
     }
-    fs.unlinkSync(filePath);
+    fs.unlinkSync(fp);
     return { ok: true };
   } catch (e) { return { ok: false, error: String(e) }; }
 });
@@ -956,9 +1073,27 @@ ipcMain.handle('wallet:balances', async (_e, { node, contract, addresses }) => {
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 
-// ---- 导出私钥明文（D1）：返回当前会话私钥（二次确认在前端做）----
+// ---- 导出私钥明文（D1）：返回当前会话私钥 ----
+// 2026-10-22 审计加固：原实现仅由渲染层 confirm() 把关，渲染层一旦被脚本注入即可静默导出。
+// 现改为**主进程级确认对话框**（不依赖渲染层），用户必须在系统原生弹窗上确认后才返回。
 ipcMain.handle('wallet:exportKey', async () => {
   if (!sessionKeyHex) return { ok: false, error: '钱包未解锁' };
+  try {
+    const wc = win && !win.isDestroyed() ? win : null;
+    const r = await dialog.showMessageBox(wc, {
+      type: 'warning',
+      buttons: ['取消', '导出私钥'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: '导出私钥',
+      message: '即将显示私钥明文',
+      detail: '私钥一旦泄露，资产将立即面临风险。请确认周围无人偷窥、屏幕未被录制/共享。\n\n地址：' + (sessionAddr || ''),
+    });
+    if (r.response !== 1) return { ok: false, error: '已取消导出' };
+  } catch (e) {
+    return { ok: false, error: '导出确认失败：' + String(e) };
+  }
   return { ok: true, address: sessionAddr, keyHex: sessionKeyHex };
 });
 
@@ -975,10 +1110,26 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // 2026-10-22 审计加固：开启渲染沙箱（preload 只用 require('electron')，兼容）
+      sandbox: true,
     },
   });
   win.setMenuBarVisibility(false);
+
+  // ⚠ H-4（上线前审计）：必须阻止主窗口被导航到非本地页面。
+  // contextIsolation + sandbox 只隔离了 Node，**没有限制 preload 在哪个源生效**。
+  // 一旦窗口被导航到远端页面，该页面继承完整 window.api（buildTx / broadcast /
+  // walletExportKey / walletDelete）→ 攻击者不需要私钥就能转走全部资产。
+  //
+  // 触发路径真实存在：明文 HTTP 拉取的 HACD/余额数据拼进 innerHTML，
+  // MITM 注入 <meta http-equiv="refresh"> 即可导航；CSP 只挡内联脚本，挡不住 meta。
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('file://')) e.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // 禁止 webview 内嵌（本应用不需要）
+  win.webContents.on('will-attach-webview', (e) => e.preventDefault());
+
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 

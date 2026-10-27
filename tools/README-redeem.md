@@ -56,7 +56,7 @@ python redeem.py --check
 ```bash
 python redeem.py \
   --names KWTVSH,VHUSMI \
-  --key  <keyfile> \
+  --key  D:\keys\user.key \
   --contract VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1 \
   --txbuild D:\hacash_fullnode\target\release\hacds_txbuild.exe \
   --out redeem_signed.txt

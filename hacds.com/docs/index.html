@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文档 — hacds</title>
+<meta name="description" content="hacds 协议文档：架构、合约接口、风险说明。">
+<link rel="icon" href="/assets/img/hacds_icon_32.png">
+<link rel="stylesheet" href="/assets/css/main.css?v=1792799346">
+<link rel="stylesheet" href="/assets/css/docs.css?v=1792799346">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">
+      <img src="/assets/img/hacds_icon_64.png" alt="">
+      <span>hacds</span>
+    </a>
+    <div class="nav-links">
+      <a href="/">← <span data-i18n="nav.back"></span></a>
+      <div class="lang">
+        <button data-lang="zh">中</button>
+        <button data-lang="en">EN</button>
+        <button data-lang="tr">TR</button>
+      </div>
+      <a href="/app/" class="btn btn-primary btn-sm" data-i18n="nav.app"></a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap docs-layout">
+
+  <!-- 侧边目录 -->
+  <aside class="docs-nav">
+    <div class="docs-nav-group">
+      <div class="docs-nav-title">概览</div>
+      <a href="#overview" class="on">协议概览</a>
+      <a href="#architecture">系统架构</a>
+      <a href="#asset">资产规格</a>
+    </div>
+    <div class="docs-nav-group">
+      <div class="docs-nav-title">机制</div>
+      <a href="#amm">AMM 兑换</a>
+      <a href="#lending">抵押借贷</a>
+      <a href="#hacd">HACD 铸造与赎回</a>
+      <a href="#oracle">评分机制</a>
+    </div>
+    <div class="docs-nav-group">
+      <div class="docs-nav-title">参考</div>
+      <a href="#contract">合约接口</a>
+      <a href="#errors">错误码</a>
+      <a href="#risks">风险说明</a>
+    </div>
+  </aside>
+
+  <!-- 正文 -->
+  <main class="docs-body">
+
+    <section id="overview">
+      <h1>协议概览</h1>
+      <p class="lead">hacds 是运行在 Hacash 主网上的 DeFi 协议。它把 HACD 钻石的评分转化为同质化代币 hacds，并围绕这个代币构建了兑换、做市、借贷三套金融原语。</p>
+
+      <h2>设计目标</h2>
+      <p>上一版把 hacds 做成刻在钻石上的铭文，导致代币无法拆分、无法自由流通。这一版的核心改动只有一条：<b>把币从钻石上拿下来</b>。</p>
+      <p>hacds 现在是标准的 Hacash 链上资产：可自由转账、可拆分、可在 AMM 里交易。钻石只作为铸造它的凭证，不再承载它。</p>
+
+      <h2>三个组成部分</h2>
+      <table class="doc-table">
+        <thead><tr><th>组件</th><th>职责</th><th>位置</th></tr></thead>
+        <tbody>
+          <tr><td>合约</td><td>持有全部资产与账本，执行兑换/借贷/赎回</td><td>Hacash 主网 HVM</td></tr>
+          <tr><td>节点</td><td>提供链上查询与交易广播</td><td>由社区或项目方运行</td></tr>
+          <tr><td>索引器</td><td>扫链建台账，提供借款人与 HACD 列表</td><td>链下服务</td></tr>
+        </tbody>
+      </table>
+      <p class="dim">新版设计已移除预言机：HACD 评分改由合约链上直读基因计算，不再依赖链下签名证书。</p>
+    </section>
+
+    <section id="architecture">
+      <h1>系统架构</h1>
+      <p>整个协议只有一个合约地址，所有状态都在其中。<b>没有管理员，没有升级入口，没有自毁函数。</b></p>
+
+      <div class="arch-diagram">
+        <div class="arch-layer chain">
+          <div class="arch-label">Hacash 主网 · HVM</div>
+          <div class="arch-box contract">
+            <div class="arch-box-title">HacdsDeFi 合约</div>
+            <div class="arch-mods">
+              <span class="arch-mod">AMM</span>
+              <span class="arch-mod">LP</span>
+              <span class="arch-mod">借贷</span>
+              <span class="arch-mod">金库</span>
+            </div>
+            <div class="arch-ledger">账本：bal:hac / due / loan:* / amm:*</div>
+          </div>
+        </div>
+
+        <div class="arch-connector"><span class="arch-arrow">↓</span><span class="arch-arrow">↓</span></div>
+
+        <div class="arch-layer services">
+          <div class="arch-box">
+            <div class="arch-box-title">节点</div>
+            <div class="arch-box-sub">查询 · 广播</div>
+          </div>
+          <div class="arch-box">
+            <div class="arch-box-title">索引器</div>
+            <div class="arch-box-sub">扫链建台账</div>
+          </div>
+        </div>
+
+        <div class="arch-connector"><span class="arch-arrow">↓</span></div>
+
+        <div class="arch-layer client">
+          <div class="arch-box accent">
+            <div class="arch-box-title">MoneyNex 钱包</div>
+            <div class="arch-box-sub">签名 + 广播</div>
+          </div>
+        </div>
+      </div>
+
+      <h2>职责边界</h2>
+      <ul class="doc-list">
+        <li><b>合约</b> — 唯一的事实来源。所有余额、债务、池子状态都在链上。</li>
+        <li><b>钱包</b> — 只管签名。私钥从不离开用户设备。</li>
+        <li><b>官网</b> — 只构建交易体，不碰私钥，不保存任何用户数据。</li>
+        <li><b>索引器</b> — 只读。合约无法枚举地址，索引器补上这个能力。</li>
+      </ul>
+    </section>
+
+    <section id="asset">
+      <h1>资产规格</h1>
+      <table class="doc-table">
+        <tbody>
+          <tr><th>serial</th><td><code>3000</code></td></tr>
+          <tr><th>ticket</th><td><code>HACDS</code></td></tr>
+          <tr><th>name</th><td><code>hacds</code></td></tr>
+          <tr><th>decimal</th><td><code>0</code></td></tr>
+          <tr><th>总供给</th><td><code>5,963,298,700,000,000</code> atoms（decimal=0：1 atom = 1 hacds，即 5,963,298,700,000,000 个）</td></tr>
+          <tr><th>issuer</th><td><code>T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH</code></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <b>注意 serial 认别</b>
+        <p>链上 <code>#1028</code> 的 ticket 也是 HACDS（它的 name 是 "HACD Fragments"，属于他人资产）。协议不检查 name/ticket 唯一性，只认 serial。请核对 <code>serial = 2000</code>。</p>
+      </div>
+
+      <h2>发行量推导</h2>
+      <pre class="code">均值 = 全网 HACD 评分总和 / 颗数
+     = 492,427 / 138,540
+     = 3.55440306
+
+总量 = 均值 × HACD 总发行量
+     = 3.55440306 × 16,777,216
+     = 59,632,987 分
+
+铸发 atoms = 59,632,987 × 1e8
+           = 5,963,298,700,000,000</pre>
+      <p class="dim">这个数字可以由任何人独立复算：拉取全网 HACD 列表，按同一套 5 维算法逐颗评分，取均值乘以 HACD 总发行量。</p>
+    </section>
+
+    <section id="amm">
+      <h1>AMM 兑换</h1>
+      <p>恒定乘积做市（<code>x × y = k</code>），费率 0.5%，从输入腿收取。</p>
+
+      <h2>报价公式</h2>
+      <pre class="code">输入 amt，扣费后 net = amt × (1 − 0.005)
+输出 = pool_out × net / (pool_in + net)</pre>
+
+      <h2>手续费分配</h2>
+      <table class="doc-table">
+        <thead><tr><th>去向</th><th>比例</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>LP</td><td>80%</td><td>按份额分配</td></tr>
+          <tr><td>协议储备</td><td>20%</td><td>先补赤字，再补储备，余进金库</td></tr>
+        </tbody>
+      </table>
+
+      <h2>滑点保护</h2>
+      <p>所有兑换与流动性操作都带 <code>deadline</code>（块高）和 <code>min_out</code> / <code>min_share</code> 参数。任一不满足则整笔回滚，防止被抢跑。</p>
+    </section>
+
+    <section id="lending">
+      <h1>抵押借贷</h1>
+      <p>用户把 hacds 划为抵押品，借出 HAC。</p>
+
+      <h2>关键参数</h2>
+      <table class="doc-table">
+        <thead><tr><th>参数</th><th>值</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td>借款线</td><td>200%</td><td>债务 ≤ 抵押价值 / 2（50% LTV）</td></tr>
+          <tr><td>清算线</td><td>160%</td><td>抵押率跌破 160% 可被清算</td></tr>
+          <tr><td>价格缓冲</td><td>20%</td><td>从满借到清算的下跌空间</td></tr>
+          <tr><td>清算奖励</td><td>5%</td><td>按清算人付款额计，非债务比例</td></tr>
+          <tr><td>close factor</td><td>50%</td><td>单次最多清算一半债务</td></tr>
+        </tbody>
+      </table>
+
+      <h2>利率模型</h2>
+      <pre class="code">U ≤ 35%:  rate = 2% + 4% × U / 35%
+U > 35%:  rate = 6% + 40% × (U − 35%) / 15%
+
+U = 利用率 = 总债务 / HAC 提供者总量
+U=0 → 2%   U=35% → 6%   U=50% → 46%</pre>
+
+      <h2>清算</h2>
+      <p>抵押率跌破 160% 后，任何人可发起清算。清算人支付真 HAC，按「付款额 + 5% 奖励」的价值获得对应抵押品。</p>
+      <p class="dim">注意：抵押品交割按付款额计算，不按债务比例。按债务比例会在 160% 抵押率下让清算人拿走借款人几乎全部权益。</p>
+    </section>
+
+    <section id="hacd">
+      <h1>HACD 铸造与赎回</h1>
+
+      <h2>铸造（存入 HACD）</h2>
+      <p>存入 1 颗 HACD，按评分铸造等量的 hacds。<b>不打折</b>：1 分 = 1 hacds。</p>
+      <pre class="code">score = score_of(diamond_name)
+mint  = score × SCORE_SCALE     // 100%，无折扣</pre>
+
+      <h2>赎回（取出 HACD）</h2>
+      <p>支付 hacds 换回一颗 HACD。基础手续费 0.5%；若该钻石评分高于池内均分，额外收取「挑钻石溢价」。</p>
+      <pre class="code">avg = 池内总分数 / 颗数
+premium = min(30%, (score − avg) / avg)
+fee = 0.5% + premium</pre>
+      <p class="dim">溢价上限 30%，防止有人反复从池子里挑走高分钻石、把低分货留给其他持有人。</p>
+    </section>
+
+    <section id="oracle">
+      <h1>评分机制</h1>
+      <p>HACD 评分采用 HIP-5 的五维算法：形状、样式、颜色、命名、编号。</p>
+
+      <table class="doc-table">
+        <thead><tr><th>维度</th><th>说明</th><th>取值依赖</th></tr></thead>
+        <tbody>
+          <tr><td>形状</td><td>Square / Heart / Circle 等 8 种</td><td>visual_gene[0..2]</td></tr>
+          <tr><td>样式</td><td>仅 Common 形状参与</td><td>visual_gene[2..18]</td></tr>
+          <tr><td>颜色</td><td>名字首字母 + 明暗加成</td><td>visual_gene + name</td></tr>
+          <tr><td>命名</td><td>6 字母的重复/对称加成</td><td>diamond name</td></tr>
+          <tr><td>编号</td><td>顺子、对称数字加成</td><td>diamond number</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <b>链上直读，无预言机</b>
+        <p>新版合约通过 HVM 内置直接读取钻石基因并在链上算分，不再依赖链下签名证书。这消除了「谁持有预言机私钥谁就能增发」的风险。</p>
+      </div>
+    </section>
+
+    <section id="contract">
+      <h1>合约接口</h1>
+      <p>以下为 #3000 合约的公开接口。所有 <code>external</code> 函数均可由任何人调用，没有权限限制。</p>
+
+      <div class="callout">
+        <b>源码状态</b>
+        <p>本章描述的是 <b>#3000</b> 合约的接口，该版本正在做上线前的功能测试。
+        完整源码将在测试通过后推送到
+        <a href="https://github.com/s6050105/HacdsDeFi" target="_blank" rel="noopener">github.com/s6050105/HacdsDeFi</a>。<br>
+        该仓库当前包含的是上一版 <b>#2000</b> 合约——已部署运行、同样公开可读，但接口与本章略有差异。</p>
+      </div>
+
+      <h3>兑换与流动性</h3>
+      <table class="doc-table mono-table">
+        <thead><tr><th>函数</th><th>签名</th></tr></thead>
+        <tbody>
+          <tr><td>swap_hac_to_ds</td><td><code>(hac_in, min_out, deadline)</code></td></tr>
+          <tr><td>swap_ds_to_hac</td><td><code>(ds_in, min_out, deadline)</code></td></tr>
+          <tr><td>add_liquidity</td><td><code>(hac_amt, ds_amt, min_share, deadline)</code></td></tr>
+          <tr><td>remove_liquidity</td><td><code>(share_burn, min_hac_out, min_ds_out, deadline)</code></td></tr>
+          <tr><td>lp_harvest</td><td><code>()</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>借贷</h3>
+      <table class="doc-table mono-table">
+        <thead><tr><th>函数</th><th>签名</th></tr></thead>
+        <tbody>
+          <tr><td>loan_add_collateral</td><td><code>(ds_amt)</code></td></tr>
+          <tr><td>loan_borrow</td><td><code>(hac_amt)</code></td></tr>
+          <tr><td>loan_repay</td><td><code>(hac_amt)</code></td></tr>
+          <tr><td>loan_liquidate</td><td><code>(borrower, repay, min_coll_out)</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>查询视图（常用）</h3>
+      <table class="doc-table mono-table">
+        <thead><tr><th>函数</th><th>返回</th></tr></thead>
+        <tbody>
+          <tr><td>pool_price</td><td>当前池价（zhu per atom）</td></tr>
+          <tr><td>amm_reserves / amm_reserve_ds</td><td>池子两侧储备</td></tr>
+          <tr><td>balance_hac(addr)</td><td>有效 HAC 余额</td></tr>
+          <tr><td>balance_ds(addr)</td><td>hacds 配额</td></tr>
+          <tr><td>loan_health(addr)</td><td>健康度（万分比）</td></tr>
+          <tr><td>hacd_coverage()</td><td>HACD 覆盖率（万分比）</td></tr>
+          <tr><td>hcut() / lcut()</td><td>社会化因子（1e12 = 100%）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="errors">
+      <h1>错误码</h1>
+      <p>合约以非零整数表示失败，整笔交易回滚。下表对应 #3000 版本。</p>
+      <table class="doc-table mono-table">
+        <thead><tr><th>码</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>成功</td></tr>
+          <tr><td>2</td><td>参数非法（数量为 0 / 名字格式错）</td></tr>
+          <tr><td>11</td><td>余额不足</td></tr>
+          <tr><td>20</td><td>流动性池为空</td></tr>
+          <tr><td>21</td><td>滑点保护触发</td></tr>
+          <tr><td>40</td><td>超过可借额度</td></tr>
+          <tr><td>43</td><td>仓位健康，不能清算</td></tr>
+          <tr><td>48</td><td>单笔只能 1 颗 HACD</td></tr>
+          <tr><td>50</td><td>全局利用率已达上限</td></tr>
+          <tr><td>51</td><td>借款已熔断</td></tr>
+          <tr><td>52</td><td>超过单借款人上限</td></tr>
+          <tr><td>53</td><td>超过 hacds 供应上限</td></tr>
+          <tr><td>54</td><td>HACD 覆盖率不足</td></tr>
+          <tr><td>56</td><td>滑点/份额保护触发</td></tr>
+          <tr><td>59</td><td>交易已过期（deadline）</td></tr>
+          <tr><td>61</td><td>HACD 池记录不足</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="risks">
+      <h1>风险说明</h1>
+
+      <div class="callout danger">
+        <b>智能合约风险</b>
+        <p>合约不可升级。一旦部署，任何漏洞都无法修补。请只投入你能承受损失的资金。</p>
+      </div>
+
+      <div class="callout warn">
+        <b>价格与清算风险</b>
+        <p>hacds 价格完全由 AMM 池子决定。池子较浅时，大额交易会产生显著滑点。抵押借贷在价格下跌 20% 后可能被清算。</p>
+      </div>
+
+      <div class="callout warn">
+        <b>流动性风险</b>
+        <p>极端行情下，AMM 池子可能被单向抽干，导致兑换失败或撤池受限。</p>
+      </div>
+
+      <div class="callout">
+        <b>评分算法风险</b>
+        <p>HACD 评分基于主观维度（形状、颜色、命名）的量化规则。若评分标准与市场共识偏离，会影响 hacds 的内在价值支撑。</p>
+      </div>
+    </section>
+
+    <div class="docs-footer">
+      <a href="/whitepaper/" class="btn btn-ghost">完整白皮书 →</a>
+      <a href="/app/" class="btn btn-primary">进入应用 →</a>
+    </div>
+
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-inner">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <img src="/assets/img/hacds_icon_32.png" style="width:20px;height:20px" alt="">
+          <b style="color:var(--text)">hacds</b>
+        </div>
+        <div data-i18n="footer.tagline"></div>
+      </div>
+      <div class="footer-links">
+        <a href="/app/" data-i18n="nav.app"></a>
+        <a href="/whitepaper/" data-i18n="hero.cta2"></a>
+        <a href="https://github.com/s6050105/HacdsDeFi" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://explorer.hacash.org" target="_blank" rel="noopener">Explorer</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/js/config.js?v=1792799346"></script>
+<script src="/assets/js/i18n.js?v=1792799346"></script>
+<script src="/assets/js/docs.js?v=1792799346"></script>
+</body>
+</html>

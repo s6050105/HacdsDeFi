@@ -1,124 +1,153 @@
 # HacdsDeFi
 
-[English](README.en.md) | **简体中文**
+hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约、一个链下索引器和一个冷热分离的钱包组成。
 
-hacds 是一套运行在 Hacash 主网上的 DeFi 协议，由一份 HVM 合约、一个评分预言机、一个链下索引器和一个冷热分离的钱包组成。
+> **当前版本：#3000（待部署，公开审计中）**
+> 旧版 #2000 已停用：预言机关闭、用户资产全部赎回、合约废弃。
+> 旧版源码见 git 标签 [`v2000-legacy`](../../releases/tag/v2000-legacy)，仅供查阅。
 
-**hacds** 是链上标准资产（serial **2000**，decimal 8），不是铭文。
+## 核心参数
 
-- 合约：`VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1`（Hacash 主网，已上线）
-
-## 下载
-
-| 文件 | 说明 |
+| 项 | 值 |
 |---|---|
-| [HacdsDeFi-Setup-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-Setup-0.1.0-x64.exe) | 安装版（Windows 64 位） |
-| [HacdsDeFi-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-x64.exe) | 免安装便携版 |
-| [HacdsDeFi-0.1.0-arm64.apk](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-arm64.apk) | Android（arm64-v8a，直接安装） |
+| 资产 | hacds（serial **3000**，decimal **0**） |
+| 发行量 | 5,963,298,700,000,000（固定，无增发函数） |
+| 合约地址 | `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`（nonce=2，待部署） |
+| 金库 | `1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK` |
+| 管理员 | **无**（合约不可升级、不可暂停、无自毁） |
+| 预言机 | **无**（改为合约链上直读钻石基因自算分） |
 
-全部发布物见 [Releases](https://github.com/s6050105/HacdsDeFi/releases)。
-
-## 文档
-- 白皮书：[Whitepaper/HacdsDeFi-白皮书.pdf](Whitepaper/HacdsDeFi-白皮书.pdf)（中 / 英 / 土三语）
-- 操作说明书：[Whitepaper/HacdsDeFi-操作说明书.pdf](Whitepaper/HacdsDeFi-操作说明书.pdf)
-- RPC 文档：[Whitepaper/HacdsDeFi-RPC文档.pdf](Whitepaper/HacdsDeFi-RPC文档.pdf)
-- 架构图：[Whitepaper/hacds-架构图.pdf](Whitepaper/hacds-架构图.pdf)
-
-> ⚠️ 早期的「HACD 铭文」方案已废弃。曾上线 xeggex.com 与 nonkyc.io，后停牌。当前版本是重写后的合约方案。
+> ⚠️ **为什么合约地址不是 `VKNwXFFM…`**：那是旧版 #2000 的地址（nonce=1）。
+> 合约地址由「部署者 + nonce」唯一推导，nonce=1 已被占用，重复部署会被节点拒绝。
+> 本版使用 nonce=2。
 
 ## 目录
 
 | 路径 | 内容 |
 |---|---|
-| `hacds_exchange/HacdsDeFi.fitsh` | 合约源码（fitsh，部署于 HVM） |
-| `hacds_exchange/HacdsDeFi.deploy.json` | 部署动作体（无密钥） |
-| `hacds_exchange/oracle/` | 评分预言机（Python，纯标准库） |
-| `hacds_exchange/indexer/` | 链下索引器（Python，纯标准库） |
-| `hacds_exchange/DeFi设计文档-v1..v4.md` | 合约设计演进 |
-| `DESIGN.md` | 合约设计概览（英文） |
-| `wallet-app/` | 钱包 + DeFi 控制台（Electron，桌面） |
-| `android-app/` | **钱包 + DeFi 控制台（Android，原生 Kotlin / Compose）** |
-| `wallet-app/bin/hacds_txbuild.exe` | 随包交易引擎（Rust，构建+本地签名） |
-| `wallet-app/vendor/hacash_sdk.{js,wasm}` | 官方 HACD 转账 SDK（本地签名） |
-| `Whitepaper/` | 白皮书 / 说明书 / RPC 文档（各中英土三语）+ 架构图 |
-| `tools/` | 辅助脚本（生成密钥、赎回） |
-| `SECURITY.md` / `SECURITY.zh.md` | 安全说明（安全模型 + 已知限制） |
+| `hacds_exchange/HacdsDeFi3000.fitsh` | 合约源码（fitsh，部署于 HVM） |
+| `hacds_exchange/HacdsDeFi3000-经济设计-定稿.md` | 经济设计（面向用户） |
+| `hacds_exchange/发行参数-正式.md` | 部署参数（AssetCreate / ContractDeploy 唯一依据） |
+| `hacds_exchange/indexer/` | 链下索引器 + Keeper + 交易构建服务 |
+| `wallet-app/` | 钱包 + DeFi 控制台（Electron） |
+| `android-app/` | 钱包 + DeFi 控制台（Android，原生 Kotlin/Compose） |
+| `hacds.com/` | 官网（静态站 + Cloudflare Worker 反代） |
+| `Whitepaper/` | 白皮书、用户手册、RPC 文档（中英土三语） |
+| `安全审计/` | 上线前安全审计报告与工作底稿 |
+| `hacds_exchange/oracle/` | 旧版预言机源码（#2000 存档，**#3000 不使用**） |
 
 ## 组成
 
-**合约**（`HacdsDeFi.fitsh`）
-一个合约承载四种能力：AMM（恒定乘积，手续费 0.5% 三分）、LP 质押、借贷（抵押率 50%，年化 5%，惰性计息）、金库。
-管理员只能调六个有数值上限的参数，无法触碰用户资金；合约不可升级、无自毁函数。
+**合约**（`HacdsDeFi3000.fitsh`）
 
-**预言机**（`hacds_exchange/oracle/hacds_oracle.py`）
-链下算钻石评分并签名，输出 126 字节证书（`GET /cert?name=X`）。合约收到后链上重算比对。私钥只在服务端。
+一个合约承载四种能力：
+
+- **AMM**：hacds ↔ HAC 恒定乘积，手续费 0.5%（80% 给 LP / 20% 进储备）
+- **HACD 铸造**：存入钻石铸造 hacds，链上直读基因自算 5 维评分，**100% 不打折**
+- **借贷**：用 hacds 抵押借 HAC，LTV 50%，清算线 160%，利用率浮动利率 2%–46%
+- **金库**：手续费归集，任何人可触发清扫
+
+**无管理员**：合约里没有任何人可以暂停、修改参数或转走用户资产。
+参数是编译期常量，部署后不可修改。
+
+**坏账处理**：六级瀑布（储备 → 金库 → LP 奖励 → LP 本金 30% → 全局 hcut → 赤字）。
+极端情况下所有存款人按比例分担，**hcut 只降不升**。
 
 **索引器**（`hacds_exchange/indexer/hacds_indexer.py`）
-合约无法枚举借款人，故在链下扫链建台账。对钱包只暴露一个接口：`GET /watchlist`。
 
-**钱包 + DeFi 控制台**（`wallet-app/`）
-Electron。冷端离线构建+签名，热端联网查询+广播，私钥不触网。
-含资产总览、协议状态、借贷额度提示、AMM 实时报价、HACD 收藏、HACD 点对点转账、离线签名、原子交易、清算台。中英土三语。
+合约无法枚举地址，故在链下扫链建台账。对钱包暴露 `GET /watchlist`；
+另有 `/backing` 供运维监控「合约内部积分 vs 真实链上余额」。
 
-**Android 钱包 + DeFi 控制台**（`android-app/`）
-原生 Kotlin / Jetpack Compose，功能与桌面版对齐。**与桌面版共用同一份 Rust 交易引擎**
-（经 JNI 调用，交易字节级一致）；冷端离线构建/签名 + 分片二维码，热端扫码广播；
-钱包用 Android Keystore 保护，且兼容桌面版 keystore 格式（可互相导入导出）。
-中英土三语、HACD 图样（官方 HIP-5）、资产图标齐全。
+**Keeper**（`hacds_keeper.py`）
 
-> **HACD 点对点转账**：链上一级转账（kind 6），**不经过合约、无需证书、一笔最多 200 颗**。
-> 签名由官方 `hacash_sdk.wasm` 在主进程本地完成，只把 `tx_body` 交给节点广播 —— 私钥不出主进程。
-> 与「存入兑换」区分：后者受 resource 单桶 6,100 限制，**一笔只能 1 颗**。
+无许可的账本键续租。Hacash 的合约存储有租期，到期键会被物理删除。
+任何人可调用 `rent_keys` 续租并领取报酬（0.07 HAC/键，从 `tre:hac` 支出）。
+
+**交易构建服务**（`hacds_build_server.py`）
+
+官网的 `/api/build`。**不签名、不广播、不持私钥**，只把合约调用参数
+编码成未签名交易体交给钱包签名。
+
+**钱包 + DeFi 控制台**（`wallet-app/`、`android-app/`）
+
+冷端离线构建 + 签名，热端联网查询 + 广播，私钥不触网。
+中英土三语。
 
 ## 部署
 
-服务端
+### 服务端
 
 ```bash
-# 预言机（默认端口 8123）
-python3 hacds_exchange/oracle/hacds_oracle.py serve --port 8123 --node http://<node>:8082
+# 索引器（默认监听 127.0.0.1:8124，只读）
+python3 hacds_exchange/indexer/hacds_indexer.py serve --node http://<node>:8082
 
-# 索引器（默认端口 8124）
-python3 hacds_exchange/indexer/hacds_indexer.py --port 8124 --node http://<node>:8082
+# 交易构建服务（默认 127.0.0.1:8125）
+python3 hacds_exchange/indexer/hacds_build_server.py \
+    --node http://<node>:8082 \
+    --contract T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH \
+    --txbuild /opt/hacash_fullnode/target/release/hacds_txbuild
 ```
 
-索引器的 systemd 单元与详细说明见 `hacds_exchange/indexer/部署说明-索引器.md`。
+详细说明：
 
-钱包
+- 索引器：[`部署说明-索引器.md`](hacds_exchange/indexer/部署说明-索引器.md)
+- 构建服务：[`部署说明-构建服务.md`](hacds_exchange/indexer/部署说明-构建服务.md)
+
+### 钱包
 
 ```bash
 cd wallet-app
 npm install
-npm start        # 开发运行
-npm run dist     # 打包到 dist/
+npm start          # 开发运行
+npm run dist       # 打包
 ```
-
-Android
 
 ```bash
 cd android-app
-# 1) 交叉编译 Rust 引擎（需要 NDK；产出 jniLibs 下的 .so）
 ./build-engine.sh both
-# 2) 构建 APK
-export JAVA_HOME=<你的 JDK17>
-./gradlew :app:assembleRelease          # arm64-v8a（正式分发）
-./gradlew -Pabi=x86_64 :app:assembleDebug   # x86_64（模拟器）
+./gradlew :app:assembleRelease
 ```
 
-> 首次构建前请在 `android-app/` 下建 `local.properties` 指向本机 SDK：
-> `sdk.dir=/path/to/Android/sdk`。
-> 发布签名密钥库不入库（见 `android-app/README.md` 的签名说明）。
+> 打包前确认 `wallet-app/bin/hacds_txbuild.exe` 与 `android-app/.../libhacds_txbuild.so`
+> 是 **2026-10-26 之后**构建的——旧引擎不支持 #3000 的无证书 HACD 路径。
+> 用 `sha256sum -c SHA256SUMS.txt` 核对。
 
 ## 安全
 
-- **私钥永不落盘、不出主进程**：构建时以环境变量注入子进程（`hacds_txbuild`）或直接喂给 WASM，全程不触网。
-- **不托管**：hacds 是标准链上资产，放在用户自己的地址里。
-- **签名本地完成**：节点的 `/util/transaction/sign` 与 `/create/coin/transfer` 要求私钥经 HTTP 传输，**本项目不使用**。
-- 仓库内**不含任何私钥或 wallet 文件**；`.gitignore` 已设防。
+- **私钥永不落盘明文、不出子进程**：构建时以环境变量或进程内覆盖传入，不进 argv
+- **合约无管理员**：没有暂停开关，也没有人能改参数或转走资产
+- **金库是单一冷钱包**：私钥丢失 = 该笔手续费永久锁死，这是已知且已权衡的风险
 
-> ⚠️ **本项目已上主网管理真钱。合约未经第三方审计，管理员为单钥且不可更换。**
-> 完整安全模型与已知限制见 **[SECURITY.zh.md](SECURITY.zh.md)**。
+完整威胁模型与已修复项见 [`安全审计/`](安全审计/)。
+
+## 审计
+
+| 轮次 | 日期 | 结论 |
+|---|---|---|
+| 上线前审计 | 2026-10-25 | 4 阻断 / 5 High / 16 Medium |
+| **终审** | **2026-10-27** | 上轮阻断全修；新增 2 阻断（已修），代码侧无阻断项 |
+
+- [终审报告](安全审计/上线前安全审计报告-2026-10-27-终审.md)
+- [上线前审计报告](安全审计/上线前安全审计报告-2026-10-25.md)
+- [工作底稿](安全审计/工作底稿/)
+
+> 合约尚未编译：依赖主网 VM 内置 `hacd_info`（按名字读钻石基因），
+> 该内置在主网尚未激活。合约部分为静态审读 + 离线沙盒验证。
+
+## 已知限制
+
+| 项 | 状态 |
+|---|---|
+| 全链路明文 HTTP | 待服务端上 TLS |
+| 官网无 CSP | 待补 |
+| Android 生物识别未绑定 Keystore | P1，需改密钥生命周期 |
+| 索引器单线程 | 一条慢连接可占满，待改 ThreadingHTTPServer |
 
 ## 许可证
 
 MIT，见 [LICENSE](LICENSE)。
+
+---
+
+> 早期的「HACD 铭文」方案已废弃（曾上线 xeggex.com 与 nonkyc.io，后停牌）。
+> 当前是重写后的合约方案。

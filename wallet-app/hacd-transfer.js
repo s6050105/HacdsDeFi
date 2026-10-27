@@ -75,6 +75,27 @@ async function ensureSdk() {
  * @returns {{tx_body:string, tx_hash:string, diamond_count:number, diamonds:string,
  *            fee:string, payment_address:string, collection_address:string}}
  */
+// 转账交易的时间戳：取当前秒，并保证**本进程内严格单调递增**。
+// 与 main.js 的 nextTxTime 同构（那里是 argv 注入，这里是 SDK 参数）。
+// 链上只校验"时间戳不得超前于当前时间"，不校验下限，所以本秒用过后
+// 只能等时钟走进下一秒，不能直接 +1。
+let _lastTransferTs = 0n;
+async function nextTransferTimestamp() {
+  let t = BigInt(Math.floor(Date.now() / 1000));
+  if (t <= _lastTransferTs) {
+    const waitMs = Number(_lastTransferTs + 1n) * 1000 - Date.now() + 5;
+    if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+    t = BigInt(Math.floor(Date.now() / 1000));
+    // 系统时钟回拨兜底：最多再等 5 秒
+    for (let i = 0; i < 50 && t <= _lastTransferTs; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      t = BigInt(Math.floor(Date.now() / 1000));
+    }
+  }
+  _lastTransferTs = t;
+  return t;
+}
+
 async function buildHacdTransfer(req) {
   const privkey = String(req.privkey || '').trim().replace(/^0x/, '');
   if (!/^[0-9a-fA-F]{64}$/.test(privkey)) throw new Error('私钥格式不对（应为 64 位 hex）');
@@ -94,9 +115,17 @@ async function buildHacdTransfer(req) {
   // fee：官方要求「mei 小数字符串」。经实测：传已算好的 HAC 小数字符串即可（内部做 Amount 解析）。
   const fee = feeHac || '0.0002';
 
-  // chain_id: 0 = 主网；timestamp: 0 = SDK 取当前时间
-  // 注意：chain_id / timestamp 必须是 BigInt，否则 wasm-bindgen 报
-  //       "Cannot convert 0 to a BigInt"
+  // 每次构建都用新的时间戳，避免同参数重复提交撞上同一 hash
+  const timestamp = await nextTransferTimestamp();
+
+  // chain_id: 0 = 主网
+  // ⚠ timestamp 传 0n **不是**"让 SDK 取当前时间"，而是字面量 0。
+  //   实测：同样的钻石 + 同样的 fee + 同样的收款地址，ts=0n 连续两次会得到
+  //   **逐字节相同**的交易（hash 也相同），节点会以
+  //   `tx <hash> already exists in height N` 拒绝第二次提交。
+  //   Hacash Type-3 没有 nonce，timestamp 是唯一的自然变化源。
+  //   注意：chain_id / timestamp 必须是 BigInt，否则 wasm-bindgen 报
+  //         "Cannot convert 0 to a BigInt"
   const raw = sdk.hacd_transfer(
     0n,                      // chain_id（主网）
     privkey,                 // from_pass（实测：私钥 hex 与口令等价）
@@ -104,7 +133,7 @@ async function buildHacdTransfer(req) {
     toAddr,
     names.join(','),
     fee,
-    0n                       // timestamp
+    timestamp                // 真实秒级时间戳（见 nextTransferTimestamp）
   );
 
   const out = JSON.parse(raw);
@@ -128,4 +157,4 @@ function defaultFeeFor(count) {
   return (0.0002 * n).toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
 }
 
-module.exports = { ensureSdk, buildHacdTransfer, defaultFeeFor };
+module.exports = { ensureSdk, buildHacdTransfer, defaultFeeFor, nextTransferTimestamp };

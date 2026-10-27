@@ -13,21 +13,21 @@
     <string name="acct_useKey">Use external key file</string>
     <string name="admin_desc">Current address %1$s is the contract admin. Actions affect all users and are irreversible.</string>
     <string name="admin_noReadback">Note: the contract exposes no cfg:* read interface, so current values cannot be shown; set carefully.</string>
-    <string name="admin_rent">Batch rent</string>
-    <string name="admin_rentD">Admin batch-rent contract storage keys.</string>
-    <string name="admin_setBonus">Set liquidation bonus</string>
+    <string name="admin_rent">Rent keys (#3000: anyone)</string>
+    <string name="admin_rentD">In #3000 this is rent_keys, open to anyone.</string>
+    <string name="admin_setBonus">[#2000] Set liquidation bonus</string>
     <string name="admin_setBonusD">basis points, 0–1000 (0–10%).</string>
-    <string name="admin_setFee">Set AMM fee</string>
+    <string name="admin_setFee">[#2000] Set AMM fee</string>
     <string name="admin_setFeeD">basis points, 0–300 (0–3%).</string>
     <string name="admin_setLoanRate">Set loan rate</string>
     <string name="admin_setLoanRateD">basis points, 0–2000 (0–20%).</string>
-    <string name="admin_setOracle">Change oracle</string>
+    <string name="admin_setOracle">[#2000] Change oracle</string>
     <string name="admin_setOracleD">Change the trusted oracle address.</string>
-    <string name="admin_setPaused">Pause / resume</string>
+    <string name="admin_setPaused">[#2000] Pause / resume</string>
     <string name="admin_setPausedD">1=pause, 0=resume.</string>
     <string name="admin_title">Admin actions</string>
     <string name="adv_title">Advanced (fee / gas)</string>
-    <string name="amm_inTpl">In &lt;b&gt;%1$s&lt;/b&gt; → expected out ≈ &lt;b class=\"qval\"&gt;%1$s&lt;/b&gt;</string>
+    <string name="amm_inTpl">In &lt;b&gt;%1$s&lt;/b&gt; → expected out ≈ &lt;b class=\"qval\"&gt;%2$s&lt;/b&gt;</string>
     <string name="amm_poolStatus">Pool status</string>
     <string name="amm_quoteLine">Price 1→%1$s   Fee %2$s%% (default)   Pool %3$s / %4$s</string>
     <string name="app_slogan">Cold &amp; hot dual wallet + DeFi console</string>
@@ -93,7 +93,7 @@
     <string name="f_dsSideAtoms">hacds side (atoms)</string>
     <string name="f_feeAdv">Tx fee (blank = auto-estimate)</string>
     <string name="f_feeAdvHint">Auto by node rate by default</string>
-    <string name="f_gasMax">gas_max byte (default 99)</string>
+    <string name="f_gasMax">gas_max byte (blank = auto: 1 for HAC/HACD, 50 for hacds, 99 for contract)</string>
     <string name="f_hacAmt">Amount (e.g. 1:248 = 1 HAC)</string>
     <string name="f_hacAmt2">Amount (e.g. 0.5 or 1:248)</string>
     <string name="f_hacIn">HAC points in</string>
@@ -358,8 +358,8 @@
     <string name="p_poolHac">Pool HAC</string>
     <string name="p_price">Price</string>
     <string name="p_rate">Collateral ratio</string>
-    <string name="p_stakedDs">Staked hacds</string>
-    <string name="p_stakedHac">Staked HAC</string>
+    <string name="p_stakedDs">Holder reward (quota)</string>
+    <string name="p_stakedHac">Holder reward (HAC dep.)</string>
     <string name="p_treDs">Treasury pending hacds</string>
     <string name="p_treHac">Treasury pending HAC</string>
     <string name="pv_bytes">Bytes</string>
@@ -373,7 +373,7 @@
     <string name="q_fieldWho">Address</string>
     <string name="q_hac">HAC points</string>
     <string name="q_lpShare">LP shares</string>
-    <string name="q_stake">Total staked</string>
+    <string name="q_stake">Total held (incl. HAC dep.)</string>
     <string name="q_title">Read-only queries</string>
     <string name="qb_coll">Query my collateral</string>
     <string name="qb_debt">Query my debt</string>
@@ -385,7 +385,7 @@
     <string name="qb_poolDs">Query hacds pool</string>
     <string name="qb_poolHac">Query HAC pool</string>
     <string name="qb_price">Query price</string>
-    <string name="qb_stake">Query staked total</string>
+    <string name="qb_stake">Query total held</string>
     <string name="qr_hint">Scan with the mobile hot wallet to get the tx body; large txs are split into parts, scan each.</string>
     <string name="qr_next">Next</string>
     <string name="qr_part">Part %1$s/%1$s</string>
@@ -491,6 +491,7 @@ Make sure nobody is watching or recording. Continue?</string>
     <string name="x_poolEmptyNoVal">Pool is empty; cannot value collateral</string>
     <string name="x_overBorrow">✘ Over borrow limit</string>
     <string name="x_canBorrow">✔ Can borrow</string>
+    <string name="x_decimalNote">hacds has decimal 0, so 1 smallest unit is exactly 1 hacds. Scores are scaled at 1 point = 100M, so a 1-point diamond mints 100,000,000 hacds. This is by design, not an error.</string>
     <string name="x_sandboxNote">Queries use node sandboxcall, serialized with backoff retry (D45).</string>
     <string name="x_protoHint">Refresh "Protocol status" on Home, or use the buttons below</string>
     <string name="x_coldNote">Cold side: build and sign offline; hand the signed hex to an online device to broadcast.</string>
@@ -600,4 +601,8 @@ Make sure nobody is watching or recording. Continue?</string>
     <string name="x_qrPrev">Previous</string>
     <string name="x_qrNext">Next</string>
     <string name="x_qrTotal">%1$s shards total; scan one by one on the hot side; CRC verified when complete.</string>
+  <string name="op_sweepHac_t">Sweep treasury (contract→treasury, HAC)</string>
+  <string name="op_sweepHac_d">Move the contract-accrued HAC fees to the treasury (PermitHAC deducts tre:hac).</string>
+  <string name="op_sweepDs_t">Sweep treasury (contract→treasury, hacds)</string>
+  <string name="op_sweepDs_d">Move the contract-accrued hacds fees to the treasury (PermitAsset deducts tre:ds).</string>
 </resources>

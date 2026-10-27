@@ -323,7 +323,7 @@ GET http://43.251.101.101:8124/watchlist
 
 **实现要点**：
 - 索引器地址放**设置项**（可留空）；留空或不可达时 UI 应明确提示「未连接索引器」，而不是静默空白。
-- `/watch/add` `/watch/remove` 也走服务端，保持台账唯一（否则 PC 与手机各存一份会不一致）。
+- `/watch/add` `/watch/remove` 原设计为走服务端保持台账唯一；**2026-10-22 起服务端改为只读**（`/sync`、`/watch/add`、`/watch/remove` 一律 403，见索引器部署说明），故 App **不再写服务端台账**——手工观察地址仅存本地。自动扫链得到的借款人台账仍由服务端每轮刷新并通过 `GET /watchlist` 共享。
 - 移动端**不要**实现本地扫链兜底 —— 服务不可用时应提示用户，而非暗中消耗流量。
 - Kotlin 侧因此**完全不需要 sha3**（selector 计算在服务端完成）。
 
@@ -426,7 +426,7 @@ HACD 点对点是**链上一级转账**（kind 6 `TransferHacdFromTo`），**不
 | D25 | **管理员专属界面**（sandbox 探测身份） | ✅ |
 | D26 | 宣传口径 | ✅ 同 PC |
 | **D27/D29** | **资产图标**（HAC/HACD/hacds/SAT/其它） | ✅ 复用同套图标资源 |
-| **D28/D36** | **多语言**（中/英/土）+ **全量文案 i18n** | ✅ **移动端必须**(475 词条 × 3) |
+| **D28/D36** | **多语言**（中/英/土）+ **全量文案 i18n** | ✅ **移动端必须**(479 词条 × 3) |
 | **D30** | **钱包地址热切换**（无需先退出） | ✅ |
 | **D31** | **切换地址清空 HACD 缓存** | ✅ |
 | **D32** | 「锁定 / 退出」文案 | ✅ |
@@ -485,7 +485,32 @@ HACD 点对点是**链上一级转账**（kind 6 `TransferHacdFromTo`），**不
 | 链接器 | ✅ 需 `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=<NDK>/…/aarch64-linux-android21-clang.cmd`（**Windows 下不能用 `.sh` 包装，必须用 NDK 的 `.cmd`**） |
 | 待做 | ⬜ 抽 `lib.rs` 暴露 JNI；⬜ Kotlin 工程调用；⬜ 与 PC 结果比对 |
 
-> 关键经验：Windows + NDK 交叉编译 Android 时，**CC / linker 都必须指向 NDK 的 `.cmd` 包装**（`.exe` 不存在，`.sh` 无法被 Windows 执行）。
+> 关键经验：Windows + NDK 交叉编译 Android 时，**CC 用 NDK 的 `.cmd` 包装**。
+> ⚠ 但 **linker 必须用 `clang.exe` 而非 `.cmd`**：`.cmd` 经 cmd.exe 二次解析会破坏
+> `-Wl,--version-script=`（cdylib 才触发，普通 bin 不暴露）；且需用 **target 作用域**的
+> `CARGO_TARGET_<T>_RUSTFLAGS` 补 `--target`（全局 `RUSTFLAGS` 会污染宿主 build script）。
+
+### 6.2 M0–M6 实测结果（2026-10-22 · 模拟器 x86_64 · 主网真实数据）
+
+| 验收项 | 结果 |
+|---|---|
+| M0 Rust `.so` 产出 | ✅ arm64-v8a + x86_64 均成功，JNI 符号正确导出 |
+| M0 与 PC 逐字节一致 | ✅ 同 key/同参数 → `signed_tx_hex` **318 字符全等** |
+| 交易被主网节点接受 | ✅ `/util/transaction/check` → `ret:0`（type 3 / kind 44） |
+| sha3 selector 三方一致 | ✅ Kotlin = PC JS = 主网节点（`pool_price`→`b6e791c9`） |
+| scrypt 与 Node 一致 | ✅ 单测向量全等（PC 钱包可互通） |
+| M1 骨架 | ✅ Compose 底部导航 + 二级等宽网格页签 |
+| M2 钱包 | ✅ Keystore 创建 → 锁定 → **免密重开**（vault）；PC keystore 互导 |
+| M3 交易 | ✅ 构建/签名/自动 fee 迭代/离线未签名体；`hacd-to` 子命令已并入引擎 |
+| M4 资产 | ✅ 主网池数据（池 5095 HAC / 169069506278 atoms）；HACD 图样（官方 HIP-5，105 颗全渲染）；协议状态；借贷常驻卡 |
+| D58 借贷额度提示 | ✅ 实测「追加后总可借 1.50677874 HAC」 |
+| D62 加流动性联动 | ✅ 实测「池内比例 5095.00677112 HAC ↔ 169069506278 atoms」 |
+| M5 离线协作 | ✅ 分片二维码出码（`HXDS/seq/total/crc/data`）+ 扫码拼回 + CRC 校验 + 文件兜底 |
+| M6 管理员 | ✅ 身份探测 + 6 操作页（未实测真实执行） |
+| M7 体验 | ✅ 错误翻译；479 词条 ×3 语言；资产图标；宽屏限宽适配 |
+
+> **待服务端配合**：D51 清算台的「借贷清算台」需服务端索引器
+> （`hacds_indexer.py`，`GET /watchlist`）；App 客户端与降级提示已就绪。
 
 ---
 

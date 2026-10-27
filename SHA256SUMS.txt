@@ -1,0 +1,24 @@
+# HacdsDeFi — 随包二进制 / vendored 资源 校验和（SHA-256）
+#
+# 用途：供下载 Release 与核对仓库内随包产物是否被篡改。
+#   校验： sha256sum -c SHA256SUMS.txt      （Linux/macOS）
+#          Get-FileHash -Algorithm SHA256 <文件>   （Windows PowerShell）
+#
+# 生成日期：2026-10-22（2026-10-27 重建引擎后更新 txbuild 三项）
+#
+# ⚠ 说明：这些二进制中，hacds_txbuild.exe 与 libhacds_txbuild.so 由
+#   `D:\hacash_fullnode`（testkit / android-jni crate）构建，源码不在本仓库，
+#   故无法由本仓库源码复现。此处仅提供产物指纹，供发布后一致性核对。
+
+40e7e5677f15c0d8f102c627d0b742c9ea4de9b0fb1409906c0d021964e0b112  wallet-app/bin/hacds_txbuild.exe
+5009dc2b8fd1c52e423d983d3ded6dde2ac9a6e4da882e36cb4c906bb9e28593  android-app/app/src/main/jniLibs/arm64-v8a/libhacds_txbuild.so
+7640b3d629920a6404b0be5c32915cbba15c8151a2f79c3cdff16a54585f2305  android-app/app/src/main/jniLibs/x86_64/libhacds_txbuild.so
+f6ce12f28f3db950ddd01da4131efc34fbaba63325567ccb3ea868b5f9058e16  wallet-app/vendor/hacash_sdk.wasm
+8a8e3914c5ef28e474096f0482e18ab307c0d3c5ac551247a3ccb7beaa0ac8f7  wallet-app/vendor/hacash_sdk.js
+2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046  android-app/gradle/wrapper/gradle-wrapper.jar
+
+# 渲染层内嵌第三方库（vendor/）
+5ff99e6bcad44e7ed0acf66e0e64253e5a761b4344e061cd069fa0aca1d603d7  wallet-app/renderer/vendor/diamondgene.js
+a7e754da55536cf0eb2a4c69eb916cc0c60496a1838e45761806826bddca74da  wallet-app/renderer/vendor/diamondsvgimg.js
+79ec86f82856005b1c887905cfccfcfbec3821ca61c7fd5a952faa5f778f791c  wallet-app/renderer/vendor/qrcode.js
+1bf93215a3ce7736bec4a619c9c9e2552e411239799437cdc12606a9dd188141  wallet-app/renderer/vendor/sha3.js

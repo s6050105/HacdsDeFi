@@ -61,13 +61,23 @@ fun HomeScreen(vm: AppViewModel) {
                     } else {
                         AssetRow("HAC", tr("ov_hac"), formatHac(a.hac))
                         AssetRow("HACD", tr("ov_hacd"), tr("x_nDiamonds", a.diamondCount))
-                        // 预期 hacds：Σ评分 × 1e8（atoms）
+                        // 预期 hacds：Σ评分 × SCORE_SCALE(1e8)
+                        // decimal=0 但分数按 1 分 = 1e8 定标：
+                        //   存 1 分钻石 → 铸 100,000,000 个 hacds
                         AssetRow("HACDS", tr("ov_expect"),
                             a.expectedHacds?.toString() ?: tr("ov.loadHacdCalc"))
                         AssetRow("HACDS", tr("ov_due"), a.due ?: "—")
                         AssetRow("HACDS", tr("ov_onchain"), a.hacdsOnchain)
                         AssetRow("HAC", tr("ov_hacPoints"), a.hacPoints ?: "—")
                         AssetRow("SAT", tr("ov_sat"), a.satoshi.toString())
+                        // decimal=0 说明：hacds 的 1 个最小单位就是 1 个 hacds，
+                        // 分数按 1 分 = 1e8 定标，用户会看到很大的数字，需解释
+                        Text(
+                            tr("x_decimalNote"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
                         if (a.otherAssets.isNotEmpty()) {
                             Text(tr("ov_others"),
                                 style = MaterialTheme.typography.labelMedium,
@@ -173,14 +183,21 @@ fun formatHac(v: String?): String {
 }
 
 /**
- * 池价显示（PC 口径）：合约 pool_price 是「×1e8 定标值」，
- * 显示 = raw / 1e8，保留 6 位小数 + " HAC/hacds"。
+ * 池价显示。
+ *
+ * 合约 `pool_price()` 返回 **zhu per hacds**（无额外缩放）：
+ *   pool_price = amm:hac(zhu) / amm:ds(个数)
+ *
+ * 界面上要 HAC/hacds，所以 ÷1e8。
+ * ⚠ 不要与 `amm:ref` 混用：ref 是 zhu/hacds × 1e8，需要 ÷1e16 才是 HAC/hacds。
+ *    Contracts 里另有 `ref_price_zhu_per_ds()` 直接给 zhu/hacds，优先用它。
  */
 fun formatPrice(v: String?): String {
     if (v.isNullOrBlank()) return "—"
     return try {
-        BigDecimal(v).divide(BigDecimal(100_000_000L), 6, RoundingMode.DOWN)
-            .toPlainString() + " HAC/hacds"
+        // zhu → HAC：÷1e8，保留 8 位小数（价格可能很小，如 0.00001 HAC/hacds）
+        BigDecimal(v).divide(BigDecimal(100_000_000L), 8, RoundingMode.DOWN)
+            .stripTrailingZeros().toPlainString() + " HAC/hacds"
     } catch (e: Exception) {
         v
     }

@@ -2,126 +2,159 @@
 
 **English** | [简体中文](README.md)
 
-hacds is a DeFi protocol on the Hacash mainnet: one HVM contract, a scoring oracle, an off-chain indexer, and a cold/hot wallet console.
+hacds is a DeFi protocol on the Hacash mainnet: one HVM contract, an off-chain indexer, and a cold/hot-separated wallet console.
 
-**hacds** is a standard on-chain asset (serial **2000**, decimal 8) — not an inscription.
+> **Current version: #3000 (pending deployment, under public audit)**
+> The previous #2000 is retired: oracle shut down, all user assets redeemed, contract abandoned.
+> Legacy source is kept under the git tag [`v2000-legacy`](../../releases/tag/v2000-legacy), for reference only.
 
-- Contract: `VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1` (Hacash mainnet, live)
+## Core parameters
 
-## Download
-
-| File | Description |
+| Item | Value |
 |---|---|
-| [HacdsDeFi-Setup-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-Setup-0.1.0-x64.exe) | Installer (Windows 64-bit) |
-| [HacdsDeFi-0.1.0-x64.exe](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-x64.exe) | Portable, no install |
-| [HacdsDeFi-0.1.0-arm64.apk](https://github.com/s6050105/HacdsDeFi/releases/latest/download/HacdsDeFi-0.1.0-arm64.apk) | Android (arm64-v8a, sideload) |
+| Asset | hacds (serial **3000**, decimal **0**) |
+| Supply | 5,963,298,700,000,000 (fixed, no mint function) |
+| Contract | `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH` (nonce=2, not yet deployed) |
+| Treasury | `1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK` |
+| Admin | **None** (non-upgradeable, non-pausable, no self-destruct) |
+| Oracle | **None** (the contract reads diamond genes on-chain and scores locally) |
 
-All releases: [Releases](https://github.com/s6050105/HacdsDeFi/releases).
-
-## Documentation
-
-- Whitepaper: [Whitepaper/HacdsDeFi-Whitepaper.en.pdf](Whitepaper/HacdsDeFi-Whitepaper.en.pdf) (also zh / tr)
-- User guide: [Whitepaper/HacdsDeFi-User-Guide.en.pdf](Whitepaper/HacdsDeFi-User-Guide.en.pdf)
-- RPC reference: [Whitepaper/HacdsDeFi-RPC-Doc.en.pdf](Whitepaper/HacdsDeFi-RPC-Doc.en.pdf)
-- Architecture: [Whitepaper/hacds-架构图.pdf](Whitepaper/hacds-架构图.pdf)
-
-> ⚠️ The earlier "HACD inscription" design is abandoned. It was listed on xeggex.com and nonkyc.io, then suspended. The current version is the rewritten contract design.
+> ⚠️ **Why the contract address is not `VKNwXFFM…`**: that is the legacy #2000 address (nonce=1).
+> A contract address is derived uniquely from `(deployer, nonce)`. nonce=1 is taken,
+> so redeployment there is rejected by the node. This version uses nonce=2.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `hacds_exchange/HacdsDeFi.fitsh` | Contract source (fitsh, deployed on HVM) |
-| `hacds_exchange/HacdsDeFi.deploy.json` | Deployment action body (no keys) |
-| `hacds_exchange/oracle/` | Scoring oracle (Python, stdlib only) |
-| `hacds_exchange/indexer/` | Off-chain indexer (Python, stdlib only) |
-| `DESIGN.md` | Contract design overview (English) |
-| `hacds_exchange/DeFi设计文档-v1..v4.md` | Contract design iterations (Chinese) |
-| `wallet-app/` | Wallet + DeFi console (Electron, desktop) |
-| `android-app/` | **Wallet + DeFi console (Android, native Kotlin / Compose)** |
-| `wallet-app/bin/hacds_txbuild.exe` | Bundled tx engine (Rust; build + local signing) |
-| `wallet-app/vendor/hacash_sdk.{js,wasm}` | Official HACD transfer SDK (local signing) |
-| `Whitepaper/` | Whitepaper / user guide / RPC reference (each zh + en + tr) + architecture |
-| `tools/` | Helper scripts (key generation, redemption) |
-| `SECURITY.md` / `SECURITY.zh.md` | Security model and known limitations |
+| `hacds_exchange/HacdsDeFi3000.fitsh` | Contract source (fitsh, deployed on HVM) |
+| `hacds_exchange/HacdsDeFi3000-经济设计-定稿.md` | Economic design (user-facing) |
+| `hacds_exchange/发行参数-正式.md` | Deployment parameters (sole authority) |
+| `hacds_exchange/indexer/` | Off-chain indexer + keeper + tx build service |
+| `wallet-app/` | Wallet + DeFi console (Electron) |
+| `android-app/` | Wallet + DeFi console (Android, native Kotlin/Compose) |
+| `hacds.com/` | Website (static site + Cloudflare Worker proxy) |
+| `Whitepaper/` | Whitepaper, user guide, RPC docs (zh/en/tr) |
+| `安全审计/` | Pre-launch security audit reports and working papers |
+| `hacds_exchange/oracle/` | Legacy oracle source (#2000 archive, **unused by #3000**) |
 
 ## Components
 
-**Contract** (`HacdsDeFi.fitsh`)
-One contract carries four capabilities: AMM (constant product, 0.5% fee split three ways), LP staking, lending (50% collateral ratio, 5% APR, lazy interest), and treasury.
-The admin can only call six numerically capped parameters and cannot touch user funds. The contract is not upgradeable and has no self-destruct.
+**Contract** (`HacdsDeFi3000.fitsh`)
 
-**Oracle** (`hacds_exchange/oracle/hacds_oracle.py`)
-Scores diamonds off-chain and signs the result, returning a 126-byte certificate (`GET /cert?name=X`). The contract recomputes the score on-chain and compares. The private key stays server-side.
+One contract provides four capabilities:
+
+- **AMM**: hacds ↔ HAC constant product, 0.5% fee (80% to LPs / 20% to reserve)
+- **HACD minting**: deposit a diamond to mint hacds; 5-dimension score computed on-chain from the gene; **no discount**
+- **Lending**: borrow HAC against hacds, 50% LTV, 160% liquidation line, utilization-based rate 2%–46%
+- **Treasury**: fee accumulation, anyone can trigger a sweep
+
+**No admin**: nobody can pause, change parameters, or move user assets.
+Parameters are compile-time constants and cannot be changed after deployment.
+
+**Bad debt**: a six-stage waterfall (reserve → treasury → LP rewards → 30% of LP principal
+→ global `hcut` → deficit). In the extreme, all depositors share the loss proportionally,
+and **`hcut` only decreases, never recovers**.
 
 **Indexer** (`hacds_exchange/indexer/hacds_indexer.py`)
-The contract cannot enumerate borrowers, so the indexer scans the chain off-chain to build a ledger. The wallet sees exactly one endpoint: `GET /watchlist`.
 
-**Wallet + DeFi console** (`wallet-app/`)
-Electron. The cold side builds and signs offline; the hot side queries and broadcasts. The private key never touches the network.
-Includes asset overview, protocol status, borrow-limit hints, live AMM quotes, HACD gallery, HACD peer-to-peer transfer, offline signing, atomic transactions, and a liquidation console. Localised into Chinese, English and Turkish.
+The contract cannot enumerate addresses, so the indexer scans the chain off-chain.
+Wallets use `GET /watchlist`; `/backing` is for operators to monitor
+"contract-side points vs real on-chain balance".
 
-**Android wallet + DeFi console** (`android-app/`)
-Native Kotlin / Jetpack Compose, feature-parity with the desktop build. **Shares the exact same Rust
-transaction engine as the desktop app** (called over JNI, byte-identical transactions); cold-side
-offline build/sign with sharded QR codes, hot-side scan-and-broadcast. The wallet is protected by the
-Android Keystore and is compatible with the desktop keystore format (interchangeable import/export).
-Chinese/English/Turkish, HACD artwork (official HIP-5), full asset icon set.
+**Keeper** (`hacds_keeper.py`)
 
-> **HACD peer-to-peer transfer**: a first-class chain transfer (kind 6) — **does not go through the contract, needs no certificate, up to 200 diamonds per transaction**.
-> Signing is done locally in the main process by the official `hacash_sdk.wasm`; only the `tx_body` is handed to the node for broadcast, so the private key never leaves the main process.
-> Different from "deposit to swap": the latter is bound by the resource bucket cap of 6,100 — **one diamond per transaction**.
+Permissionless storage-key renewal. Hacash contract storage has a lease; expired keys are
+physically deleted. Anyone can call `rent_keys` to renew and earn 0.07 HAC per key,
+paid from `tre:hac`.
+
+**Tx build service** (`hacds_build_server.py`)
+
+The website's `/api/build`. It **does not sign, broadcast, or hold any private key** —
+it only encodes contract call arguments into an unsigned transaction body for the wallet to sign.
+
+**Wallet + DeFi console** (`wallet-app/`, `android-app/`)
+
+Cold-side builds and signs offline; hot-side queries and broadcasts; the private key never
+touches the network. Available in Chinese, English, and Turkish.
 
 ## Deployment
 
-Server side
+### Server
 
 ```bash
-# Oracle (default port 8123)
-python3 hacds_exchange/oracle/hacds_oracle.py serve --port 8123 --node http://<node>:8082
+# Indexer (defaults to 127.0.0.1:8124, read-only)
+python3 hacds_exchange/indexer/hacds_indexer.py serve --node http://<node>:8082
 
-# Indexer (default port 8124)
-python3 hacds_exchange/indexer/hacds_indexer.py --port 8124 --node http://<node>:8082
+# Tx build service (defaults to 127.0.0.1:8125)
+python3 hacds_exchange/indexer/hacds_build_server.py \
+    --node http://<node>:8082 \
+    --contract T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH \
+    --txbuild /opt/hacash_fullnode/target/release/hacds_txbuild
 ```
 
-The systemd unit and details are in `hacds_exchange/indexer/部署说明-索引器.md` (Chinese).
+Detailed guides (Chinese): [indexer](hacds_exchange/indexer/部署说明-索引器.md),
+[build service](hacds_exchange/indexer/部署说明-构建服务.md).
 
-Wallet
+### Wallet
 
 ```bash
 cd wallet-app
 npm install
-npm start        # run in development
-npm run dist     # build into dist/
+npm start          # dev
+npm run dist       # package
 ```
-
-Android
 
 ```bash
 cd android-app
-# 1) Cross-compile the Rust engine (needs the NDK; outputs .so under jniLibs/)
 ./build-engine.sh both
-# 2) Build the APK
-export JAVA_HOME=<your JDK17>
-./gradlew :app:assembleRelease            # arm64-v8a (release)
-./gradlew -Pabi=x86_64 :app:assembleDebug # x86_64 (emulator)
+./gradlew :app:assembleRelease
 ```
 
-> Before the first build, create `android-app/local.properties` pointing at your SDK:
-> `sdk.dir=/path/to/Android/sdk`.
-> The release signing keystore is not committed (see `android-app/README.md`).
+> Before packaging, make sure `wallet-app/bin/hacds_txbuild.exe` and
+> `android-app/.../libhacds_txbuild.so` were built **after 2026-10-26** — the old engine
+> does not support the certificate-free HACD path of #3000.
+> Verify with `sha256sum -c SHA256SUMS.txt`.
 
 ## Security
 
-- **The private key is never written to disk and never leaves the main process**: it is injected into the child process via an environment variable (`hacds_txbuild`) or handed straight to the WASM. It never touches the network.
-- **Non-custodial**: hacds is a standard on-chain asset held in the user's own address.
-- **Signing is local**: the node's `/util/transaction/sign` and `/create/coin/transfer` require sending your private key over HTTP. **This project does not use them.**
-- The repository contains **no private keys and no wallet files**; `.gitignore` guards against it.
+- **Private keys are never written to disk in plaintext and never enter child processes**:
+  they are passed via environment variables or in-process overrides, never on argv
+- **The contract has no admin**: no pause switch, nobody can change parameters or move assets
+- **The treasury is a single cold wallet**: losing that key permanently locks the accumulated
+  fees. This is a known, accepted trade-off.
 
-> ⚠️ **This project is live on mainnet and handles real funds. The contract has not been
-> audited, and the admin is a single key that cannot be replaced.**
-> Full security model and known limitations: **[SECURITY.md](SECURITY.md)**.
+See [`安全审计/`](安全审计/) for the full threat model and fixed findings.
+
+## Audit
+
+| Round | Date | Outcome |
+|---|---|---|
+| Pre-launch audit | 2026-10-25 | 4 blockers / 5 High / 16 Medium |
+| **Final audit** | **2026-10-27** | All previous blockers fixed; 2 new blockers (fixed); no code-side blockers remain |
+
+- [Final audit report](安全审计/上线前安全审计报告-2026-10-27-终审.md) (Chinese)
+- [Pre-launch audit report](安全审计/上线前安全审计报告-2026-10-25.md) (Chinese)
+- [Working papers](安全审计/工作底稿/) (Chinese)
+
+> The contract is not yet compiled: it depends on the `hacd_info` VM intrinsic
+> (read a diamond gene by name), which is not yet active on mainnet.
+> The contract portion is a static review plus offline sandbox verification.
+
+## Known limitations
+
+| Item | Status |
+|---|---|
+| End-to-end plaintext HTTP | Pending TLS on the server |
+| Website has no CSP | Pending |
+| Android biometrics not bound to Keystore | P1, requires key-lifecycle changes |
+| Indexer is single-threaded | One slow connection can occupy it; pending ThreadingHTTPServer |
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
+
+---
+
+> The earlier "HACD inscription" scheme is abandoned (it was listed on xeggex.com and
+> nonkyc.io, then suspended). The current version is a rewritten contract design.

@@ -111,8 +111,8 @@ dependencies {
     // 生物识别（可选解锁，D-A5/D-A12）
     implementation("androidx.biometric:biometric:1.1.0")
 
-    // Jetpack Security：EncryptedSharedPreferences（PC keystore 兼容层）
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // 注：曾引入 androidx.security:security-crypto（alpha）作为 EncryptedSharedPreferences 兼容层，
+    // 但代码实际未使用（钱包加密由 Keystore.kt 自实现 scrypt+AES-GCM）。2026-10-22 审计移除该未用依赖。
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

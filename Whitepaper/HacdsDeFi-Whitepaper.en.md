@@ -253,7 +253,7 @@ Four layers: the contract and assets on-chain, the node, oracle and indexer on t
       <div class="t">Renderer process renderer/</div>
       <div class="d">Plain HTML/CSS/JS, no framework<br>
       Assets · Protocol status · <b>loan status card</b> · AMM quotes · HACD gallery · offline / combo / liquidation pages<br>
-      i18n copy (zh/en/tr, 475 entries) · HACD art (official HIP-5)</div>
+      i18n copy (zh/en/tr, 479 entries) · HACD art (official HIP-5)</div>
     </div>
     <div class="box">
       <div class="t">Main process main.js</div>
@@ -353,7 +353,7 @@ The indexer has to live server-side. Measured scan throughput is 2.6 blocks/s se
 
 The wallet is an Electron app, cold/hot combined: the offline machine builds and signs, the online machine queries and broadcasts.
 
-The UI is plain HTML/CSS/JS with no framework. It includes asset overview, protocol status, a persistent loan status card, live AMM quotes, the HACD gallery, offline signing, atomic transactions, a liquidation console and an admin page. Copy is localised into Chinese, English and Turkish, 475 entries.
+The UI is plain HTML/CSS/JS with no framework. It includes asset overview, protocol status, a persistent loan status card, live AMM quotes, the HACD gallery, offline signing, atomic transactions, a liquidation console and an admin page. Copy is localised into Chinese, English and Turkish, 479 entries.
 
 The main process handles the IPC allowlist, the wallet keystore, iterative fee estimation, and HTTP to the three services.
 
@@ -409,7 +409,7 @@ Things we have verified:
 - A two-diamond deposit reports `OutOfGas(31): resource ... used 6101 > limit 6100`, as expected
 - A batch deposit of 3 diamonds on a real machine: 3/3 succeeded; transactions built with the same timestamp have distinct hashes
 - Packaged self-test reports `RESULT = ALL OK`, with all eight engine modes present
-- 475 entries in each of the three languages, with matching key sets
+- 479 entries in each of the three languages, with matching key sets
 
 ---
 

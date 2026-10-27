@@ -19,10 +19,12 @@ data class AppConfig(
     companion object {
         const val DEFAULT_NODE = "http://43.251.101.101:8082"
         const val DEFAULT_ORACLE = "http://43.251.101.101:8123"
-        const val DEFAULT_CONTRACT = "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1"
+        const val DEFAULT_CONTRACT = "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"
         const val DEFAULT_INDEXER = "http://43.251.101.101:8124"
         const val DEFAULT_TREASURY = "1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK"
-        const val HACDS_SERIAL = 2000L
+        // #3000 版资产 serial。旧版 #2000 已作废（契约、预言机、资产均已停用）。
+        // ⚠ 部署新合约并发行新资产后，此值必须与链上实际 serial 一致。
+        const val HACDS_SERIAL = 3000L
     }
 
     /** 是否配置了网络（冷端可能为空）。 */

@@ -11,23 +11,23 @@
     <string name="acct_open">打开钱包文件…</string>
     <string name="acct_refresh">刷新资产</string>
     <string name="acct_useKey">用外部私钥文件</string>
-    <string name="admin_desc">当前地址 %1$s 是合约管理员。以下操作影响全体用户，均不可逆。</string>
+    <string name="admin_desc">当前地址 %1$s 是合约管理员（仅 #2000 合约）。#3000 起合约无管理员，本页在 #3000 下不再适用。</string>
     <string name="admin_noReadback">注意：合约未暴露 cfg:* 只读接口，因此无法回显当前配置值；请谨慎设置。</string>
-    <string name="admin_rent">批量续租</string>
-    <string name="admin_rentD">管理员批量续租合约存储键。</string>
-    <string name="admin_setBonus">设置清算奖励</string>
+    <string name="admin_rent">续租存储键(#3000:任何人)</string>
+    <string name="admin_rentD">#3000 为 rent_keys，任何人可调。</string>
+    <string name="admin_setBonus">[#2000] 设置清算奖励</string>
     <string name="admin_setBonusD">万分比，0–1000（即 0–10%）。</string>
-    <string name="admin_setFee">设置 AMM 费率</string>
+    <string name="admin_setFee">[#2000] 设置 AMM 费率</string>
     <string name="admin_setFeeD">万分比，0–300（即 0–3%）。</string>
-    <string name="admin_setLoanRate">设置借贷利率</string>
+    <string name="admin_setLoanRate">[#2000] 设置借贷利率</string>
     <string name="admin_setLoanRateD">万分比，0–2000（即 0–20%）。</string>
-    <string name="admin_setOracle">更换预言机</string>
+    <string name="admin_setOracle">[#2000] 更换预言机</string>
     <string name="admin_setOracleD">更改合约信任的预言机地址。</string>
-    <string name="admin_setPaused">暂停 / 恢复</string>
+    <string name="admin_setPaused">[#2000] 暂停 / 恢复</string>
     <string name="admin_setPausedD">1=暂停（保护性），0=恢复。</string>
     <string name="admin_title">管理员操作</string>
     <string name="adv_title">高级选项（费用 / gas）</string>
-    <string name="amm_inTpl">投入 &lt;b&gt;%1$s&lt;/b&gt; → 预期得到约 &lt;b class=\"qval\"&gt;%1$s&lt;/b&gt;</string>
+    <string name="amm_inTpl">投入 &lt;b&gt;%1$s&lt;/b&gt; → 预期得到约 &lt;b class=\"qval\"&gt;%2$s&lt;/b&gt;</string>
     <string name="amm_poolStatus">池状态</string>
     <string name="amm_quoteLine">价格 1→%1$s   费率 %2$s%%（默认）   池 %3$s / %4$s</string>
     <string name="app_slogan">冷热共用钱包 + DeFi 控制台</string>
@@ -93,7 +93,7 @@
     <string name="f_dsSideAtoms">hacds 侧（atoms）</string>
     <string name="f_feeAdv">交易手续费（留空 = 自动估算）</string>
     <string name="f_feeAdvHint">默认按节点费率自动算</string>
-    <string name="f_gasMax">gas_max 字节（默认 99）</string>
+    <string name="f_gasMax">gas_max 字节（留空自动：HAC/HACD 1，hacds 50，合约 99）</string>
     <string name="f_hacAmt">金额（如 1:248 = 1 HAC）</string>
     <string name="f_hacAmt2">金额（如 0.5 或 1:248）</string>
     <string name="f_hacIn">投入 HAC 积分</string>
@@ -358,8 +358,8 @@
     <string name="p_poolHac">池 HAC</string>
     <string name="p_price">池价</string>
     <string name="p_rate">抵押率</string>
-    <string name="p_stakedDs">质押 hacds</string>
-    <string name="p_stakedHac">质押 HAC</string>
+    <string name="p_stakedDs">持仓奖励(配额)</string>
+    <string name="p_stakedHac">持仓奖励(HAC存款)</string>
     <string name="p_treDs">金库待结算 hacds</string>
     <string name="p_treHac">金库待结算 HAC</string>
     <string name="pv_bytes">字节</string>
@@ -373,7 +373,7 @@
     <string name="q_fieldWho">地址</string>
     <string name="q_hac">HAC 积分</string>
     <string name="q_lpShare">LP 份额</string>
-    <string name="q_stake">质押总量</string>
+    <string name="q_stake">总持仓(含HAC存款)</string>
     <string name="q_title">只读查询</string>
     <string name="qb_coll">查询我的抵押</string>
     <string name="qb_debt">查询我的债务</string>
@@ -385,7 +385,7 @@
     <string name="qb_poolDs">查询 hacds 池</string>
     <string name="qb_poolHac">查询 HAC 池</string>
     <string name="qb_price">查询价格</string>
-    <string name="qb_stake">查询质押总量</string>
+    <string name="qb_stake">查询总持仓</string>
     <string name="qr_hint">手机端在线钱包扫码即可获得交易体；大交易自动分片，逐张扫。</string>
     <string name="qr_next">下一片</string>
     <string name="qr_part">第 %1$s/%1$s 片</string>
@@ -491,6 +491,7 @@
     <string name="x_poolEmptyNoVal">池为空，无法折算抵押价值</string>
     <string name="x_overBorrow">✘ 超出可借上限</string>
     <string name="x_canBorrow">✔ 可借</string>
+    <string name="x_decimalNote">hacds 的 decimal 为 0，1 个最小单位就是 1 个 hacds。分数按 1 分 = 1 亿定标，所以 1 分钻石会铸出 1 亿个 hacds —— 这是设计如此，不是错误。</string>
     <string name="x_sandboxNote">查询走节点 sandboxcall，已做并发串行化 + 退避重试（D45）。</string>
     <string name="x_protoHint">点首页「协议状态」刷新，或下一行的按钮</string>
     <string name="x_coldNote">冷端：手机不联网也能构建未签名体并签名；把 signed hex 交给联网机广播。</string>
@@ -581,10 +582,10 @@
     <string name="x_harvestHint">调 lp_harvest 领取你的 LP 奖励</string>
     <string name="x_pendHac">待领 LP 奖励 HAC</string>
     <string name="x_pendDs">待领 LP 奖励 hacds</string>
-    <string name="x_treTransfer">向金库地址转账即可（合约自动扣减 tre:）</string>
+    <string name="x_treTransfer">合约 → 金库（触发合约钩子扣 tre:）</string>
     <string name="x_treHac">金库待结算 HAC</string>
     <string name="x_treDs">金库待结算 hacds</string>
-    <string name="x_sweepNote">清扫 = 普通 HAC/资产转账到金库地址 %1$s（见「链上转账」页）。</string>
+    <string name="x_sweepNote">清扫 = 从【合约】把 HAC/资产转到金库地址 %1$s（见「链上转账」页；⚠ 不是"用户→金库"，那样不清扫）。</string>
     <string name="x_needIdx">需要链下索引器（D57）</string>
     <string name="x_srcServer">来源：服务端索引器</string>
     <string name="x_idxDown">未连接索引器：%1$s</string>
@@ -600,4 +601,8 @@
     <string name="x_qrPrev">上一片</string>
     <string name="x_qrNext">下一片</string>
     <string name="x_qrTotal">共 %1$s 片；热端逐张扫码，收齐后自动校验 CRC。</string>
+  <string name="op_sweepHac_t">清扫金库(合约→金库·HAC)</string>
+  <string name="op_sweepHac_d">把合约累积的 HAC 手续费转给金库（合约 PermitHAC 扣 tre:hac）。</string>
+  <string name="op_sweepDs_t">清扫金库(合约→金库·hacds)</string>
+  <string name="op_sweepDs_d">把合约累积的 hacds 手续费转给金库（合约 PermitAsset 扣 tre:ds）。</string>
 </resources>

@@ -21,6 +21,28 @@ object Biometric {
         ) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
+    // ---- 生物识别开关的持久化（M-11 P0）----
+    //
+    // 原实现 `var useBio by remember { mutableStateOf(false) }`：
+    //   · 默认 **false** → 默认不设防
+    //   · 不持久化 → 每次重启复位成 false
+    // 效果等于「生物识别这道门默认是开的」。
+    //
+    // 这里改为持久化 + 默认 true（首次安装即设防）。
+    // 注意：真正的强制保护仍是 `setUserAuthenticationRequired(true)`（P1），
+    // 本开关只是应用层的 UX 闸门，绕过它仍需系统认证才安全。
+    private const val PREF = "hacds_bio"
+    private const val KEY_ENABLED = "enabled"
+
+    fun isEnabled(ctx: android.content.Context): Boolean =
+        ctx.getSharedPreferences(PREF, android.content.Context.MODE_PRIVATE)
+            .getBoolean(KEY_ENABLED, true)      // 默认开
+
+    fun setEnabled(ctx: android.content.Context, on: Boolean) {
+        ctx.getSharedPreferences(PREF, android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_ENABLED, on).apply()
+    }
+
     /** 弹出生识别提示；[onOk] 认证通过时回调，[onFail] 取消/失败时回调。 */
     fun prompt(
         activity: FragmentActivity,

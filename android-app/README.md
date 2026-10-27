@@ -22,7 +22,7 @@ android-app/
 │   │   └── ui/                       主题 / 适配 / 组件 / 各页面
 │   ├── src/main/jniLibs/             libhacds_txbuild.so（arm64-v8a + x86_64）
 │   ├── src/main/assets/              diamondsvgimg.js（官方 HIP-5 图样库）
-│   ├── src/main/res/                 strings.xml ×3（475 词条）/ 图标
+│   ├── src/main/res/                 strings.xml ×3（479 词条）/ 图标
 │   └── src/test/                     纯算法单测（与 PC/预言机交叉验证）
 ├── engine-build/（见 build-engine.sh）Rust JNI 库构建脚本
 ├── tools/                            gen_i18n.py / svg2vd.py / uidump.py
@@ -73,7 +73,7 @@ export JAVA_HOME='D:\Dev\jdk-17.0.20.1+1'
 | 联网查询 | 主网池数据（池 5095 HAC / 169069506278 atoms / LP 293497916234） |
 | HACD 图样 | WebView 加载官方 `diamondsvgimg.js`，105 颗全部渲染 |
 | 分片二维码 | `HXDS/<seq>/<total>/<crc>/<data>`，CRC 校验、缺片提示、混片检测 |
-| 图标 / 多语言 / 屏幕适配 | HAC/HACD/hacds/SAT/CARAT/HACP；475×3；宽屏限宽居中 |
+| 图标 / 多语言 / 屏幕适配 | HAC/HACD/hacds/SAT/CARAT/HACP；479×3；宽屏限宽居中 |
 | **服务端索引器（D51）** | ✅ App 实测读到台账：`来源 server`，1 个地址 |
 | HACD 存入/赎回/combo | `/util/transaction/check` → `ret:0`（kind 7+1025 / 6+1025 / 1,14,17,19,44） |
 
@@ -116,7 +116,7 @@ App 支持 intent extra 深链：`--ei tab 1 --ei sub 5` 直达「交易 → 清
 
 **结论：中 / 英 / 土三语言可切换，界面全部文案跟随（含底部导航、二级页签、按钮、提示）。**
 
-- 词条：**599 条 × 3 语言**（PC 版 475 条复用 + Android 特有 124 条新增），三份 `strings.xml` 键集合**完全一致**。
+- 词条：**603 条 × 3 语言**（PC 版 479 条复用 + Android 特有 124 条新增），三份 `strings.xml` 键集合**完全一致**。
 - 取词：`tr(key, ...)`（非 Composable，可在 onClick/协程用）+ `Strings.t(ctx, ...)`。
 - 切换：`LocaleHelper`（自实现，不依赖 AppCompat per-app locale）。
 
