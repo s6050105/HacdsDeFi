@@ -8,6 +8,13 @@
 
   const CFG = window.HACDS_CONFIG;
 
+  /** i18n 取值 */
+  const t = (k, ...a) => {
+    let s = (window.I18N && window.I18N.t(k)) || k;
+    a.forEach((v, i) => { s = s.replace('{' + i + '}', v); });
+    return s;
+  };
+
   let ready = false;
   let address = null;
   const waiters = [];
@@ -126,16 +133,22 @@
 
   /**
    * 证书流（tx_message 126B × n）在钱包签名页的人类可读布局。
-   * 证书结构：name(6) + visual_gene(10) + number(8) + score(4) + version(1) + sign(97)
-   * 见 HacdsDeFi.fitsh 的 cert_message / cert_sign。
+   *
+   * ⚠ 这是 **#2000 遗留**：结构 name(6) + visual_gene(10) + number(8)
+   *   + score(4) + version(1) + sign(97)。#3000 已删除证书流
+   *   （改为合约链上直读 hacd_info 自算分），官网的 mintHacd/redeemHacd
+   *   也是「明确不支持」的桩，这个布局实际上永远不会被用到。
+   *
+   *   保留它是因为 PC 钱包仍会用同一形状；用 getter 动态取文案，
+   *   避免英文/土耳其语界面里出现中文。
    */
-  const HACD_CERT_LAYOUT = [
-    ['hacd_name', '钻石名'],
-    ['hex', '视觉基因', 10],
-    ['u64be', '编号'],
-    ['u32be', '评分'],
-    ['u8', '证书版本'],
-    ['hex', '证书签名', 97],
+  const HACD_CERT_LAYOUT = () => [
+    ['hacd_name', t('cert.name')],
+    ['hex', t('cert.gene'), 10],
+    ['u64be', t('cert.number')],
+    ['u32be', t('cert.score')],
+    ['u8', t('cert.version')],
+    ['hex', t('cert.sign'), 97],
   ];
 
   /* ---------- 事件绑定 ---------- */

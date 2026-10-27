@@ -104,6 +104,8 @@ EXCLUDES=(
   # 备份 / 临时 / 调试残留
   "/_archive_" "/tmp_" "/_trash_" "/_bench/" "/_dist_stale_"
   "/tmp/"                     # android-app/tmp、wallet-app/tmp
+  "/.build/"                  # hacds.com/deploy-site/.build（构建产物）
+  "/.wrangler/"               # wrangler 本地缓存/临时 worker
   "/local.properties"         # 本机 SDK 路径
   "/remain"                   # remain.txt / remain_all.txt（临时清单）
   "/verify.txt"

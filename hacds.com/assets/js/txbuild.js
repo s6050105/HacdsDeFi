@@ -20,6 +20,13 @@
 
   const CFG = window.HACDS_CONFIG;
 
+  /** i18n 取值（错误文案不能硬编码中文，否则 EN/TR 界面会混出中文） */
+  const t = (k, ...a) => {
+    let s = (window.I18N && window.I18N.t(k)) || k;
+    a.forEach((v, i) => { s = s.replace('{' + i + '}', v); });
+    return s;
+  };
+
   function base() {
     return CFG.useLocal ? CFG.localNode : CFG.apiBase;
   }
@@ -57,15 +64,15 @@
     //   rate_limited               → 请求太频繁
     if (r.error) {
       const map = {
-        build_service_unconfigured: '交易构建服务尚未部署，请联系项目方',
-        fn_not_allowed: '该操作不在允许列表内',
-        rate_limited: '请求过于频繁，请稍后再试',
-        build_failed: '交易构建失败：' + (r.detail || ''),
-        engine_missing: '服务器缺少交易构建引擎',
+        build_service_unconfigured: t('tx.buildUnconfigured'),
+        fn_not_allowed: t('tx.fnNotAllowed'),
+        rate_limited: t('tx.rateLimited'),
+        build_failed: t('tx.buildFailed') + (r.detail || ''),
+        engine_missing: t('tx.engineMissing'),
       };
       throw new Error(map[r.error] || (r.detail ? r.error + ': ' + r.detail : r.error));
     }
-    if (!r.txbody) throw new Error('交易构建返回为空');
+    if (!r.txbody) throw new Error(t('tx.emptyTxbody'));
     return r;
   }
 
@@ -155,7 +162,7 @@
   async function mintHacd(main, name) {
     return {
       ok: false,
-      error: '官网暂不支持 HACD 存入，请使用桌面钱包或 Android 应用（该操作需要多动作交易）',
+      error: t('tx.mintUnsupported'),
       unsupported: true,
     };
   }
@@ -163,7 +170,7 @@
   async function redeemHacd(main, name) {
     return {
       ok: false,
-      error: '官网暂不支持 HACD 赎回，请使用桌面钱包或 Android 应用（该操作需要多动作交易）',
+      error: t('tx.redeemUnsupported'),
       unsupported: true,
     };
   }

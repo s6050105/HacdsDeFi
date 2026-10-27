@@ -22,6 +22,17 @@
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
 
+  /**
+   * i18n 取值。
+   * app.js 里大量日志/提示是运行时拼出来的，不走 data-i18n，
+   * 必须显式调 t()，否则英文/土耳其语界面会混出中文。
+   */
+  const t = (k, ...a) => {
+    let s = (window.I18N && window.I18N.t(k)) || k;
+    a.forEach((v, i) => { s = s.replace('{' + i + '}', v); });
+    return s;
+  };
+
   /* ---------- 日志 ---------- */
 
   function log(msg, kind) {
@@ -38,11 +49,11 @@
   function errMsg(e) {
     const m = String(e && e.message || e);
     const map = {
-      wallet_not_found: '未检测到 MoneyNex 钱包，请先安装',
-      connect_rejected: '你取消了连接',
-      need_connect: '需要先连接钱包',
-      sign_refused: '钱包拒绝了签名',
-      empty_txbody: '交易体构建失败',
+      wallet_not_found: t('err.walletNotFound'),
+      connect_rejected: t('err.connectRejected'),
+      need_connect: t('err.needConnect'),
+      sign_refused:  t('err.signRefused'),
+      empty_txbody:  t('err.emptyTxbody'),
     };
     return map[m] || m;
   }
@@ -67,7 +78,7 @@
     // 尝试自动恢复已授权连接
     await W.waitReady(1500);
     if (!W.isAvailable()) {
-      log('未检测到 MoneyNex 钱包扩展', 'warn');
+      log(t('err.noExtension'), 'warn');
       return;
     }
     try {
@@ -135,7 +146,7 @@
     try {
       const acc = await W.connect();
       enterApp(acc.address);
-      log('已连接 ' + API.shortAddr(acc.address), 'ok');
+      log(t('log.connected') + ' ' + API.shortAddr(acc.address), 'ok');
     } catch (e) {
       log(errMsg(e), 'err');
     }
@@ -185,7 +196,7 @@
       renderUserPosition();
       updateSwapQuote();
     } catch (e) {
-      log('刷新失败：' + errMsg(e), 'err');
+      log(t('log.refreshFail') + errMsg(e), 'err');
     }
   }
 
@@ -215,7 +226,7 @@
       el.title = t('app.backingTip') + '\n'
         + 'tot_hac_eff = ' + b.tot_hac_eff + '\n'
         + 'real_hac    = ' + b.real_hac;
-      if (bps > 10000) log('⚠ 储备覆盖率 ' + (bps / 100).toFixed(2) + '% > 100%：积分超过真实余额', 'err');
+      if (bps > 10000) log(t('log.backingOver', (bps / 100).toFixed(2)), 'err');
     } catch (e) {
       el.textContent = t('app.backingNa');
       el.style.color = 'var(--text-dim)';
@@ -323,7 +334,7 @@
   async function doSwap() {
     if (!S.addr || S.busy) return;
     const inp = $('#swapIn').value.trim();
-    if (!inp || Number(inp) <= 0) return log('请输入数量', 'warn');
+    if (!inp || Number(inp) <= 0) return log(t('err.needAmount'), 'warn');
 
     S.busy = true;
     try {
@@ -332,15 +343,15 @@
       if (S.swapDir === 0) {
         const zhu = TX.hacToZhu(inp);
         const minOut = TX.displayToAtoms($('#swapMinOut').value || '0');
-        log('构建兑换交易…');
+        log(t('log.buildingSwap'));
         res = await TX.swapHacToDs(S.addr, zhu, minOut || '0', dl);
       } else {
         const atoms = TX.displayToAtoms(inp);
         const minOut = TX.hacToZhu($('#swapMinOut').value || '0');
-        log('构建兑换交易…');
+        log(t('log.buildingSwap'));
         res = await TX.swapDsToHac(S.addr, atoms, minOut || '0', dl);
       }
-      await sendTx(res, '兑换');
+      await sendTx(res, t('act.swap'));
     } catch (e) {
       log(errMsg(e), 'err');
     } finally {
@@ -364,14 +375,14 @@
     if (!S.addr || S.busy) return;
     const h = $('#liqHac').value.trim();
     const d = $('#liqDs').value.trim();
-    if (!h || !d) return log('请填写两侧数量', 'warn');
+    if (!h || !d) return log(t('err.needBothSides'), 'warn');
     S.busy = true;
     try {
       const dl = await TX.deadline();
       const minShare = $('#liqMinShare').value.trim() || '0';
-      log('构建加池交易…');
+      log(t('log.buildingAddLiq'));
       const res = await TX.addLiquidity(S.addr, TX.hacToZhu(h), TX.displayToAtoms(d), minShare, dl);
-      await sendTx(res, '加池');
+      await sendTx(res, t('act.addLiq'));
     } catch (e) {
       log(errMsg(e), 'err');
     } finally { S.busy = false; }
@@ -389,7 +400,7 @@
   async function doRmLiq() {
     if (!S.addr || S.busy) return;
     const s = $('#rmShare').value.trim();
-    if (!s || s === '0') return log('请输入份额', 'warn');
+    if (!s || s === '0') return log(t('err.needShare'), 'warn');
     S.busy = true;
     try {
       const dl = await TX.deadline();
@@ -397,18 +408,18 @@
       const minDs = TX.displayToAtoms($('#rmMinDs').value || '0');
 
       // 第 1 步：结算 LP 奖励
-      log('撤池分两步：第 1 步「结算 LP 奖励」…');
+      log(t('log.rmStep1'));
       const h = await TX.harvest(S.addr);
-      await sendTx(h, '结算 LP 奖励');
+      await sendTx(h, t('act.settleLp'));
 
       // 第 2 步：撤池
-      log('第 2 步：构建撤池交易…');
+      log(t('log.rmStep2'));
       const res = await TX.removeLiquidity(S.addr, s, minHac, minDs, dl);
-      await sendTx(res, '撤池');
+      await sendTx(res, t('act.rmLiq'));
     } catch (e) {
       // 区分是哪一步失败：第 1 步已成功时资金无损失，只是没撤成
       log(errMsg(e), 'err');
-      log('提示：若第 1 步「结算 LP 奖励」已成功，你的份额与奖励都在账上，可直接重试撤池。', 'warn');
+      log(t('log.rmHint'), 'warn');
     } finally { S.busy = false; }
   }
 
@@ -416,9 +427,9 @@
     if (!S.addr || S.busy) return;
     S.busy = true;
     try {
-      log('构建领取奖励交易…');
+      log(t('log.buildingHarvest'));
       const res = await TX.harvest(S.addr);
-      await sendTx(res, '领取奖励');
+      await sendTx(res, t('act.harvest'));
     } catch (e) {
       log(errMsg(e), 'err');
     } finally { S.busy = false; }
@@ -429,12 +440,12 @@
   async function doBorrow() {
     if (!S.addr || S.busy) return;
     const a = $('#borrowAmt').value.trim();
-    if (!a || Number(a) <= 0) return log('请输入借款金额', 'warn');
+    if (!a || Number(a) <= 0) return log(t('err.needBorrowAmt'), 'warn');
     S.busy = true;
     try {
-      log('构建借款交易…');
+      log(t('log.buildingBorrow'));
       const res = await TX.borrow(S.addr, TX.hacToZhu(a));
-      await sendTx(res, '借款');
+      await sendTx(res, t('act.borrow'));
     } catch (e) {
       log(errMsg(e), 'err');
     } finally { S.busy = false; }
@@ -443,12 +454,12 @@
   async function doRepay() {
     if (!S.addr || S.busy) return;
     const a = $('#repayAmt').value.trim();
-    if (!a || Number(a) <= 0) return log('请输入还款金额', 'warn');
+    if (!a || Number(a) <= 0) return log(t('err.needRepayAmt'), 'warn');
     S.busy = true;
     try {
-      log('构建还款交易…');
+      log(t('log.buildingRepay'));
       const res = await TX.repay(S.addr, TX.hacToZhu(a));
-      await sendTx(res, '还款');
+      await sendTx(res, t('act.repay'));
     } catch (e) {
       log(errMsg(e), 'err');
     } finally { S.busy = false; }
@@ -457,12 +468,12 @@
   async function doCollateral() {
     if (!S.addr || S.busy) return;
     const a = $('#collAmt').value.trim();
-    if (!a || Number(a) <= 0) return log('请输入抵押数量', 'warn');
+    if (!a || Number(a) <= 0) return log(t('err.needCollAmt'), 'warn');
     S.busy = true;
     try {
-      log('构建追加抵押交易…');
+      log(t('log.buildingColl'));
       const res = await TX.addCollateral(S.addr, TX.displayToAtoms(a));
-      await sendTx(res, '追加抵押');
+      await sendTx(res, t('act.addColl'));
     } catch (e) {
       log(errMsg(e), 'err');
     } finally { S.busy = false; }
@@ -483,9 +494,9 @@
       const list = ov.diamonds || [];
       S.myHacd = list;
       renderMyHacd();
-      log('载入 ' + list.length + ' 颗自有 HACD', 'ok');
+      log(t('log.loadedHacd', list.length), 'ok');
     } catch (e) {
-      log('载入失败：' + errMsg(e), 'err');
+      log(t('log.loadFail') + errMsg(e), 'err');
     }
   }
 
@@ -537,7 +548,9 @@
         const sc = d.score != null ? Number(d.score) : 0;
         total += sc;
       }
-      $('#mintTotalEst').textContent = ok ? total + ' hacds' : total + ' hacds (部分未知)';
+      $('#mintTotalEst').textContent = ok
+        ? total + ' hacds'
+        : total + ' hacds ' + t('app.partialUnknown');
     } catch (e) {
       $('#mintTotalEst').textContent = '—';
     }
@@ -572,7 +585,7 @@
     btn.disabled = true;
 
     let ok = 0, fail = 0;
-    log('开始批量存入：共 ' + names.length + ' 颗，拆成 ' + names.length + ' 笔…');
+    log(t('log.mintStart', names.length));
 
     for (let i = 0; i < names.length; i++) {
       const name = names[i];
@@ -583,25 +596,25 @@
         // 原实现不检查 ok 就直接 sendTx(res)，而 res.txbody 是 undefined →
         // 钱包抛出一个与「不支持」毫无关系的错误。这里必须自己接住。
         if (res && res.ok === false) {
-          log(res.error || '该操作暂不支持', 'warn');
+          log(res.error || t('err.unsupported'), 'warn');
           break;   // 功能级不可用，逐颗重试无意义
         }
-        await sendTx(res, '[' + (i + 1) + '/' + names.length + '] 存入 ' + name,
-                     { msglayout: W.HACD_CERT_LAYOUT });
+        await sendTx(res, '[' + (i + 1) + '/' + names.length + '] ' + t('act.mint') + ' ' + name,
+                     { msglayout: W.HACD_CERT_LAYOUT() });
         ok++;
         // 从已选列表移除成功的那颗
         const k = S.mintPicked.indexOf(name);
         if (k >= 0) S.mintPicked.splice(k, 1);
       } catch (e) {
         fail++;
-        log('[' + (i + 1) + '/' + names.length + '] ' + name + ' 失败：' + errMsg(e), 'err');
+        log('[' + (i + 1) + '/' + names.length + '] ' + name + ' ' + t('log.failed') + errMsg(e), 'err');
       }
       renderMyHacd();
     }
 
     btn.disabled = false;
     btn.textContent = window.I18N.t('app.mintBtn');
-    log('批量存入完成：成功 ' + ok + ' / 失败 ' + fail, fail ? 'warn' : 'ok');
+    log(t('log.mintDone', ok, fail), fail ? 'warn' : 'ok');
     S.busy = false;
 
     setTimeout(() => { loadMyHacd(); refreshAll(); }, 4000);
@@ -638,29 +651,29 @@
 
   async function loadPool() {
     try {
-      log('加载合约池 HACD…');
+      log(t('log.loadingPool'));
       S.pool = await API.poolHacd();
       renderPool();
-      log('池内 ' + S.pool.length + ' 颗', 'ok');
+      log(t('log.poolCount', S.pool.length), 'ok');
     } catch (e) {
-      log('加载失败：' + errMsg(e), 'err');
+      log(t('log.loadFail') + errMsg(e), 'err');
     }
   }
 
   async function doRedeem() {
     if (!S.addr || S.busy) return;
     const name = ($('#redeemName').value || '').trim().toUpperCase();
-    if (!/^[A-Z]{6}$/.test(name)) return log('钻石名应为 6 个大写字母', 'warn');
+    if (!/^[A-Z]{6}$/.test(name)) return log(t('err.badDiamondName'), 'warn');
     S.busy = true;
     try {
-      log('构建赎回交易…');
+      log(t('log.buildingRedeem'));
       const res = await TX.redeemHacd(S.addr, name);
       // E-1：同 doMint —— 官网的 redeemHacd 返回 {ok:false}，必须自己接住。
       if (res && res.ok === false) {
-        log(res.error || '该操作暂不支持', 'warn');
+        log(res.error || t('err.unsupported'), 'warn');
         return;
       }
-      await sendTx(res, '赎回 ' + name);
+      await sendTx(res, t('act.redeem') + ' ' + name);
     } catch (e) {
       log(errMsg(e), 'err');
     } finally { S.busy = false; }
@@ -669,12 +682,12 @@
   /* ---------- 发送 ---------- */
 
   async function sendTx(res, label, extra) {
-    log('请求钱包签名…');
+    log(t('log.signing'));
     const opts = Object.assign({ autosubmit: true }, extra || {});
     try {
       const r = await W.signTx(res.txbody, opts);
       const hash = r.hash || r.hash_with_fee || '';
-      log('✓ ' + label + '成功：' + API.shortAddr(hash), 'ok');
+      log('✓ ' + label + ' ' + t('log.succeeded') + API.shortAddr(hash), 'ok');
       if (r.description && r.description.length) {
         r.description.forEach(d => log('  ' + d));
       }
@@ -682,10 +695,10 @@
       setTimeout(refreshAll, 12000);
     } catch (e) {
       if (e.code === 'submit_failed') {
-        log('签名成功但广播失败：' + e.message, 'err');
-        log('已签名交易体可重试广播：' + String(e.body || '').slice(0, 40) + '…', 'warn');
+        log(t('log.signedBroadcastFail') + e.message, 'err');
+        log(t('log.retryBroadcast') + String(e.body || '').slice(0, 40) + '…', 'warn');
       } else {
-        log(label + '失败：' + errMsg(e), 'err');
+        log(label + ' ' + t('log.failed') + errMsg(e), 'err');
       }
       throw e;
     }

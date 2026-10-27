@@ -35,7 +35,9 @@
           return;
         } catch (e2) { /* fall through */ }
       }
-      body.innerHTML = '<p class="dim">无法加载白皮书内容，请下载 PDF 版本。</p>';
+      body.innerHTML = '<p class="dim">'
+        + (window.I18N ? window.I18N.t('wp.loadFail') : 'Failed to load')
+        + '</p>';
     }
   }
 
