@@ -72,7 +72,9 @@
       </div>
       <div class="stat">
         <div class="stat-label" data-i18n="stat.contract"></div>
-        <div class="stat-value dim"><a href="#" id="statContract" class="mono-sm">VKNw…m1</a></div>
+        <!-- home.js 会用 CFG.contract 覆盖，这里写正确的值，
+             避免 JS 未执行（慢网/禁用脚本）时露出 #2000 的旧地址 -->
+        <div class="stat-value dim"><a href="#" id="statContract" class="mono-sm">T1A8kae…BdECyH</a></div>
         <div class="stat-sub" data-i18n="stat.contract.sub"></div>
       </div>
       <div class="stat">
@@ -242,9 +244,10 @@
   └── 无 admin / 无 pause / 无 upgrade</div>
 
         <div class="note mt-4" style="font-size:12.5px">
-          <b>源码状态</b>　新版 #3000 合约正在做上线前的功能测试，
-          通过后完整源码会推送到仓库。<br>
-          当前仓库是上一版 #2000 的实现，同样公开可读。
+          <b>源码状态</b>　<b>#3000 源码与两轮上线前安全审计报告已在
+          <a href="https://github.com/s6050105/HacdsDeFi/tree/v3000" target="_blank" rel="noopener">v3000 分支公开</a>。</b><br>
+          尚未部署的原因：评分逻辑依赖 Hacash 主网下一版 VM 的 <code>hacd_info</code> 内置，
+          该内置目前未激活。<b>待主网 VM 激活后即可部署。</b>
         </div>
 
         <div class="mt-4">

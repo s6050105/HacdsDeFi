@@ -124,8 +124,21 @@
         <li><b>合约</b> — 唯一的事实来源。所有余额、债务、池子状态都在链上。</li>
         <li><b>钱包</b> — 只管签名。私钥从不离开用户设备。</li>
         <li><b>官网</b> — 只构建交易体，不碰私钥，不保存任何用户数据。</li>
-        <li><b>索引器</b> — 只读。合约无法枚举地址，索引器补上这个能力。</li>
+        <li><b>索引器</b> — 只读，默认以 <code>--read-only</code> 运行。
+            合约无法枚举地址，索引器扫链补上「谁借了款、池里有哪些钻石」这类列表能力；
+            另外提供 <code>/backing</code>（合约内部积分 vs 真实链上余额）供运维监控。
+            <b>它不参与任何资金逻辑</b>——索引器宕机只影响列表展示，不影响用户取回资产。</li>
       </ul>
+
+      <div class="callout">
+        <b>与 #2000 的架构差异</b>
+        <p>上一版（#2000）有<b>预言机</b>：链下算分后签一张 126 字节证书，合约再重算比对。
+        这带来两个问题——预言机是单点，它下线兑换就停；且持有预言机私钥即可影响发分。</p>
+        <p>#3000 <b>整条证书链路都删掉了</b>，也没有 <code>init_admin</code> / <code>set_paused</code> /
+        <code>set_oracle</code> 这类管理员入口。评分改由合约通过 HVM 内置
+        <code>hacd_info</code> 直接读钻石基因、本地自算。
+        架构上少了一个组件，也少了一个可被攻击的信任点。</p>
+      </div>
     </section>
 
     <section id="asset">
@@ -143,7 +156,11 @@
 
       <div class="callout warn">
         <b>注意 serial 认别</b>
-        <p>链上 <code>#1028</code> 的 ticket 也是 HACDS（它的 name 是 "HACD Fragments"，属于他人资产）。协议不检查 name/ticket 唯一性，只认 serial。请核对 <code>serial = 2000</code>。</p>
+        <p>链上 <code>#1028</code> 的 ticket 也是 HACDS（它的 name 是 "HACD Fragments"，属于他人资产）。协议不检查 name/ticket 唯一性，只认 serial。请核对 <code>serial = 3000</code>。</p>
+        <p><b>serial 2000 是旧版合约，已作废。</b>#2000 是上一代实现（刻在钻石上的铭文方案），
+        已停止运营，仅作为历史记录保留在仓库的 <code>main</code> 分支。任何仍指向
+        <code>serial 2000</code> 或地址 <code>VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1</code>
+        的页面、钱包或第三方链接，都是在读旧合约，<b>不要使用</b>。</p>
       </div>
 
       <h2>发行量推导</h2>
@@ -169,13 +186,25 @@
 输出 = pool_out × net / (pool_in + net)</pre>
 
       <h2>手续费分配</h2>
+      <p><b>AMM 兑换费（0.5%，<code>FEE_BPS = 50</code>）</b>：</p>
       <table class="doc-table">
         <thead><tr><th>去向</th><th>比例</th><th>说明</th></tr></thead>
         <tbody>
-          <tr><td>LP</td><td>80%</td><td>按份额分配</td></tr>
-          <tr><td>协议储备</td><td>20%</td><td>先补赤字，再补储备，余进金库</td></tr>
+          <tr><td>LP</td><td>80%</td><td><code>LP_BPS = 8000</code>，按份额累积分红；池内无 LP 时该份并入金库</td></tr>
+          <tr><td>金库</td><td>20%</td><td>HAC 侧先走储备瀑布（补坏账赤字），有余再进金库</td></tr>
         </tbody>
       </table>
+
+      <p><b>赎回费（0.5%，<code>REDEEM_FEE_BPS = 50</code>）—— 分配不同，注意区分</b>：</p>
+      <table class="doc-table">
+        <thead><tr><th>去向</th><th>比例</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>LP</td><td>80%</td><td><code>REDEEM_LP_BPS = 8000</code>，与兑换费同口径</td></tr>
+          <tr><td>金库</td><td>20%</td><td>缓冲坏账（A-3）</td></tr>
+        </tbody>
+      </table>
+      <p class="dim">费率与分配比例都是<b>编译期常量</b>。#3000 没有管理员，因此没有任何人可以调整它们——
+      这与 #2000 时代可通过 <code>set_fee</code> 线上改费形成对比。</p>
 
       <h2>滑点保护</h2>
       <p>所有兑换与流动性操作都带 <code>deadline</code>（块高）和 <code>min_out</code> / <code>min_share</code> 参数。任一不满足则整笔回滚，防止被抢跑。</p>
@@ -189,11 +218,17 @@
       <table class="doc-table">
         <thead><tr><th>参数</th><th>值</th><th>含义</th></tr></thead>
         <tbody>
-          <tr><td>借款线</td><td>200%</td><td>债务 ≤ 抵押价值 / 2（50% LTV）</td></tr>
-          <tr><td>清算线</td><td>160%</td><td>抵押率跌破 160% 可被清算</td></tr>
-          <tr><td>价格缓冲</td><td>20%</td><td>从满借到清算的下跌空间</td></tr>
-          <tr><td>清算奖励</td><td>5%</td><td>按清算人付款额计，非债务比例</td></tr>
-          <tr><td>close factor</td><td>50%</td><td>单次最多清算一半债务</td></tr>
+          <tr><td>借款线</td><td>200%</td><td><code>BORROW_RATIO_BPS = 20000</code>：债务 ≤ 抵押价值 / 2（LTV 50%）</td></tr>
+          <tr><td>清算线</td><td>160%</td><td><code>LIQ_COLL_RATIO_BPS = 16000</code>：抵押率跌破 160% 可被清算</td></tr>
+          <tr><td>价格缓冲</td><td>20%</td><td>从满借（200%）到清算（160%）的下跌空间</td></tr>
+          <tr><td>清算总奖励</td><td>5%</td><td><code>LIQ_BONUS_BPS = 500</code>，按清算人<b>付款额</b>计，非债务比例</td></tr>
+          <tr><td>└ 其中归储备</td><td>1%</td><td><code>LIQ_PROTOCOL_BPS = 100</code>，<b>清算人实得 4%</b></td></tr>
+          <tr><td>close factor</td><td>50%</td><td><code>CLOSE_FACTOR_BPS = 5000</code>，单次最多清算一半债务</td></tr>
+          <tr><td>全局利用率上限</td><td>50%</td><td><code>U_MAX_BPS = 5000</code>，超过则拒绝新增借款</td></tr>
+          <tr><td>单借款人上限</td><td>20%</td><td><code>BORROWER_CAP_BPS = 2000</code>，≤ providers 的 20%</td></tr>
+          <tr><td>可出借比例</td><td>30%</td><td><code>LENDABLE_AMM_BPS = 3000</code>，AMM 的 HAC 仅 30% 可出借</td></tr>
+          <tr><td>深水清算</td><td>健康度 &lt;90%</td><td><code>DEEP_WATER_BPS = 9000</code>：允许全额清算（不受 close factor 限制）</td></tr>
+          <tr><td>深水接管</td><td>抵押 &lt;105% 债务</td><td><code>DEEP_TRIGGER_BPS = 10500</code>：给清算人 3% 折扣</td></tr>
         </tbody>
       </table>
 
@@ -213,36 +248,76 @@ U=0 → 2%   U=35% → 6%   U=50% → 46%</pre>
       <h1>HACD 铸造与赎回</h1>
 
       <h2>铸造（存入 HACD）</h2>
-      <p>存入 1 颗 HACD，按评分铸造等量的 hacds。<b>不打折</b>：1 分 = 1 hacds。</p>
-      <pre class="code">score = score_of(diamond_name)
-mint  = score × SCORE_SCALE     // 100%，无折扣</pre>
+      <p>存入 1 颗 HACD，按评分铸造 hacds，<b>不打折</b>（<code>MINT_HAIRCUT_BPS = 10000</code>，即 100%）。
+      换算比例是 <b>1 分 = 1 亿 hacds</b>，不是 1 分 = 1 hacds。</p>
+      <pre class="code">score = score_of(diamond_name)      // 原始分，整数，约 3.55 分平均
+mint  = score × SCORE_SCALE         // SCORE_SCALE = 1e8，100%，无折扣
+
+例：一颗 3 分的钻石
+  mint = 3 × 100,000,000 = 300,000,000 hacds</pre>
+      <p class="dim">为什么是 1e8：发行总量 5.96e15 个 hacds 与这套定标配套 —— 全网均分 3.5544
+      乘以 HACD 总数 16,777,216，得 59,632,987 分，再乘 1e8，正好是 5,963,298,700,000,000。
+      若 1 分只铸 1 个，总量就只有 5963 万，与 decimal=0 下的供给对不上。</p>
 
       <h2>赎回（取出 HACD）</h2>
-      <p>支付 hacds 换回一颗 HACD。基础手续费 0.5%；若该钻石评分高于池内均分，额外收取「挑钻石溢价」。</p>
-      <pre class="code">avg = 池内总分数 / 颗数
-premium = min(30%, (score − avg) / avg)
-fee = 0.5% + premium</pre>
-      <p class="dim">溢价上限 30%，防止有人反复从池子里挑走高分钻石、把低分货留给其他持有人。</p>
+      <p>支付 hacds 换回一颗 HACD。基础手续费 0.5%（<code>REDEEM_FEE_BPS = 50</code>）；
+      若该钻石评分高于池内均分，额外收取「挑钻石溢价」。</p>
+      <pre class="code">gross   = score × SCORE_SCALE
+avg     = 池内总分数 / 颗数
+premium = min(30%, (gross − avg) / avg)      // 只对高于均分的收
+fee     = gross × 0.5% + gross × premium
+charge  = gross + fee                        // 实际扣的 hacds</pre>
+      <p class="dim">溢价上限 30%（<code>CHERRY_PREMIUM_MAX_BPS = 3000</code>），
+      防止有人反复从池子里挑走高分钻石、把低分货留给其他持有人。</p>
+
+      <div class="callout">
+        <b>配额不足会自动补足</b>
+        <p>赎回要扣的 <code>charge</code> 超过你账上的 hacds 配额时，合约会<b>自动</b>拿你的 HAC
+        经 AMM 换成差额的 hacds（内部调用 <code>swap_hac_to_ds</code> 原语），不需要你手动先换。
+        兑换按当时池价执行，含 0.5% 兑换费——所以赎回前先看清楚价差是否划算。
+        若 HAC 也不够，整笔返回 <code>12</code> 回滚。</p>
+      </div>
+
+      <div class="callout warn">
+        <b>池内必须有记录</b>
+        <p>池里没有 HACD（<code>res:hacd_count = 0</code>）或账面分数不足以覆盖本次赎回时，
+        返 <code>61</code> 回滚。这是防下溢的保险，正常路径不会触发。</p>
+      </div>
     </section>
 
     <section id="oracle">
       <h1>评分机制</h1>
-      <p>HACD 评分采用 HIP-5 的五维算法：形状、样式、颜色、命名、编号。</p>
+      <p>HACD 评分基于 5 个算法函数，但<b>每次实际只用其中 4 项相加</b>——
+      「样式」与「颜色」是<b>互斥</b>的：</p>
+
+      <pre class="code">total = 形状 + (Common ? 样式 : 颜色) + 命名 + 编号
+if total < 1 { total = 1 }        // 保底 1 分</pre>
 
       <table class="doc-table">
-        <thead><tr><th>维度</th><th>说明</th><th>取值依赖</th></tr></thead>
+        <thead><tr><th>项</th><th>说明</th><th>取值依赖</th></tr></thead>
         <tbody>
-          <tr><td>形状</td><td>Square / Heart / Circle 等 8 种</td><td>visual_gene[0..2]</td></tr>
-          <tr><td>样式</td><td>仅 Common 形状参与</td><td>visual_gene[2..18]</td></tr>
-          <tr><td>颜色</td><td>名字首字母 + 明暗加成</td><td>visual_gene + name</td></tr>
-          <tr><td>命名</td><td>6 字母的重复/对称加成</td><td>diamond name</td></tr>
+          <tr><td>形状</td><td>Square / Heart / Circle 等 8 种</td><td><code>visual_gene[0..2]</code></td></tr>
+          <tr><td>样式 <span class="dim">（仅 Common）</span></td><td>Common 形状才参与</td><td><code>visual_gene[2..18]</code></td></tr>
+          <tr><td>颜色 <span class="dim">（仅非 Common）</span></td><td>名字首字母 + 明暗加成</td><td><code>visual_gene</code> + name</td></tr>
+          <tr><td>命名</td><td>6 字母的重复 / 对称加成</td><td>diamond name</td></tr>
           <tr><td>编号</td><td>顺子、对称数字加成</td><td>diamond number</td></tr>
         </tbody>
       </table>
 
       <div class="callout">
         <b>链上直读，无预言机</b>
-        <p>新版合约通过 HVM 内置直接读取钻石基因并在链上算分，不再依赖链下签名证书。这消除了「谁持有预言机私钥谁就能增发」的风险。</p>
+        <p>合约通过 HVM 内置 <code>hacd_info(name)</code> 直接读取钻石的基因与编号，
+        然后在链上自算分。<b>整条证书链路（链下算分 → 签名 → 链上重算比对）已删除。</b>
+        这消除了「谁持有预言机私钥谁就能影响发分」的风险，也去掉了预言机这个单点故障。</p>
+        <p class="dim">对比 #2000：那一版由预言机在链下算分、签一张 126 字节证书，
+        合约再重算比对。预言机下线兑换就停，且它本身是可信第三方。</p>
+      </div>
+
+      <div class="callout warn">
+        <b>「1 分」到底是多少</b>
+        <p>合约内部 <code>score</code> 是原始整数分（平均约 3.55）。铸发时乘
+        <code>SCORE_SCALE = 1e8</code>，所以 <b>1 分 = 1 亿个 hacds</b>。
+        文档、页面、钱包里凡是提到「分数」的地方，都要区分清楚是原始分还是已乘标度的 atoms。</p>
       </div>
     </section>
 
@@ -252,10 +327,22 @@ fee = 0.5% + premium</pre>
 
       <div class="callout">
         <b>源码状态</b>
-        <p>本章描述的是 <b>#3000</b> 合约的接口，该版本正在做上线前的功能测试。
-        完整源码将在测试通过后推送到
-        <a href="https://github.com/s6050105/HacdsDeFi" target="_blank" rel="noopener">github.com/s6050105/HacdsDeFi</a>。<br>
-        该仓库当前包含的是上一版 <b>#2000</b> 合约——已部署运行、同样公开可读，但接口与本章略有差异。</p>
+        <p><b>#3000 源码与两轮上线前安全审计报告已在
+        <a href="https://github.com/s6050105/HacdsDeFi/tree/v3000" target="_blank" rel="noopener"><code>v3000</code> 分支公开</a>。</b>
+        可直接查阅：</p>
+        <ul class="doc-list">
+          <li><a href="https://github.com/s6050105/HacdsDeFi/blob/v3000/hacds_exchange/HacdsDeFi3000.fitsh" target="_blank" rel="noopener">HacdsDeFi3000.fitsh</a> — 合约源码</li>
+          <li><a href="https://github.com/s6050105/HacdsDeFi/blob/v3000/hacds_exchange/HacdsDeFi3000-%E7%BB%8F%E6%B5%8E%E8%AE%BE%E8%AE%A1-%E5%AE%9A%E7%A8%BF.md" target="_blank" rel="noopener">经济设计（定稿）</a></li>
+          <li><a href="https://github.com/s6050105/HacdsDeFi/blob/v3000/%E5%AE%89%E5%85%A8%E5%AE%A1%E8%AE%A1/%E4%B8%8A%E7%BA%BF%E5%89%8D%E5%AE%89%E5%85%A8%E5%AE%A1%E8%AE%A1%E6%8A%A5%E5%91%8A-2026-10-25.md" target="_blank" rel="noopener">第一轮审计报告（2026-10-25）</a></li>
+          <li><a href="https://github.com/s6050105/HacdsDeFi/blob/v3000/%E5%AE%89%E5%85%A8%E5%AE%A1%E8%AE%A1/%E4%B8%8A%E7%BA%BF%E5%89%8D%E5%AE%89%E5%85%A8%E5%AE%A1%E8%AE%A1%E6%8A%A5%E5%91%8A-2026-10-27-%E7%BB%88%E5%AE%A1.md" target="_blank" rel="noopener">终审报告（2026-10-27）</a></li>
+        </ul>
+        <p><b>尚未部署的原因：</b>#3000 的评分逻辑依赖 Hacash 主网下一版 VM 新增的
+        <code>hacd_info</code> 内置（按钻石名直接读链上基因与编号）。该内置目前尚未在主网激活，
+        所以合约里的 <code>hacd_read_gene</code> 仍是一个 SEAM 占位。<b>待主网 VM 激活
+        <code>hacd_info</code> 后即可部署</b>，届时只需替换该函数体内的一行，其余逻辑不变。</p>
+        <p class="dim">仓库 <code>main</code> 分支保存的是上一版 <b>#2000</b> 的实现
+        （<code>hacds_exchange/HacdsDeFi.fitsh</code>，含当时的预言机与服务端）——
+        <b>已停用，仅作历史记录</b>。当前实现请一律以 <code>v3000</code> 分支为准。</p>
       </div>
 
       <h3>兑换与流动性</h3>
