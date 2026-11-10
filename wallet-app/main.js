@@ -54,15 +54,49 @@ function installerLang() {
     return m ? (NSIS_LANG[m[1]] || null) : null;
   } catch { return null; }
 }
+// #3000 合约地址。旧配置里可能是 #2000 的 VKNw…，需迁移。
+const CONTRACT_V3000 = 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH';
+
+/**
+ * 配置迁移：把老版本写下的过期字段修正过来。
+ *
+ * 为什么必须做：配置文件一旦落盘就会**永久覆盖**代码里的默认值。
+ * 老用户升级后，contract 仍是 #2000 的 VKNw…，所有合约调用都会失败，
+ * 而且界面上看不出是"配置残留"而不是"程序坏了"。
+ */
+function migrateCfg(c) {
+  if (!c || typeof c !== 'object') return c;
+  let changed = false;
+
+  // ① #2000 旧合约地址 → #3000
+  //    只迁移"已知的旧值"，不覆盖用户手动填的其它地址（可能是在测私有部署）
+  if (c.contract === 'VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1') {
+    c.contract = CONTRACT_V3000;
+    changed = true;
+  }
+
+  // ② 删除已废弃的 oracle 字段（#3000 无预言机）
+  if ('oracle' in c) { delete c.oracle; changed = true; }
+
+  // ③ 索引器缺失时补默认值
+  if (!c.indexer) { c.indexer = 'http://43.251.101.101:8124'; changed = true; }
+
+  if (changed) {
+    try { fs.writeFileSync(cfgFile(), JSON.stringify(c, null, 2)); } catch { /* 只读环境忽略 */ }
+  }
+  return c;
+}
+
 function loadCfg() {
   try {
     const c = JSON.parse(fs.readFileSync(cfgFile(), 'utf8'));
     // 用户尚未在应用内选过语言 → 用安装时选的语言作为默认
     if (!c.lang) { const il = installerLang(); if (il) c.lang = il; }
-    return c;
+    return migrateCfg(c);
   } catch {
-    const base = { node: 'http://43.251.101.101:8082', oracle: 'http://43.251.101.101:8123',
-                   contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH' };
+    const base = { node: 'http://43.251.101.101:8082',
+                   indexer: 'http://43.251.101.101:8124',
+                   contract: CONTRACT_V3000 };
     const il = installerLang(); if (il) base.lang = il;
     return base;
   }
@@ -261,7 +295,7 @@ ipcMain.handle('key:addr', async (_e, p) => {
   return parseTxOutput(out).address;
 });
 
-// ⚠ H-5：把 http:get 限制在用户配置的「节点 / 索引器 / 预言机」三个端点上。
+// ⚠ H-5：把 http:get 限制在用户配置的「节点 / 索引器」两个端点上。
 // 原实现把任意 url 直接透传，渲染层被控时可当内网探测与数据外带通道
 // （如读 http://127.0.0.1:<port>/…，再把结果经 buildTx 的错误回显带出）。
 function isAllowedEndpoint(u) {
@@ -269,7 +303,7 @@ function isAllowedEndpoint(u) {
     const t = new URL(String(u));
     const cfg = loadCfg() || {};
     const allowed = [
-      cfg.node, cfg.indexer, cfg.oracle,
+      cfg.node, cfg.indexer,
       'https://explorer.hacash.org',
     ].filter(Boolean).map(s => { try { return new URL(s).origin; } catch { return null; } }).filter(Boolean);
     // 只比 origin（协议+主机+端口），路径任意
@@ -541,7 +575,7 @@ function addrFromHex(hex) {
 //   交易，在 #3000 下不仅无效，还因预言机已停用而直接报网络错误 →
 //   存入功能完全不可用。
 //   现在不再取证书，`hacd` 模式不传 certfile（引擎已支持可省略）。
-//   `oracle` 参数保留仅为兼容旧调用方签名，不再使用。
+//   `oracle` 参数已彻底删除（#3000 无预言机，保留只会误导调用方）。
 ipcMain.handle('tx:redeem', async (_e, req) => {
   const { names, node, keyPath, contract, fee, gasMax, mainAddr } = req;
   try {
@@ -743,7 +777,7 @@ async function hacdTransferCore(req) {
 }
 
 async function redeemBatchCore(req) {
-  const { names, oracle, node, keyPath, contract, toAddr, fee, gasMax, mainAddr, kind } = req;
+  const { names, node, keyPath, contract, toAddr, fee, gasMax, mainAddr, kind } = req;
   const isOut = kind === 'out';
   const items = [];
   const env = {};
@@ -911,16 +945,7 @@ ipcMain.handle('liq:treasury', async (_e, { node, contract, caller }) => {
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 
-// ---- 管理员身份探测（D25）：sandbox 调 set_paused(0)，0=管理员 ----
-ipcMain.handle('admin:probe', async (_e, { node, contract, address }) => {
-  try {
-    const u = `${node.replace(/\/$/, '')}/query/contract/sandboxcall?contract=${contract}`
-      + `&function=set_paused&caller=${address}&params=0:u8`;
-    const d = await sandboxGet(u);
-    if (d.ret !== 0) return { ok: true, isAdmin: false, raw: d };
-    return { ok: true, isAdmin: d.ret_val === 0, raw: d };
-  } catch (e) { return { ok: false, error: String(e) }; }
-});
+// ⚠ #3000 无管理员：admin:probe 已删除（原实现 sandbox 调 set_paused，该函数不存在）
 
 // ---- 单个只读查询（通用，供渲染层批量调用）----
 ipcMain.handle('contract:call', async (_e, { node, contract, fn, caller, params }) => {
@@ -1181,7 +1206,7 @@ async function runSelfTest() {
       const r = await redeemBatchCore({
         kind: 'in',
         names: (process.env.HACDS_SELFTEST_NAMES || '').split(',').map(s => s.trim()).filter(Boolean),
-        oracle: process.env.HACDS_SELFTEST_ORACLE, node: process.env.HACDS_SELFTEST_NODE,
+        node: process.env.HACDS_SELFTEST_NODE,
         contract: process.env.HACDS_SELFTEST_CONTRACT, mainAddr: process.env.HACDS_SELFTEST_MAIN,
         keyPath: process.env.HACDS_SELFTEST_KEY, gasMax: 99,
       });

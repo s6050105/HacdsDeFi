@@ -36,7 +36,6 @@ contextBridge.exposeInMainWorld('api', {
   assetOverview: (req) => ipcRenderer.invoke('asset:overview', req),
   hacdDetails: (req) => ipcRenderer.invoke('hacd:details', req),
   protocolOverview: (req) => ipcRenderer.invoke('protocol:overview', req),
-  adminProbe: (req) => ipcRenderer.invoke('admin:probe', req),
   // 清算模块（D51）
   liqSync: (req) => ipcRenderer.invoke('liq:sync', req),
   liqSnapshot: (req) => ipcRenderer.invoke('liq:snapshot', req),

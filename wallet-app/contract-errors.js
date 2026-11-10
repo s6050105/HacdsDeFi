@@ -77,9 +77,7 @@ const CONTRACT_CODES = {
   init_admin: {
     1: '合约已初始化（幂等，无需重复）',
   },
-  set_oracle: {
-    1: '无管理员权限',
-  },
+  // ⚠ #3000 无预言机：set_oracle 已删除
   set_fee: {
     1: '无管理员权限',
     2: '费率超出范围（0–300，即 0–3%）',
@@ -212,11 +210,11 @@ const NODE_ERRORS = [
   { match: /Cannot find module|MODULE_NOT_FOUND/i,
     text: '程序文件缺失', hint: '安装不完整，请重装' },
   { match: /ECONNREFUSED|socket hang up|ECONNRESET|ENOTFOUND/i,
-    text: '连不上节点/预言机', hint: '检查地址与端口，或目标服务是否在运行' },
+    text: '连不上节点/索引器', hint: '检查地址与端口，或目标服务是否在运行' },
   { match: /timeout|timed out/i,
-    text: '请求超时', hint: '节点/预言机响应慢或不可达' },
+    text: '请求超时', hint: '节点/索引器响应慢或不可达' },
   { match: /HTTP 5\d\d|Bad Gateway|Service Unavailable/i,
-    text: '服务端错误', hint: '节点/预言机暂时不可用，稍后重试' },
+    text: '服务端错误', hint: '节点/索引器暂时不可用，稍后重试' },
 ];
 
 // ---- 对外接口 ----

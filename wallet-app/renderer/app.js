@@ -21,12 +21,13 @@ function applyI18nStatic() {
 
 // ===================== 状态 =====================
 const S = {
-  cfg: { node: 'http://43.251.101.101:8082', oracle: 'http://43.251.101.101:8123',
+  cfg: { node: 'http://43.251.101.101:8082',
+         indexer: 'http://43.251.101.101:8124',
          contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH' },
   keyPath: null,
   addr: null,
   unlocked: false,
-  isAdmin: false,      // 当前地址是否合约管理员（决定“管理”页签是否出现）
+  // ⚠ #3000 无管理员概念：isAdmin 已删除
   pending: null,       // 最近一次构建结果
   tab: 'trade',
   overview: null,      // 资产总览数据缓存
@@ -131,13 +132,11 @@ async function initCfg() {
   const c = await window.api.loadCfg();
   Object.assign(S.cfg, c || {});
   $('#node').value = S.cfg.node;
-  $('#oracle').value = S.cfg.oracle;
   $('#contract').value = S.cfg.contract;
   const ie = $('#indexer'); if (ie) ie.value = S.cfg.indexer || '';
 }
 function readCfgFromUI() {
   S.cfg.node = $('#node').value.trim();
-  S.cfg.oracle = $('#oracle').value.trim();
   S.cfg.contract = $('#contract').value.trim();
   const ie = $('#indexer');
   if (ie) S.cfg.indexer = ie.value.trim();
@@ -297,23 +296,23 @@ async function loadPoolHacd(silent) {
 
 // ===================== 操作目录 =====================
 const OPS = [
-  { id:'redeem', tab:'trade', kind:'redeem', titleKey:'op.redeem.t',
+  { id:'redeem', tab:'hacd', kind:'redeem', titleKey:'op.redeem.t',
     descKey:'op.redeem.d',
     fields:[{name:'names',labelKey:'f.names',hintKey:'f.namesHint'}],
     redeemBuild:(v)=>({ names: v.names.split(/[\s,]+/).filter(Boolean).map(s=>s.toUpperCase()) }) },
-  { id:'claim', tab:'trade', kind:'transfer', titleKey:'op.claim.t',
+  { id:'claim', tab:'fund', kind:'transfer', titleKey:'op.claim.t',
     descKey:'op.claim.d',
     fields:[{name:'atoms',labelKey:'f.atoms',type:'u128',default:'100000000'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',S.cfg.contract,main,'hacds',v.atoms]}) },
-  { id:'hacIn', tab:'trade', kind:'transfer', titleKey:'op.hacIn.t',
+  { id:'hacIn', tab:'fund', kind:'transfer', titleKey:'op.hacIn.t',
     descKey:'op.hacIn.d',
     fields:[{name:'hac',labelKey:'f.hacAmt',type:'text',default:'1:248'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','hac-to',S.cfg.contract,v.hac]}) },
-  { id:'hacOut', tab:'trade', kind:'transfer', titleKey:'op.hacOut.t',
+  { id:'hacOut', tab:'fund', kind:'transfer', titleKey:'op.hacOut.t',
     descKey:'op.hacOut.d',
     fields:[{name:'hac',labelKey:'f.hacAmt2',type:'text',default:'0.5'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','hac-from-to',S.cfg.contract,main,v.hac]}) },
-  { id:'redeemHacd', tab:'trade', kind:'redeemHacd', titleKey:'op.redeemHacd.t',
+  { id:'redeemHacd', tab:'hacd', kind:'redeemHacd', titleKey:'op.redeemHacd.t',
     descKey:'op.redeemHacd.d',
     fields:[{name:'names',labelKey:'f.names'},{name:'to',labelKey:'f.toAddrDef',type:'address'}],
     redeemBuild:(v)=>({ names: v.names.split(/[\s,]+/).filter(Boolean).map(s=>s.toUpperCase()), to: v.to }) },
@@ -327,21 +326,21 @@ const OPS = [
   //   remove_liquidity(share, min_hac_out, min_ds_out, deadline)
   //   deadline 传 0 = 不检查（兼容/离线构建）；日常操作建议由钱包自动填「当前块高 + 窗口」。
   //   注：deadline 的单位是**块高**，不是时间戳（合约里比的是 block_height）。
-  { id:'swapH2D', tab:'amm', kind:'call', ammV3000:true, fn:'swap_hac_to_ds', titleKey:'op.swapH2D.t',
+  { id:'swapH2D', tab:'swap', kind:'call', ammV3000:true, fn:'swap_hac_to_ds', titleKey:'op.swapH2D.t',
     descKey:'op.swapH2D.d',
     quote:'swap_hac_to_ds',
     hacFields:['hac_in'],
     fields:[{name:'hac_in',labelKey:'f.hacInUnit',type:'u128',default:'1'},
             {name:'min_out',labelKey:'f.minOutAtoms',type:'u128',default:'0'},
             {name:'deadline',labelKey:'f.deadline',type:'u128',default:'0',autoDeadline:true}] },
-  { id:'swapD2H', tab:'amm', kind:'call', ammV3000:true, fn:'swap_ds_to_hac', titleKey:'op.swapD2H.t',
+  { id:'swapD2H', tab:'swap', kind:'call', ammV3000:true, fn:'swap_ds_to_hac', titleKey:'op.swapD2H.t',
     descKey:'op.swapD2H.d',
     quote:'swap_ds_to_hac',
     hacFields:['min_out'],
     fields:[{name:'ds_in',labelKey:'f.dsInAtoms',type:'u128',default:'100000000'},
             {name:'min_out',labelKey:'f.minOutHac',type:'u128',default:'0'},
             {name:'deadline',labelKey:'f.deadline',type:'u128',default:'0',autoDeadline:true}] },
-  { id:'addLiq', tab:'amm', kind:'call', ammV3000:true, fn:'add_liquidity', titleKey:'op.addLiq.t',
+  { id:'addLiq', tab:'lp', kind:'call', ammV3000:true, fn:'add_liquidity', titleKey:'op.addLiq.t',
     descKey:'op.addLiq.d',
     hacFields:['hac_amt'],
     liquidityHint:true,
@@ -349,13 +348,13 @@ const OPS = [
             {name:'ds_amt',labelKey:'f.dsSideAtoms',type:'u128',default:'0'},
             {name:'min_share',labelKey:'f.minShare',type:'u128',default:'0'},
             {name:'deadline',labelKey:'f.deadline',type:'u128',default:'0',autoDeadline:true}] },
-  { id:'rmLiq', tab:'amm', kind:'call', ammV3000:true, fn:'remove_liquidity', titleKey:'op.rmLiq.t',
+  { id:'rmLiq', tab:'lp', kind:'call', ammV3000:true, fn:'remove_liquidity', titleKey:'op.rmLiq.t',
     descKey:'op.rmLiq.d',
     fields:[{name:'share',labelKey:'f.share',type:'u128',default:'1000000'},
             {name:'min_hac_out',labelKey:'f.minHacOut',type:'u128',default:'0'},
             {name:'min_ds_out',labelKey:'f.minDsOut',type:'u128',default:'0'},
             {name:'deadline',labelKey:'f.deadline',type:'u128',default:'0',autoDeadline:true}] },
-  { id:'harvest', tab:'amm', kind:'call', fn:'lp_harvest', titleKey:'op.harvest.t',
+  { id:'harvest', tab:'lp', kind:'call', fn:'lp_harvest', titleKey:'op.harvest.t',
     descKey:'op.harvest.d', fields:[] },
 
   { id:'coll', tab:'loan', kind:'call', fn:'loan_add_collateral', titleKey:'op.coll.t',
@@ -381,15 +380,15 @@ const OPS = [
     build:(v,[main])=>({mode:'transfer', args:[main,'0','hac-to',v.to,v.hac]}) },
   // 【金库清扫】合约 → 金库（触发合约 PermitHAC/PermitAsset，扣 tre:）。
   // ⚠ 必用 from-to 形态（from=合约）；写成 hac-to/asset-to 是"用户转"，不会清扫。
-  { id:'sweepHac', tab:'xfer', kind:'transfer', titleKey:'op.sweepHac.t',
+  { id:'sweepHac', tab:'tools', kind:'transfer', titleKey:'op.sweepHac.t',
     descKey:'op.sweepHac.d',
     fields:[{name:'amount',labelKey:'f.hacAmt',type:'text',default:'1:248'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','hac-from-to',S.cfg.contract,'1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK',v.amount]}) },
-  { id:'sweepDs', tab:'xfer', kind:'transfer', titleKey:'op.sweepDs.t',
+  { id:'sweepDs', tab:'tools', kind:'transfer', titleKey:'op.sweepDs.t',
     descKey:'op.sweepDs.d',
     fields:[{name:'atoms',labelKey:'f.atomsNum',type:'u128',default:'100000000'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',S.cfg.contract,'1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK','hacds',v.atoms]}) },
-  { id:'trA2C', tab:'xfer', kind:'transfer', titleKey:'op.trA2C.t',
+  { id:'trA2C', tab:'fund', kind:'transfer', titleKey:'op.trA2C.t',
     descKey:'op.trA2C.d',
     fields:[{name:'atoms',labelKey:'f.atomsNum',type:'u128',default:'100000000'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-to',S.cfg.contract,'hacds',v.atoms]}) },
@@ -412,15 +411,10 @@ const OPS = [
         String(v.serial).trim().replace(/^#/, ''), v.atoms]}) },
 ];
 
-// 管理员操作
-const ADMIN_OPS = [
-  { fn:'set_fee', titleKey:'admin.setFee', descKey:'admin.setFeeD', fields:[{name:'bps',label:'bps',type:'u128',default:'50'}] },
-  { fn:'set_loan_rate', titleKey:'admin.setLoanRate', descKey:'admin.setLoanRateD', fields:[{name:'bps',label:'bps',type:'u128',default:'500'}] },
-  { fn:'set_liquidate_bonus', titleKey:'admin.setBonus', descKey:'admin.setBonusD', fields:[{name:'bps',label:'bps',type:'u128',default:'200'}] },
-  { fn:'set_paused', titleKey:'admin.setPaused', descKey:'admin.setPausedD', fields:[{name:'p',label:'0 / 1',type:'u8',default:'0'}] },
-  { fn:'set_oracle', titleKey:'admin.setOracle', descKey:'admin.setOracleD', fields:[{name:'o',labelKey:'net.oracle',type:'address'}] },
-  { fn:'rent_batch', titleKey:'admin.rent', descKey:'admin.rentD', fields:[{name:'keys',label:'keys hex'},{name:'klen',label:'klen',type:'u128',default:'21'},{name:'period',label:'period',type:'u128',default:'300'}] },
-];
+// ⚠ #3000 无管理员：原 ADMIN_OPS 的 6 个函数（set_fee / set_loan_rate /
+//   set_liquidate_bonus / set_paused / set_oracle / rent_batch）在
+//   HacdsDeFi3000.fitsh 里全部不存在，整个管理员页签已删除。
+//   续租改由链下 keeper 调用 rent_keys / topup_keys 完成，不走钱包 UI。
 
 // btnKey = 整句按钮文案（比「查询 + 标签」拼接更自然，尤其中/土语）
 const QUERIES = [
@@ -439,23 +433,29 @@ const QUERIES = [
 ];
 
 // ===================== 界面构建 =====================
+//
+// 页签按「**对手方是谁**」划分（2026-11-11 重组）：
+//   · 转账 xfer —— 链上地址 ↔ 链上地址，**不碰合约**
+//   · 资金 fund —— 我的地址 ↔ **合约地址**，只做充提
+//   · 兑换/流动性/借贷/HACD —— 与合约的具体业务交互
+//   · 工具 tools —— 查询、运维、高级，收拢低频功能
+//
+// 原 9+1 个页签（含 1 个在 #3000 下完全无效的管理员页）收敛为 7 个，
+// 且每个功能**只保留一个入口**。
 const TABS = [
-  { id:'trade', labelKey:'tab.trade' },
-  { id:'amm',   labelKey:'tab.amm' },
+  { id:'swap',  labelKey:'tab.swap' },
+  { id:'lp',    labelKey:'tab.lp' },
   { id:'loan',  labelKey:'tab.loan' },
-  { id:'xfer',  labelKey:'tab.xfer' },
   { id:'hacd',  labelKey:'tab.hacd' },
-  { id:'query', labelKey:'tab.query' },
-  { id:'liq',   labelKey:'tab.liq' },
-  { id:'combo', labelKey:'tab.combo' },
-  { id:'offline', labelKey:'tab.offline' },
-  { id:'admin', labelKey:'tab.admin', adminOnly:true },
+  { id:'xfer',  labelKey:'tab.xfer' },
+  { id:'fund',  labelKey:'tab.fund' },
+  { id:'tools', labelKey:'tab.tools' },
 ];
 
 function renderTabs() {
   const nav = $('#tabs');
   nav.innerHTML = '';
-  TABS.filter(tab => !tab.adminOnly || S.isAdmin).forEach(tab => {
+  TABS.forEach(tab => {
     const b = document.createElement('button');
     b.textContent = t(tab.labelKey);   // 注意：循环变量不能叫 t，会遮蔽取词函数
     b.className = S.tab === tab.id ? 'on' : '';
@@ -468,10 +468,15 @@ function renderTabs() {
     };
     nav.appendChild(b);
   });
-  $('#adminBadge').hidden = !S.isAdmin;
 }
-// 若非管理员却停在 admin 页，退回 trade
-function guardTab() { if (S.tab === 'admin' && !S.isAdmin) S.tab = 'trade'; }
+
+/** 跳到指定页签（供页面内的「去资金页」「去 HACD 页」等链接使用） */
+function goTab(id) {
+  if (!TABS.some(x => x.id === id)) return;
+  S.tab = id; renderTabs(); renderPanels();
+}
+// 页签守卫：当前页签若不在 TABS 里（如旧配置残留 admin/trade），退回首页
+function guardTab() { if (!TABS.some(x => x.id === S.tab)) S.tab = 'swap'; }
 
 function fieldEl(f, val) {
   const wrap = document.createElement('div');
@@ -498,16 +503,14 @@ function renderPanels() {
   $('#hacdPanel').hidden = (S.tab !== 'hacd');
   host.hidden = (S.tab === 'hacd');
 
-  if (S.tab === 'hacd') { renderHacdPanel(); return; }
-  if (S.tab === 'query') return renderQueryPanel(host);
-  if (S.tab === 'combo') return renderComboPanel(host);
-  if (S.tab === 'liq') return renderLiqPanel(host);
-  if (S.tab === 'offline') return renderOfflinePanel(host);
-  if (S.tab === 'admin') return renderAdminPanel(host);
+  if (S.tab === 'hacd')  { renderHacdPanel(); return; }
+  if (S.tab === 'tools') return renderToolsPanel(host);
+  if (S.tab === 'fund')  return renderFundPanel(host);
 
   const ops = OPS.filter(o => o.tab === S.tab);
   ops.forEach(op => host.appendChild(opCard(op)));
-  if (S.tab === 'amm') host.appendChild(poolStatusCard());
+  if (S.tab === 'lp') host.appendChild(poolStatusCard());
+  if (S.tab === 'swap') host.appendChild(swapFundHint());
   applyOpPrefill();
 }
 
@@ -845,6 +848,22 @@ async function quoteUpdate(op, card) {
         h: hacOf(ph), d: rawHacds(pd, true) });
 }
 
+/**
+ * 兑换页底部的「去充值」提示。
+ *
+ * 为什么需要：兑换扣的是**合约内积分**（bal:hac / due），不是钱包里的链上资产。
+ * 用户在还没有积分时会看到「余额不足」，却不知道该先做什么。
+ * 这里给一条直达资金页的链接。
+ */
+function swapFundHint() {
+  const c = document.createElement('div');
+  c.className = 'card';
+  c.innerHTML = `<p class="desc">${t('swap.needFund')}</p>
+    <button class="ghost" id="goFundFromSwap">${t('swap.goFund')}</button>`;
+  c.querySelector('#goFundFromSwap').onclick = () => goTab('fund');
+  return c;
+}
+
 // AMM 池状态卡
 function poolStatusCard() {
   const c = document.createElement('div'); c.className = 'card';
@@ -948,19 +967,9 @@ function renderLiqPanel(host) {
   const card = document.createElement('div'); card.className = 'card';
   card.innerHTML =
     '<h3>' + t('liq.title') + '</h3><p class="desc">' + t('liq.desc') + '</p>' +
-    // ① LP 奖励
-    '<div class="liq-sec"><b>' + t('liq.secLp') + '</b>' +
-      '<div class="row"><button class="primary" id="liqHarvest">' + t('liq.harvest') + '</button>' +
-      '<span class="hint">' + t('liq.harvestHint') + '</span></div></div>' +
-    // ② 金库清扫
-    '<div class="liq-sec"><b>' + t('liq.secTre') + '</b>' +
-      '<div class="proto-grid" id="liqTreGrid" style="margin-top:8px"><span class="muted">' + t('ov.loading') + '</span></div>' +
-      '<div class="row">' +
-        '<button id="liqSweepHac">' + t('liq.sweepHac') + '</button>' +
-        '<button id="liqSweepDs">' + t('liq.sweepDs') + '</button>' +
-      '</div>' +
-      '<div class="hint" id="liqTreHint"></div></div>' +
-    // ③ 借贷清算台
+    // ⚠ 2026-11-11 重组：原「① LP 奖励」已并入流动性页(lp_harvest 卡片)；
+    //   原「② 金库清扫」已并入本页下文的 tools 卡片。
+    //   本页只保留「③ 借贷清算台」。
     '<div class="liq-sec"><b>' + t('liq.secLoan') + '</b>' +
       '<div class="row">' +
         '<button class="primary" id="liqSync">' + t('liq.sync') + '</button>' +
@@ -972,43 +981,6 @@ function renderLiqPanel(host) {
       '<div id="liqTable" style="margin-top:8px"></div></div>';
 
   host.appendChild(card);
-
-  // ① LP 奖励结算 → 复用通用构建（lp_harvest 无参）
-  card.querySelector('#liqHarvest').onclick = (e) =>
-    buildCall('lp_harvest', '-', card, e.currentTarget);
-
-  // ② 金库清扫（普通转账到金库地址；合约 PermitHAC/PermitAsset 自动扣 tre:）
-  const TREASURY = '1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK';
-  card.querySelector('#liqTreHint').textContent = t('liq.treHint', { a: TREASURY });
-  const loadTre = async () => {
-    readCfgFromUI();
-    const r = await window.api.liqTreasury({ node:S.cfg.node, contract:S.cfg.contract, caller:S.addr });
-    const g = card.querySelector('#liqTreGrid');
-    if (!r.ok) { g.innerHTML = '<span class="qerr">' + esc(r.error) + '</span>'; return; }
-    g.innerHTML = [[t('liq.treHac'), hacOf(r.hac)], [t('liq.treDs'), rawHacds(r.ds, true)]]
-      .map(([k,v]) => '<div class="proto-row"><span class="k">' + k + '</span><span class="v">' + (v==null?'—':v) + '</span></div>').join('');
-    card._tre = r;
-  };
-  loadTre();
-  card.querySelector('#liqSweepHac').onclick = () => {
-    const tr = card._tre || {};
-    const hacNum = hacToNum(tr.hac);
-    if (!hacNum) { log(t('liq.noSweep'), 'warn'); return; }
-    S.tab = 'xfer'; renderTabs(); renderPanels();
-    // 清扫 = 合约 → 金库（不是用户 → 金库）
-    window._opPrefill = Object.assign({}, window._opPrefill, { sweepHac: { amount: String(hacNum) } });
-    applyOpPrefill();
-    log(t('liq.treSweep') + ' HAC (合约) -> ' + TREASURY, 'ok');
-  };
-  card.querySelector('#liqSweepDs').onclick = () => {
-    const tr = card._tre || {};
-    if (!Number(tr.ds || 0)) { log(t('liq.noSweep'), 'warn'); return; }
-    S.tab = 'xfer'; renderTabs(); renderPanels();
-    // 清扫 = 合约 → 金库（不是用户 → 合约）
-    window._opPrefill = Object.assign({}, window._opPrefill, { sweepDs: { atoms: String(tr.ds) } });
-    applyOpPrefill();
-    log(t('liq.treSweep') + ' hacds (合约) -> ' + TREASURY, 'ok');
-  };
 
   // ③ 借贷清算台
   const renderTable = (list) => {
@@ -1158,6 +1130,92 @@ function renderQueryPanel(host) {
     card.appendChild(box);
   });
   host.appendChild(card);
+}
+
+// ---- 资金页：本地址 ↔ 合约地址，只做充提 ----
+//
+// 设计边界（2026-11-11 重组）：
+//   · 本页**只处理** HAC 与 hacds 两种资产与合约的充提
+//   · HACD（钻石）与合约的交互在 HACD 页，本页不出现
+//   · 链上地址之间的转账在「转账」页，本页不出现
+function renderFundPanel(host) {
+  // ① 说明 + 跳转到 HACD 页
+  const tip = document.createElement('div');
+  tip.className = 'card';
+  tip.innerHTML =
+    `<h3>${t('fund.title')}</h3>` +
+    `<p class="desc">${t('fund.desc')}</p>` +
+    `<div class="note" style="font-size:12.5px">${t('fund.hacdNote')}` +
+    ` <button class="ghost" id="goHacdFromFund" style="margin-left:8px">${t('fund.goHacd')}</button></div>`;
+  host.appendChild(tip);
+  tip.querySelector('#goHacdFromFund').onclick = () => goTab('hacd');
+
+  // ② 合约内余额一览
+  const bal = document.createElement('div');
+  bal.className = 'card';
+  bal.innerHTML = `<h3>${t('fund.inContract')}</h3>` +
+    `<div class="proto-grid" id="fundBal"><span class="muted">${t('ov.loading')}</span></div>`;
+  host.appendChild(bal);
+  (async () => {
+    const el = bal.querySelector('#fundBal');
+    if (!S.addr) { el.innerHTML = `<span class="muted">${t('fund.needUnlock')}</span>`; return; }
+    const r = await window.api.protocolOverview({ node: S.cfg.node, contract: S.cfg.contract, address: S.addr });
+    if (!r.ok) { el.innerHTML = `<span class="qerr">${esc(r.error)}</span>`; return; }
+    const d = r.data || {};
+    el.innerHTML = [
+      [t('fund.hacCredit'), hacOf(d.balHac)],
+      [t('fund.dsQuota'), rawHacds(d.balDs, true)],
+    ].map(([k, v]) => `<div class="proto-item"><span class="pk">${esc(k)}</span><span class="pv">${esc(v)}</span></div>`).join('');
+  })();
+
+  // ③ 四个充提操作
+  OPS.filter(o => o.tab === 'fund').forEach(op => host.appendChild(opCard(op)));
+}
+
+// ---- 工具页：查询 / 运维 / 高级 ----
+//
+// 子面板（renderQueryPanel / renderLiqPanel / renderComboPanel / renderOfflinePanel）
+// 都各自生成带 <h3> 的 card，所以这里**只加分组小标题**，不再包一层 card，
+// 否则会出现「工具标题 + 子面板标题」两个 h3 叠在一起。
+function renderToolsPanel(host) {
+  const groupHead = (titleKey, descKey) => {
+    const h = document.createElement('div');
+    h.style.cssText = 'margin:18px 0 8px;padding:0 2px';
+    h.innerHTML = `<h2 style="font-size:15px;margin:0 0 4px">${t(titleKey)}</h2>` +
+                  `<p class="desc" style="margin:0">${t(descKey)}</p>`;
+    host.appendChild(h);
+  };
+
+  // ① 查询
+  groupHead('tools.query', 'tools.queryD');
+  renderQueryPanel(host);
+
+  // ② 运维：金库累积额 + 清扫操作 + 清算监控
+  groupHead('tools.ops', 'tools.opsD');
+  const TREASURY = '1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK';
+  const treCard = document.createElement('div');
+  treCard.className = 'card';
+  treCard.innerHTML = `<h3>${t('liq.secTre')}</h3>` +
+    `<div class="proto-grid" id="toolsTreGrid"><span class="muted">${t('ov.loading')}</span></div>` +
+    `<div class="hint" id="toolsTreHint"></div>`;
+  host.appendChild(treCard);
+  treCard.querySelector('#toolsTreHint').textContent = t('liq.treHint', { a: TREASURY });
+  (async () => {
+    readCfgFromUI();
+    const g = treCard.querySelector('#toolsTreGrid');
+    const r = await window.api.liqTreasury({ node: S.cfg.node, contract: S.cfg.contract, caller: S.addr });
+    if (!r.ok) { g.innerHTML = '<span class="qerr">' + esc(r.error) + '</span>'; return; }
+    g.innerHTML = [[t('liq.treHac'), hacOf(r.hac)], [t('liq.treDs'), rawHacds(r.ds, true)]]
+      .map(([k, v]) => '<div class="proto-row"><span class="k">' + k + '</span><span class="v">' + (v == null ? '—' : v) + '</span></div>').join('');
+    window._treasuryCache = r;
+  })();
+  OPS.filter(o => o.tab === 'tools').forEach(op => host.appendChild(opCard(op)));
+  renderLiqPanel(host);
+
+  // ③ 高级
+  groupHead('tools.advanced', 'tools.advancedD');
+  renderComboPanel(host);
+  renderOfflinePanel(host);
 }
 
 // ---- 离线签名面板 ----
@@ -1355,29 +1413,7 @@ function renderOfflinePanel(host) {
   };
 }
 
-// ---- 管理员面板 ----
-function renderAdminPanel(host) {
-  const info = document.createElement('div'); info.className = 'card';
-  info.innerHTML = `<h3>${t('admin.title')}</h3>
-    <p class="desc">${t('admin.desc',{a:S.addr||'—'})}</p>
-    <p class="desc warn">${t('admin.noReadback')}</p>`;
-  host.appendChild(info);
-  ADMIN_OPS.forEach(op => {
-    const card = document.createElement('div'); card.className = 'card';
-    card.innerHTML = `<h3>${t(op.titleKey)}</h3><p class="desc">${t(op.descKey)}</p>`;
-    const grid = document.createElement('div'); grid.className = 'grid';
-    op.fields.forEach(f => grid.appendChild(fieldEl(f)));
-    card.appendChild(grid);
-    const row = document.createElement('div'); row.className = 'row';
-    const b = document.createElement('button'); b.className = 'primary'; b.textContent = t('btn.genTx2');
-    b.onclick = () => {
-      const v = collectFields(card);
-      const params = op.fields.map(f => `${v[f.name]}:${f.type}`).join(',');
-      buildCall(op.fn, params, card, b, 1);
-    };
-    row.appendChild(b); card.appendChild(row); host.appendChild(card);
-  });
-}
+// ⚠ #3000 无管理员：renderAdminPanel 已整块删除（对应 6 个合约函数全部不存在）
 
 // ===================== 构建 =====================
 async function buildOp(op, card, btn) {
@@ -1403,7 +1439,7 @@ async function buildOp(op, card, btn) {
         if (!go) { btn.disabled = false; btn.textContent = t('btn.genTx'); return; }
       }
       log(t('r.fetchCerts',{n:spec.names.length}));
-      res = await window.api.redeem({ names:spec.names, oracle:S.cfg.oracle, node:S.cfg.node,
+      res = await window.api.redeem({ names:spec.names, node:S.cfg.node,
         keyPath:S.keyPath, contract:S.cfg.contract, fee, gasMax, mainAddr:S.addr });
       if (res.ok) log(t('r.certTotal',{n:res.totalScore}), 'ok');
     } else if (op.kind === 'redeemHacd') {
@@ -1411,7 +1447,7 @@ async function buildOp(op, card, btn) {
       const to = spec.to || S.addr;
       if (!spec.names.length) throw new Error(t('off.needArgs'));
       log(t('r.fetchCertsRedeem',{n:spec.names.length}));
-      res = await window.api.redeemHacd({ names:spec.names, oracle:S.cfg.oracle, node:S.cfg.node,
+      res = await window.api.redeemHacd({ names:spec.names, node:S.cfg.node,
         keyPath:S.keyPath, contract:S.cfg.contract, toAddr:to, fee, gasMax, mainAddr:S.addr });
     } else if (op.kind === 'hacdTransfer') {
       // HACD 点对点：主进程用官方 WASM 本地签名，返回 tx_body（hex）
@@ -1587,8 +1623,10 @@ $('#pingNet').onclick = async () => {
   readCfgFromUI();
   const h = await window.api.httpGet({ url: `${S.cfg.node}/query/block/height/latest` });
   log(h.ok ? t('net.nodeOk',{h:h.data.height}) : t('net.nodeFail')+h.error, h.ok?'ok':'err');
-  const o = await window.api.httpGet({ url: `${S.cfg.oracle}/health` });
-  log(o.ok ? t('net.oracleOk',{a:o.data.oracle}) : t('net.oracleFail')+o.error, o.ok?'ok':'err');
+  if (S.cfg.indexer) {
+    const ix = await window.api.httpGet({ url: `${S.cfg.indexer}/health` });
+    log(ix.ok ? t('net.idxOk',{h:ix.data.head}) : t('net.idxFail')+ix.error, ix.ok?'ok':'err');
+  }
 };
 $('#clearLog').onclick = () => { $('#log').innerHTML = ''; };
 $('#btnRefresh').onclick = () => refreshOverview();
@@ -1607,14 +1645,9 @@ async function setAccount(addr, unlocked) {
   $('#unlockedView').hidden = !unlocked;
   $('#overview').hidden = !unlocked;
   if (addr) $('#addr').textContent = addr;
-  if (!unlocked) { S.isAdmin = false; $('#overview').hidden = true; renderTabs(); return; }
-  // 管理员探测
+  if (!unlocked) { $('#overview').hidden = true; renderTabs(); return; }
+  // #3000 无管理员：不再做 adminProbe 探测
   readCfgFromUI();
-  if (S.cfg.contract) {
-    const r = await window.api.adminProbe({ node:S.cfg.contract && S.cfg.node, contract:S.cfg.contract, address:addr });
-    S.isAdmin = !!(r.ok && r.isAdmin);
-    if (S.isAdmin) log(t('log.adminDetected'), 'ok');
-  }
   renderTabs();
   await refreshOverview();
   renderPanels();
@@ -2008,7 +2041,7 @@ async function runBatchHacd(kind, names) {
   const toAddr = kind === 'out' ? S.addr : undefined;
   const r = await window.api.redeemBatch({
     names, kind, toAddr,
-    oracle: S.cfg.oracle, node: S.cfg.node, contract: S.cfg.contract, mainAddr: S.addr,
+    node: S.cfg.node, contract: S.cfg.contract, mainAddr: S.addr,
   });
   if (!r.ok) { logErr(t('hacd.batchIn'), r); return; }
 
@@ -2113,7 +2146,7 @@ function initLang() {
 const UI = { zoom: 1, collapsed: {} };
 
 // 把界面偏好（缩放/折叠/日志高度）写回配置，与网络配置同存 config.json。
-// 先 readCfgFromUI 保留 node/oracle/contract 的当前输入，再落盘。
+// 先 readCfgFromUI 保留 node/indexer/contract 的当前输入，再落盘。
 async function saveCfg() {
   try {
     S.cfg.zoom = UI.zoom;
