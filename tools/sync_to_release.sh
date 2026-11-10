@@ -56,6 +56,7 @@ WHITELIST=(
 
   # 合约与设计文档
   "hacds_exchange/HacdsDeFi3000.fitsh"
+  "hacds_exchange/编译说明-v3000.md"
   "hacds_exchange/HacdsDeFi3000-经济设计-定稿.md"
   "hacds_exchange/HacdsDeFi3000-经济设计-3lite.md"
   "hacds_exchange/HacdsDeFi3000-开发说明.md"

@@ -246,8 +246,10 @@
         <div class="note mt-4" style="font-size:12.5px">
           <b>源码状态</b>　<b>#3000 源码与两轮上线前安全审计报告已在
           <a href="https://github.com/s6050105/HacdsDeFi/tree/v3000" target="_blank" rel="noopener">v3000 分支公开</a>。</b><br>
-          尚未部署的原因：评分逻辑依赖 Hacash 主网下一版 VM 的 <code>hacd_info</code> 内置，
-          该内置目前未激活。<b>待主网 VM 激活后即可部署。</b>
+          尚未部署的原因：评分依赖 Hacash 主网 VM 的 HACD 基因只读视图
+          （<code>hacd_visual_gene_batch</code> 等，随 v1.3.0 引入）。
+          需节点升级到 v1.3.0 且块高 ≥ 800,000 后才可用。
+          <b>合约侧已按官方 ABI 写好并编译通过，条件满足即可部署。</b>
         </div>
 
         <div class="mt-4">

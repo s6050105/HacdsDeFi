@@ -1313,28 +1313,45 @@ contract HacdsDeFi {
 
     // ---------------- 链上读基因（A-1 核心：取消证书与预言机） ----------------
     //
-    // ⚠⚠ ORACLE-SEAM ⚠⚠ —— **唯一依赖主网新 VM 内置的地方，将来只改这里**
+    // ---- 链上读基因 / 编号（A-1 核心：取消证书与预言机）----
     //
-    // #3000 依赖主网下个版本 VM 新增的「按钻石名读链上基因/编号」内置
-    // （见 `安全审计/整改/VM-issue-增加读HACD基因内置.md`）。
-    // 由于该内置的**确切 ABI 尚未确定**，此处先按**我们建议的签名**调用：
+    // 官方 ABI（hacash/fullnode，2026-11-01 提交 9bcda57927，v1.3.0）
+    // ---------------------------------------------------------------
+    // 4 个只读 host view，均为 ACTVIEW、argc=1、返回 Bytes：
     //
-    //     hacd_info(name: Fixed6) -> (life_gene: Fixed32, visual_gene: Fixed10, number: u64)
+    //     hacd_smelt              -> 每颗 50B：number(8) ‖ visual_gene(10) ‖ life_gene(32)
+    //     hacd_number_batch       -> 每颗 8B ：number
+    //     hacd_visual_gene_batch  -> 每颗 10B：visual_gene
+    //     hacd_life_gene_batch    -> 每颗 32B：life_gene
     //
-    // 待 VM 定稿后，**只改函数体内那一行**（可能需拆成两个内置、或字段顺序不同），
-    // 其余全部逻辑无需改动。
+    // ⚠ 与我们原 issue 里建议的 `hacd_info(name) -> (life,visual,number)` 不同：
+    //   实际是**批量**接口、**返回 Bytes 而非 Tuple**、字段顺序 number 在前。
+    //   结果按**输入顺序**排列，**没有 count 前缀**。
     //
-    // 返回：视觉基因 visual_gene（10B，评分用）+ 编号 number。
-    // 缺省（名字非法/不存在）由调用方以 0 分拒绝。
+    // 入参编码（DiamondNameListMax200 的 wire 形态）：
+    //     count(u8) ‖ name×count（每名 6 字节，字母表 "WTYUIAHXVMEKBSZN"）
+    //   即 1 + 6n 字节，n ≤ 200。**不能有重复名**，也不能含非法字符。
+    //   count 必须用 u8 量纲：fitsh 的 0..=255 字面量编译成 PU8（1 字节），
+    //   而 u128 拼接会按定长 16 字节大端展开（见 vm/src/value/item.rs:331）。
+    //
+    // ⚠⚠ 激活条件（两者**同时**满足）⚠⚠
+    //   1) 节点必须是 1.3.0+。1.2.5 的内置表里没有这些函数，高度到了也调不到。
+    //   2) 块高必须 >= 800,000。窗口 [790000, 800000) 内调用返回
+    //      `hacd smelt not enabled yet`（base/src/runtime/upgrade.rs）。
+    //
+    // 返回：visual_gene（10B，评分用）+ number。失败（名字非法/钻石不存在）返回空。
     function hacd_read_gene(name: bytes) -> tuple {
-        // TODO(#3000-SEAM): 待 VM 定稿后替换为真实内置；**本版本不可部署**。
-        // fitsh 语法：元组用 tuple(a, b) 构造，取值用 item_get(t, i)；不接受 (a, b) 字面量。
-        // >>> 目标 ABI：var info = hacd_info(name); var lg = item_get(info,0); ...
-        var info = hacd_info(name)
-        var vg = item_get(info, 1)
-        var num = item_get(info, 2)
+        // name 必须是 6 字节合法钻石名，否则入参 wire 会被服务端拒绝
+        if size(name) != 6 { return tuple("", 0u128) }
+        // count=1（u8 量纲）‖ name(6B) —— 共 7 字节
+        var arg = 1 ++ name
+        // 一次性取回 visual_gene（10B），比 hacd_smelt(50B) 省 resource
+        var vg = hacd_visual_gene_batch(arg)
         if size(vg) != 10 { return tuple("", 0u128) }
-        return tuple(vg, num)
+        // number 单独取（8B 大端 → u128；buf_to_u128 会先 trim 前导零字节）
+        var num = hacd_number_batch(arg)
+        if size(num) != 8 { return tuple("", 0u128) }
+        return tuple(vg, num as u128)
     }
 
     // 读一颗钻石的评分：链上直读基因 → 合约自算分（无证书、无签名、无比对）。

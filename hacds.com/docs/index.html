@@ -135,8 +135,9 @@
         <p>上一版（#2000）有<b>预言机</b>：链下算分后签一张 126 字节证书，合约再重算比对。
         这带来两个问题——预言机是单点，它下线兑换就停；且持有预言机私钥即可影响发分。</p>
         <p>#3000 <b>整条证书链路都删掉了</b>，也没有 <code>init_admin</code> / <code>set_paused</code> /
-        <code>set_oracle</code> 这类管理员入口。评分改由合约通过 HVM 内置
-        <code>hacd_info</code> 直接读钻石基因、本地自算。
+        <code>set_oracle</code> 这类管理员入口。评分改由合约通过 HVM 只读视图
+        <code>hacd_visual_gene_batch</code> / <code>hacd_number_batch</code>
+        直接读钻石基因与编号、本地自算。
         架构上少了一个组件，也少了一个可被攻击的信任点。</p>
       </div>
     </section>
@@ -306,9 +307,13 @@ if total < 1 { total = 1 }        // 保底 1 分</pre>
 
       <div class="callout">
         <b>链上直读，无预言机</b>
-        <p>合约通过 HVM 内置 <code>hacd_info(name)</code> 直接读取钻石的基因与编号，
-        然后在链上自算分。<b>整条证书链路（链下算分 → 签名 → 链上重算比对）已删除。</b>
+        <p>合约通过 HVM 只读视图 <code>hacd_visual_gene_batch</code> /
+        <code>hacd_number_batch</code> 直接读取钻石的视觉基因与编号，然后在链上自算分。
+        <b>整条证书链路（链下算分 → 签名 → 链上重算比对）已删除。</b>
         这消除了「谁持有预言机私钥谁就能影响发分」的风险，也去掉了预言机这个单点故障。</p>
+        <p class="dim">入参是钻石名列表（<code>count(u8) ‖ name×6B</code>，最多 200 颗），
+        出参按输入顺序排列、无 count 前缀：visual gene 每颗 10 字节，number 每颗 8 字节大端。
+        视觉基因由合约侧直接使用，不再需要任何外部签名。</p>
         <p class="dim">对比 #2000：那一版由预言机在链下算分、签一张 126 字节证书，
         合约再重算比对。预言机下线兑换就停，且它本身是可信第三方。</p>
       </div>
@@ -336,10 +341,17 @@ if total < 1 { total = 1 }        // 保底 1 分</pre>
           <li><a href="https://github.com/s6050105/HacdsDeFi/blob/v3000/%E5%AE%89%E5%85%A8%E5%AE%A1%E8%AE%A1/%E4%B8%8A%E7%BA%BF%E5%89%8D%E5%AE%89%E5%85%A8%E5%AE%A1%E8%AE%A1%E6%8A%A5%E5%91%8A-2026-10-25.md" target="_blank" rel="noopener">第一轮审计报告（2026-10-25）</a></li>
           <li><a href="https://github.com/s6050105/HacdsDeFi/blob/v3000/%E5%AE%89%E5%85%A8%E5%AE%A1%E8%AE%A1/%E4%B8%8A%E7%BA%BF%E5%89%8D%E5%AE%89%E5%85%A8%E5%AE%A1%E8%AE%A1%E6%8A%A5%E5%91%8A-2026-10-27-%E7%BB%88%E5%AE%A1.md" target="_blank" rel="noopener">终审报告（2026-10-27）</a></li>
         </ul>
-        <p><b>尚未部署的原因：</b>#3000 的评分逻辑依赖 Hacash 主网下一版 VM 新增的
-        <code>hacd_info</code> 内置（按钻石名直接读链上基因与编号）。该内置目前尚未在主网激活，
-        所以合约里的 <code>hacd_read_gene</code> 仍是一个 SEAM 占位。<b>待主网 VM 激活
-        <code>hacd_info</code> 后即可部署</b>，届时只需替换该函数体内的一行，其余逻辑不变。</p>
+        <p><b>尚未部署的原因：</b>#3000 的评分逻辑依赖 Hacash 主网 VM 的 HACD 基因只读视图
+        （<code>hacd_visual_gene_batch</code> / <code>hacd_number_batch</code> /
+        <code>hacd_smelt</code> / <code>hacd_life_gene_batch</code>，随官方 v1.3.0 引入）。
+        该能力目前**尚未在主网可用**，需同时满足两个条件：</p>
+        <ul class="doc-list">
+          <li><b>节点 ≥ v1.3.0</b> —— v1.2.5 及更早的内置表里没有这些函数，连编译器都会拒绝；</li>
+          <li><b>块高 ≥ 800,000</b> —— 官方在 <code>[790000, 800000)</code> 区间禁用该能力。</li>
+        </ul>
+        <p>合约侧的 <code>hacd_read_gene</code> <b>已按官方最终 ABI 写好并编译通过</b>
+        （v1.3.0 <code>fitshc</code> 实测 <code>Compile success</code>），
+        待上述条件满足即可部署，无需再改代码。</p>
         <p class="dim">仓库 <code>main</code> 分支保存的是上一版 <b>#2000</b> 的实现
         （<code>hacds_exchange/HacdsDeFi.fitsh</code>，含当时的预言机与服务端）——
         <b>已停用，仅作历史记录</b>。当前实现请一律以 <code>v3000</code> 分支为准。</p>

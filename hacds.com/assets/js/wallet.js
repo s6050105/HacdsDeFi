@@ -136,7 +136,8 @@
    *
    * ⚠ 这是 **#2000 遗留**：结构 name(6) + visual_gene(10) + number(8)
    *   + score(4) + version(1) + sign(97)。#3000 已删除证书流
-   *   （改为合约链上直读 hacd_info 自算分），官网的 mintHacd/redeemHacd
+   *   （改为合约链上直读 `hacd_visual_gene_batch` / `hacd_number_batch` 自算分），
+   *   官网的 mintHacd/redeemHacd
    *   也是「明确不支持」的桩，这个布局实际上永远不会被用到。
    *
    *   保留它是因为 PC 钱包仍会用同一形状；用 getter 动态取文案，
