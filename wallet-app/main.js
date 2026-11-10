@@ -56,6 +56,9 @@ function installerLang() {
 }
 // #3000 合约地址。旧配置里可能是 #2000 的 VKNw…，需迁移。
 const CONTRACT_V3000 = 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH';
+// 服务器默认地址（节点 / 索引器）。本地测试时用户会在界面里手动改成 127.0.0.1。
+const NODE_DEFAULT    = 'http://43.251.101.101:8082';
+const INDEXER_DEFAULT = 'http://43.251.101.101:8124';
 
 /**
  * 配置迁移：把老版本写下的过期字段修正过来。
@@ -78,8 +81,11 @@ function migrateCfg(c) {
   // ② 删除已废弃的 oracle 字段（#3000 无预言机）
   if ('oracle' in c) { delete c.oracle; changed = true; }
 
-  // ③ 索引器缺失时补默认值
-  if (!c.indexer) { c.indexer = 'http://43.251.101.101:8124'; changed = true; }
+  // ③ 节点 / 索引器缺失时补服务器默认值。
+  //    ⚠ 只在**缺失**时补，不覆盖已有值 —— 用户可能故意指向本地节点做测试，
+  //    强制改回服务器会让他的本地环境突然失效。
+  if (!c.node) { c.node = NODE_DEFAULT; changed = true; }
+  if (!c.indexer) { c.indexer = INDEXER_DEFAULT; changed = true; }
 
   if (changed) {
     try { fs.writeFileSync(cfgFile(), JSON.stringify(c, null, 2)); } catch { /* 只读环境忽略 */ }
@@ -94,8 +100,8 @@ function loadCfg() {
     if (!c.lang) { const il = installerLang(); if (il) c.lang = il; }
     return migrateCfg(c);
   } catch {
-    const base = { node: 'http://43.251.101.101:8082',
-                   indexer: 'http://43.251.101.101:8124',
+    const base = { node: NODE_DEFAULT,
+                   indexer: INDEXER_DEFAULT,
                    contract: CONTRACT_V3000 };
     const il = installerLang(); if (il) base.lang = il;
     return base;

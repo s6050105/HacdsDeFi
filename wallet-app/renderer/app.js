@@ -29,7 +29,8 @@ const S = {
   unlocked: false,
   // ⚠ #3000 无管理员概念：isAdmin 已删除
   pending: null,       // 最近一次构建结果
-  tab: 'trade',
+  tab: 'swap',         // 默认页签（原 'trade' 已不存在）
+  toolsGroup: 'query', // 工具页当前分组：query / ops / rent / advanced
   overview: null,      // 资产总览数据缓存
   hacdList: null,      // HACD 详情缓存（null = 未加载过，刷新时跳过）
   poolHacdList: null,  // 合约地址内的 HACD 缓存（null = 未加载过）
@@ -1178,20 +1179,34 @@ function renderFundPanel(host) {
 // 都各自生成带 <h3> 的 card，所以这里**只加分组小标题**，不再包一层 card，
 // 否则会出现「工具标题 + 子面板标题」两个 h3 叠在一起。
 function renderToolsPanel(host) {
-  const groupHead = (titleKey, descKey) => {
-    const h = document.createElement('div');
-    h.style.cssText = 'margin:18px 0 8px;padding:0 2px';
-    h.innerHTML = `<h2 style="font-size:15px;margin:0 0 4px">${t(titleKey)}</h2>` +
-                  `<p class="desc" style="margin:0">${t(descKey)}</p>`;
-    host.appendChild(h);
-  };
+  // 工具页用「分组选择器」，而不是把所有内容平铺一页。
+  // 一页全展开会有 8+ 张卡片，滚动很长且找不到东西。
+  const GROUPS = [
+    { id: 'query',    labelKey: 'tools.query' },
+    { id: 'ops',      labelKey: 'tools.ops' },
+    { id: 'rent',     labelKey: 'tools.rent' },
+    { id: 'advanced', labelKey: 'tools.advanced' },
+  ];
+  if (!GROUPS.some(g => g.id === S.toolsGroup)) S.toolsGroup = 'query';
 
-  // ① 查询
-  groupHead('tools.query', 'tools.queryD');
-  renderQueryPanel(host);
+  // 选择器
+  const bar = document.createElement('div');
+  bar.className = 'card';
+  bar.style.padding = '10px 14px';
+  bar.innerHTML = GROUPS.map(g =>
+    `<button class="ghost" data-tg="${g.id}" style="margin-right:8px${S.toolsGroup === g.id ? ';font-weight:600' : ''}">${t(g.labelKey)}</button>`
+  ).join('');
+  host.appendChild(bar);
+  bar.querySelectorAll('[data-tg]').forEach(b => {
+    b.onclick = () => { S.toolsGroup = b.dataset.tg; renderPanels(); };
+  });
 
-  // ② 运维：金库累积额 + 清扫操作 + 清算监控
-  groupHead('tools.ops', 'tools.opsD');
+  const g = S.toolsGroup;
+  if (g === 'query') { renderQueryPanel(host); return; }
+  if (g === 'advanced') { renderComboPanel(host); renderOfflinePanel(host); return; }
+  if (g === 'rent') { renderRentPanel(host); return; }
+
+  // ---- ops：金库清扫 + 清算监控 ----
   const TREASURY = '1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK';
   const treCard = document.createElement('div');
   treCard.className = 'card';
@@ -1202,20 +1217,119 @@ function renderToolsPanel(host) {
   treCard.querySelector('#toolsTreHint').textContent = t('liq.treHint', { a: TREASURY });
   (async () => {
     readCfgFromUI();
-    const g = treCard.querySelector('#toolsTreGrid');
+    const el = treCard.querySelector('#toolsTreGrid');
     const r = await window.api.liqTreasury({ node: S.cfg.node, contract: S.cfg.contract, caller: S.addr });
-    if (!r.ok) { g.innerHTML = '<span class="qerr">' + esc(r.error) + '</span>'; return; }
-    g.innerHTML = [[t('liq.treHac'), hacOf(r.hac)], [t('liq.treDs'), rawHacds(r.ds, true)]]
+    if (!r.ok) { el.innerHTML = '<span class="qerr">' + esc(r.error) + '</span>'; return; }
+    el.innerHTML = [[t('liq.treHac'), hacOf(r.hac)], [t('liq.treDs'), rawHacds(r.ds, true)]]
       .map(([k, v]) => '<div class="proto-row"><span class="k">' + k + '</span><span class="v">' + (v == null ? '—' : v) + '</span></div>').join('');
     window._treasuryCache = r;
   })();
   OPS.filter(o => o.tab === 'tools').forEach(op => host.appendChild(opCard(op)));
   renderLiqPanel(host);
+}
 
-  // ③ 高级
-  groupHead('tools.advanced', 'tools.advancedD');
-  renderComboPanel(host);
-  renderOfflinePanel(host);
+/**
+ * 续租面板（storage 键续期）。
+ *
+ * 为什么需要：Hacash 的 storage 是按租期计费的，键到期后 storage_load 会
+ * 报 StorageNotActive(108)，导致该用户所有操作整笔回滚。所以账本键必须持续续租。
+ *
+ * 关键约束（合约 rent_keys）：
+ *   · 入参是**原始键字节的连排**（如 "u:" + 地址21字节），钱包自己拼不出来
+ *     —— 必须从索引器 /rent_batches 取。
+ *   · 同批键必须**等长**（klen 一致），所以索引器按长度分组。
+ *   · 单笔上限 RENT_MAX_KEYS = 10 键（storage 单桶 111,911 的限制）。
+ *   · period 必须 >= 300 且 <= 3000，否则合约返回 62/63。
+ *   · rent_keys **有报酬**（0.07 HAC/键，从 tre:hac 出），任何人可调。
+ *   · topup_keys **无报酬**，用于首注后把新键从 100 期补到 300 期。
+ */
+function renderRentPanel(host) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    `<h3>${t('rent.title')}</h3>` +
+    `<p class="desc">${t('rent.desc')}</p>` +
+    `<div class="proto-grid" id="rentStat"><span class="muted">${t('ov.loading')}</span></div>` +
+    `<div class="row" style="margin-top:10px">` +
+      `<button class="primary" id="rentLoad">${t('rent.load')}</button>` +
+      `<button id="rentDo" disabled>${t('rent.do')}</button>` +
+      `<span class="hint" id="rentHint"></span>` +
+    `</div>` +
+    `<div id="rentBatches" style="margin-top:12px"></div>`;
+  host.appendChild(card);
+
+  const btnLoad = card.querySelector('#rentLoad');
+  const btnDo = card.querySelector('#rentDo');
+  const hint = card.querySelector('#rentHint');
+  const stat = card.querySelector('#rentStat');
+  const listBox = card.querySelector('#rentBatches');
+  let batches = [];
+
+  // ① 先从索引器拉续租批次
+  btnLoad.onclick = async () => {
+    readCfgFromUI();
+    if (!S.cfg.indexer) { hint.textContent = t('rent.noIndexer'); return; }
+    btnLoad.disabled = true;
+    hint.textContent = t('rent.loading');
+    try {
+      const r = await window.api.httpGet({ url: `${S.cfg.indexer}/rent_batches?max=10` });
+      if (!r.ok) { hint.textContent = t('rent.loadFail') + r.error; return; }
+      // 实测返回：{ ret, batches:[{klen,blob,count,keys}], total, total_all, truncated, dropped }
+      batches = (r.data && r.data.batches) || [];
+      const total = (r.data && r.data.total != null) ? r.data.total : batches.length;
+      stat.innerHTML = `<div class="proto-item"><span class="pk">${t('rent.batchCount')}</span><span class="pv">${batches.length}</span></div>`
+        + `<div class="proto-item"><span class="pk">${t('rent.keyTotal')}</span><span class="pv">${total}</span></div>`;
+      if (!batches.length) { listBox.innerHTML = `<div class="muted">${t('rent.empty')}</div>`; hint.textContent = ''; return; }
+      listBox.innerHTML = batches.map((b, i) =>
+        `<div class="proto-row"><span class="k">#${i + 1}</span>` +
+        `<span class="v">klen=${b.klen} · ${b.count} ${t('rent.keys')}</span></div>`).join('');
+      btnDo.disabled = false;
+      hint.textContent = t('rent.ready', { n: batches.length })
+        + ((r.data && r.data.truncated) ? ' ' + t('rent.truncated') : '');
+    } catch (e) {
+      hint.textContent = t('rent.loadFail') + (e.message || e);
+    } finally { btnLoad.disabled = false; }
+  };
+
+  // ② 生成续租交易（逐批构建，交给统一的预览+签名流程）
+  //
+  // 复用 buildTx + showPreview：钱包不自动广播，用户在预览卡里确认后签名。
+  // 逐批是因为合约单笔上限 10 键；每批单独确认，出问题容易定位。
+  btnDo.onclick = async () => {
+    if (!S.addr) { log(t('acct.locked'), 'err'); return; }
+    if (!batches.length) return;
+    btnDo.disabled = true;
+    try {
+      let built = 0;
+      for (let i = 0; i < batches.length; i++) {
+        const b = batches[i];
+        // rent_keys(keys: bytes, klen: u128, period: u128)
+        // keys 是连排的原始键字节（hex），klen 决定合约如何切分；period 取 300（RENT_PERIOD）
+        const params = `${b.blob}:bytes,${b.klen}:u128,300:u128`;
+        hint.textContent = t('rent.sending', { i: i + 1, n: batches.length });
+        const res = await window.api.buildTx({
+          mode: 'call',
+          args: [S.addr, '0', S.cfg.contract, 'rent_keys', params],
+          keyPath: S.keyPath, fee: null, gasMax: null,
+          node: S.cfg.node, contract: S.cfg.contract,
+        });
+        if (!res.ok) {
+          log(t('rent.failOne', { i: i + 1 }) + (res.error || ''), 'err');
+          continue;
+        }
+        built++;
+        S.pending = res;
+        showPreview(res);
+        log(t('rent.built', { i: i + 1, n: batches.length }), 'ok');
+        // 多批时只生成第一笔，避免一次弹出多张预览卡；
+        // 用户签完再点一次「生成」拿下一批。
+        if (batches.length > 1) { hint.textContent = t('rent.oneAtATime'); break; }
+      }
+      if (built === 1 && batches.length === 1) hint.textContent = t('rent.builtOne');
+    } catch (e) {
+      logErr(t('common.buildFail'), e);
+    } finally { btnDo.disabled = false; }
+  };
 }
 
 // ---- 离线签名面板 ----
