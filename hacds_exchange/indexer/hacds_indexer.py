@@ -166,11 +166,18 @@ def match_contract_fn(codes_hex: str):
     任何 DApp 的 calldata 里只要恰好包含这 4 个字节，其 tx.main 就会被当成
     借款人写进台账。
 
-    MainCall 的线格式是：`09 14 01 <sig4> ee`（CALL / 长度 / 参数区 /
-    selector / 结束），所以这里定位 `091401` 之后紧跟的 4 字节作为 selector，
-    并且要求 selector 之后是 `ee`（参数区结束）—— 即**无参数的裸调用**。
-    带参数的调用（如 loan_borrow(x)）参数区在 selector 之前，形态不同，
-    这里退化为「精确匹配 8 位十六进制 selector 作为完整 token」。
+    ⚠ 2026-11-12 修正：上版写的是 `09 14 01 <sig4> ee`，**与真实产物不符**，
+    导致四个借贷函数全部漏判（实测 `_callhex.json` 31 条样本 0 命中）——
+    索引器永远不记借款人 → /watchlist 恒空 → 清算台无单可清 → 坏账累积。
+
+    真实线格式（用 `_callhex.json` 的 txbuild 产物逐条核对）：
+
+        ... 28 14 01 <sig4> ee ...
+             ↑  ↑  ↑              ↑
+           CALL 参数区长度=0x1401  selector  参数区结束
+
+    `28` 是 CALL 操作码；`1401` 是「参数区 20 字节 / 长度前缀」的编码。
+    故这里定位 `1401` 之后紧跟的 4 字节作为 selector，并要求其后是 `ee`。
 
     匹配不到时返回 None，宁缺勿滥。
     """
@@ -180,16 +187,16 @@ def match_contract_fn(codes_hex: str):
     if not hx or any(c not in "0123456789abcdef" for c in hx):
         return None
 
-    # 主形态：09 14 01 <sig4> ee
+    # 主形态：14 01 <sig4> ee
     i = 0
     while True:
-        j = hx.find("091401", i)
+        j = hx.find("1401", i)
         if j < 0:
             break
-        sig = hx[j + 6: j + 14]
-        if len(sig) == 8 and hx[j + 14: j + 16] == "ee" and sig in LOAN_SELECTORS:
+        sig = hx[j + 4: j + 12]
+        if len(sig) == 8 and hx[j + 12: j + 14] == "ee" and sig in LOAN_SELECTORS:
             return LOAN_SELECTORS[sig]
-        i = j + 6
+        i = j + 2
 
     # 兜底：带参数形态 —— selector 作为独立的 8 位片段出现，前后不得紧邻
     # 其它十六进制数字（避免 32 位地址/金额里恰好包含该子串）。
@@ -894,11 +901,22 @@ def selftest():
     chk("selector(loan_borrow)", fn_selector("loan_borrow"), "a4fea537")
     chk("selector(loan_liquidate)", fn_selector("loan_liquidate"), "3e403fb8")
     chk("selector(loan_status)", fn_selector("loan_status"), "dfd17a76")
-    # 3) 交易字节匹配（txbuild 真实产物）
-    tx = ("0300000000001600333ca1f19b602275f871a308675dfece685ae8e701369d52e912c2f26d25b3b8f7289f"
-          "10086a54d46ef401020001002c000000000020221500333ca1f19b602275f871a308675dfece685ae8e73"
-          "70914013e403fb8ee00006300")
-    chk("match kind44 -> loan_liquidate", match_contract_fn(tx), "loan_liquidate")
+    # 3) 交易字节匹配 —— **必须用 txbuild 真实产物**。
+    #
+    # ⚠ 2026-11-12：原自检用的是一段手工构造的 98 字节向量（含 `09 14 01`），
+    #   与真实线的 `28 14 01` 不同形态，所以匹配函数写错了自检也照样 PASS。
+    #   下面四条取自 _callhex.json（txbuild 实际输出），覆盖四个借贷函数。
+    for _fn, _sig in (("loan_borrow", "a4fea537"),
+                      ("loan_repay", "5e1a69d3"),
+                      ("loan_liquidate", "3e403fb8"),
+                      ("loan_add_collateral", "91d219d7")):
+        _hx = ("002c000000000008" "2814 01" + _sig + "ee00006300").replace(" ", "")
+        chk("match 真实形态 -> %s" % _fn, match_contract_fn(_hx), _fn)
+    chk("非借贷调用 -> None",
+        match_contract_fn("002c0000000000082814016b84491cee00006300"),   # swap_hac_to_ds
+        None)
+    chk("selector 埋在长 hex 中间 -> None",
+        match_contract_fn("00" * 10 + "3e403fb8" + "00" * 10), None)
     chk("match 别的DApp -> None",
         match_contract_fn("7f0322e64843415348444558327c65794a6a61474670626b6c6b496a6f694d"),
         None)

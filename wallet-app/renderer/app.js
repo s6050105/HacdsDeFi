@@ -651,7 +651,12 @@ function opCard(op) {
   row.appendChild(btn);
   // “加入组合”：把当前填写内容转成 combo 动作，暂存到 S.combo（原子交易页使用）
   const addb = document.createElement('button'); addb.className = 'ghost'; addb.textContent = t('combo.addBtn');
-  addb.onclick = () => { if (addToCombo(op, card)) log(t('combo.added'), 'ok'); };
+  // ⚠ 必须包 try：buildCallParams 对非法 address 会抛异常（防参数注入），
+  //   这里不接就会变成未捕获异常，用户点「加入组合」后毫无反应。
+  addb.onclick = () => {
+    try { if (addToCombo(op, card)) log(t('combo.added'), 'ok'); }
+    catch (e) { log(e && e.message ? e.message : String(e), 'err'); }
+  };
   row.appendChild(addb);
   card.appendChild(row);
   if (op.quote) quoteUpdate(op, card);

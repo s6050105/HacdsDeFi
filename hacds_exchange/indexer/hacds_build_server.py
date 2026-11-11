@@ -461,7 +461,7 @@ def main():
     ap.add_argument("--trust-proxy", action="store_true",
                     help="信任前面有一层反向代理（Cloudflare Worker / Nginx），"
                          "按 X-Forwarded-For 的最右一跳做限流。"
-                         "⚠ 只在**确实**有代理时打开：直连暴露时打开，客户端可伪造）
+                         "⚠ 只在**确实**有代理时打开：直连暴露时打开，客户端可伪造）")
     args = ap.parse_args()
 
     if not os.path.exists(args.txbuild):

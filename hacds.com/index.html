@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hacds — HACD 流动性协议 · Hacash 主网</title>
+<meta name="description" content="hacds 把 HACD 钻石的评分变成可自由流通的链上资产。存入 HACD 铸造 hacds，随时赎回。Hacash 主网首个 DeFi 合约，全程链上可验证。">
+<meta property="og:title" content="hacds — HACD 流动性协议">
+<meta property="og:description" content="把钻石的评分变成可以流通的资产。Hacash 主网首个 DeFi 合约。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hacds.com">
+<link rel="icon" href="/assets/img/hacds_icon_32.png">
+<link rel="stylesheet" href="/assets/css/design-tokens.css?v=1794373175">
+<link rel="stylesheet" href="/assets/css/main.css?v=1794373175">
+</head>
+<body>
+
+<!-- 横幅 -->
+<!--
+  ⚠ 合约上线后改回 banner.mainnet（见 assets/js/i18n.js:18）。
+  #3000 需等 Hacash 主网 HVM 升级后才可部署，当前必须如实标「待部署」。
+-->
+<div class="banner" id="banner">
+  <span data-i18n="banner.testnet"></span>
+  <button class="close" id="bannerClose" aria-label="close">×</button>
+</div>
+
+<!-- 顶栏 -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">
+      <img src="/assets/img/hacds_icon_64.png" alt="">
+      <span>hacds</span>
+    </a>
+    <div class="nav-links">
+      <a href="#about" data-i18n="nav.about"></a>
+      <a href="#verify" data-i18n="nav.verify"></a>
+      <a href="#features" data-i18n="nav.features"></a>
+      <a href="/docs/" data-i18n="nav.docs"></a>
+      <div class="lang">
+        <button data-lang="zh">中</button>
+        <button data-lang="en">EN</button>
+        <button data-lang="tr">TR</button>
+      </div>
+      <a href="/app/" class="btn btn-primary btn-sm" data-i18n="nav.app"></a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="wrap hero-inner">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      <span data-i18n="hero.badge"></span>
+    </div>
+    <h1 class="hero-title">
+      <span data-i18n="hero.title1"></span><br>
+      <em data-i18n="hero.title2"></em>
+    </h1>
+    <p class="hero-sub" data-i18n="hero.sub"></p>
+    <div class="hero-actions">
+      <a href="/app/" class="btn btn-primary" data-i18n="hero.cta1"></a>
+      <a href="/whitepaper/" class="btn btn-ghost" data-i18n="hero.cta2"></a>
+    </div>
+
+    <!-- 实时统计 -->
+    <div class="stats" id="stats">
+      <div class="stat">
+        <div class="stat-label" data-i18n="stat.supply"></div>
+        <div class="stat-value" id="statSupply" style="font-size:15px">5,963,298,700,000,000</div>
+        <div class="stat-sub" data-i18n="stat.supply.sub"></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label" data-i18n="stat.contract"></div>
+        <!-- home.js 会用 CFG.contract 覆盖，这里写正确的值，
+             避免 JS 未执行（慢网/禁用脚本）时露出 #2000 的旧地址 -->
+        <div class="stat-value dim"><a href="#" id="statContract" class="mono-sm">T1A8kae…BdECyH</a></div>
+        <div class="stat-sub" data-i18n="stat.contract.sub"></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label" data-i18n="stat.serial"></div>
+        <div class="stat-value" id="statSerial">3000</div>
+        <div class="stat-sub" data-i18n="stat.serial.sub"></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label" data-i18n="stat.decimal"></div>
+        <div class="stat-value" id="statDecimal">0</div>
+        <div class="stat-sub" data-i18n="stat.decimal.sub"></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- 简介 -->
+<section class="section" id="about">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-i18n="about.eyebrow"></div>
+      <h2 class="sec-title" data-i18n="about.title"></h2>
+      <p class="sec-desc" data-i18n="about.desc"></p>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-hd" data-i18n="about.spec"></div>
+        <table class="spec-table">
+          <tr>
+            <th>serial</th>
+            <td>3000</td>
+          </tr>
+          <tr>
+            <th>ticket / name</th>
+            <td>HACDS / hacds</td>
+          </tr>
+          <tr>
+            <th>decimal</th>
+            <td>0</td>
+          </tr>
+          <tr>
+            <th>supply</th>
+            <td>5,963,298,700,000,000 atoms<br><span class="faint">（decimal=0：1 atom = 1 hacds，即 5,963,298,700,000,000 个）</span></td>
+          </tr>
+          <tr>
+            <th>issuer</th>
+            <td>T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH</td>
+          </tr>
+          <tr>
+            <th>contract</th>
+            <td>Hacash HVM · fitsh</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-hd" data-i18n="about.formula"></div>
+        <p class="dim" style="font-size:14px;margin-bottom:16px" data-i18n="about.formula.desc"></p>
+        <pre class="code">均分 = 全网 HACD 评分总和 / 颗数
+     = <span class="hl" id="fAvg">3.55440306</span>
+
+总量 = 均分 × HACD 总发行量
+     = <span class="hl">3.55440306</span> × <span class="hl">16,777,216</span>
+     = 59,632,987 分
+
+铸发 = 分 × SCORE_SCALE(1e8)
+     = <span class="ok">5,963,298,700,000,000</span> atoms
+
+每颗钻石：1 分 = 1 hacds
+（合约内 SCORE_SCALE = 1e8 atoms）</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 功能 -->
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-i18n="feat.eyebrow"></div>
+      <h2 class="sec-title" data-i18n="feat.title"></h2>
+      <p class="sec-desc" data-i18n="feat.desc"></p>
+    </div>
+
+    <div class="grid-4">
+      <div class="card feat">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+        </div>
+        <h3 data-i18n="feat.swap.t"></h3>
+        <p data-i18n="feat.swap.d"></p>
+      </div>
+      <div class="card feat">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>
+        </div>
+        <h3 data-i18n="feat.lp.t"></h3>
+        <p data-i18n="feat.lp.d"></p>
+      </div>
+      <div class="card feat">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <h3 data-i18n="feat.loan.t"></h3>
+        <p data-i18n="feat.loan.d"></p>
+      </div>
+      <div class="card feat">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><path d="M6 3l6 6 6-6M6 21l6-6 6 6M12 9v6"/></svg>
+        </div>
+        <h3 data-i18n="feat.hacd.t"></h3>
+        <p data-i18n="feat.hacd.d"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 验证 -->
+<section class="section" id="verify">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-i18n="verify.eyebrow"></div>
+      <h2 class="sec-title" data-i18n="verify.title"></h2>
+      <p class="sec-desc" data-i18n="verify.desc"></p>
+    </div>
+
+    <div class="grid-2">
+      <div class="verify-box">
+        <div class="flex between center" style="margin-bottom:16px">
+          <div class="card-hd" style="margin:0" data-i18n="verify.result"></div>
+          <button class="btn btn-primary btn-sm" id="verifyRun" data-i18n="verify.run"></button>
+        </div>
+
+        <div class="verify-row">
+          <span class="k" data-i18n="verify.sample"></span>
+          <span class="v" id="vSample">—</span>
+        </div>
+        <div class="verify-row">
+          <span class="k" data-i18n="verify.avg"></span>
+          <span class="v" id="vAvg">—</span>
+        </div>
+        <div class="verify-row">
+          <span class="k" data-i18n="verify.calc"></span>
+          <span class="v" id="vCalc">—</span>
+        </div>
+        <div class="verify-row">
+          <span class="k" data-i18n="verify.onchain"></span>
+          <span class="v" id="vOnchain">5,963,298,700,000,000</span>
+        </div>
+        <div class="verify-row">
+          <span class="k"></span>
+          <span class="v" id="vStatus" style="font-size:13px">—</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd" data-i18n="verify.contract"></div>
+        <p class="dim" style="font-size:14px;line-height:1.7;margin-bottom:16px">
+          合约以 <span class="mono-sm">fitsh</span> 编写，管理员无权限触碰用户资金，
+          合约不可升级、无自毁函数。这些是编译期决定的，部署后无法更改。
+        </p>
+        <div class="code" style="font-size:12px">HacdsDeFi 合约结构
+  ├── 8 个资产钩子（HAC/HACD/资产 进出）
+  ├── AMM · LP · 借贷 · 金库
+  ├── 120+ 只读视图函数
+  └── 无 admin / 无 pause / 无 upgrade</div>
+
+        <div class="note mt-4" style="font-size:12.5px">
+          <b>源码状态</b>　<b>#3000 源码与两轮上线前安全审计报告已在
+          <a href="https://github.com/s6050105/HacdsDeFi/tree/v3000" target="_blank" rel="noopener">v3000 分支公开</a>。</b><br>
+          尚未部署的原因：评分依赖 Hacash 主网 VM 的 HACD 基因只读视图
+          （<code>hacd_visual_gene_batch</code> 等，随 v1.3.0 引入）。
+          需节点升级到 v1.3.0 且块高 ≥ 800,000 后才可用。
+          <b>合约侧已按官方 ABI 写好并编译通过，条件满足即可部署。</b>
+        </div>
+
+        <div class="mt-4">
+          <a href="https://github.com/s6050105/HacdsDeFi" target="_blank" rel="noopener"
+             class="btn btn-ghost btn-sm" id="srcLink">仓库 ↗</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 历史 -->
+<section class="section" id="history">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-i18n="history.eyebrow"></div>
+      <h2 class="sec-title" data-i18n="history.title"></h2>
+      <p class="sec-desc" data-i18n="history.desc"></p>
+    </div>
+
+    <div class="grid-2">
+      <div class="timeline">
+        <div class="tl-item bad">
+          <div class="tl-year">2024</div>
+          <div class="tl-title" data-i18n="hist.v1.t"></div>
+          <div class="tl-desc" data-i18n="hist.v1.d"></div>
+        </div>
+        <div class="tl-item bad">
+          <div class="tl-year">2024</div>
+          <div class="tl-title" data-i18n="hist.v2.t"></div>
+          <div class="tl-desc" data-i18n="hist.v2.d"></div>
+        </div>
+        <div class="tl-item bad">
+          <div class="tl-year">2024 — 2025</div>
+          <div class="tl-title" data-i18n="hist.v3.t"></div>
+          <div class="tl-desc" data-i18n="hist.v3.d"></div>
+        </div>
+      </div>
+
+      <div class="card" style="border-color: rgba(74,158,255,.3); background: linear-gradient(180deg, rgba(74,158,255,.06), transparent 70%)">
+        <div class="tl-year" style="color:var(--blue)">2026</div>
+        <div class="tl-title" style="font-size:17px;margin:8px 0 12px" data-i18n="hist.fix.t"></div>
+        <div class="tl-desc" data-i18n="hist.fix.d"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 上手 -->
+<section class="section" id="start">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-i18n="start.eyebrow"></div>
+      <h2 class="sec-title" data-i18n="start.title"></h2>
+      <p class="sec-desc" data-i18n="start.desc"></p>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3 data-i18n="start.s1.t"></h3>
+        <p data-i18n="start.s1.d"></p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3 data-i18n="start.s2.t"></h3>
+        <p data-i18n="start.s2.d"></p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3 data-i18n="start.s3.t"></h3>
+        <p data-i18n="start.s3.d"></p>
+      </div>
+    </div>
+
+    <div class="mt-6" style="display:flex;gap:12px;flex-wrap:wrap">
+      <a href="/app/" class="btn btn-primary" data-i18n="nav.app"></a>
+      <a href="https://chromewebstore.google.com/detail/moneynex/aokodfkpgklodahhlcnneehpbojjaabf"
+         target="_blank" rel="noopener" class="btn btn-ghost" data-i18n="start.download"></a>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 下载 ==================== -->
+<section class="section" id="download">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-i18n="dl.eyebrow"></div>
+      <h2 class="sec-title" data-i18n="dl.title"></h2>
+      <p class="sec-desc" data-i18n="dl.desc"></p>
+    </div>
+
+    <!-- 客户端 -->
+    <h3 class="dl-group" data-i18n="dl.groupClients"></h3>
+    <div class="dl-grid">
+      <div class="dl-card">
+        <div class="dl-icon">🖥</div>
+        <div class="dl-name" data-i18n="dl.pc.name"></div>
+        <div class="dl-meta" data-i18n="dl.pc.meta"></div>
+        <p class="dl-note" data-i18n="dl.pc.note"></p>
+        <div class="dl-actions">
+          <a href="https://github.com/s6050105/HacdsDeFi/releases/latest"
+             target="_blank" rel="noopener" class="btn btn-primary btn-sm" data-i18n="dl.getIt"></a>
+          <a href="/docs/user-guide/" class="btn btn-ghost btn-sm" data-i18n="dl.guide"></a>
+        </div>
+      </div>
+
+      <div class="dl-card">
+        <div class="dl-icon">📱</div>
+        <div class="dl-name" data-i18n="dl.android.name"></div>
+        <div class="dl-meta" data-i18n="dl.android.meta"></div>
+        <p class="dl-note" data-i18n="dl.android.note"></p>
+        <div class="dl-actions">
+          <a href="https://github.com/s6050105/HacdsDeFi/releases/latest"
+             target="_blank" rel="noopener" class="btn btn-primary btn-sm" data-i18n="dl.getIt"></a>
+          <a href="/docs/user-guide/" class="btn btn-ghost btn-sm" data-i18n="dl.guide"></a>
+        </div>
+      </div>
+
+      <div class="dl-card">
+        <div class="dl-icon">🌐</div>
+        <div class="dl-name" data-i18n="dl.web.name"></div>
+        <div class="dl-meta" data-i18n="dl.web.meta"></div>
+        <p class="dl-note" data-i18n="dl.web.note"></p>
+        <div class="dl-actions">
+          <a href="/app/" class="btn btn-primary btn-sm" data-i18n="dl.open"></a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文档 -->
+    <h3 class="dl-group" style="margin-top:36px" data-i18n="dl.groupDocs"></h3>
+    <div class="dl-grid">
+      <div class="dl-card doc">
+        <div class="dl-icon">📘</div>
+        <div class="dl-name" data-i18n="dl.wp.name"></div>
+        <div class="dl-meta" data-i18n="dl.wp.meta"></div>
+        <p class="dl-note" data-i18n="dl.wp.note"></p>
+        <div class="dl-actions">
+          <a href="/whitepaper/" class="btn btn-primary btn-sm" data-i18n="dl.view"></a>
+          <a href="/whitepaper/HacdsDeFi-白皮书.pdf" class="btn btn-ghost btn-sm" download data-i18n="dl.pdfZh"></a>
+          <a href="/whitepaper/HacdsDeFi-Whitepaper.en.pdf" class="btn btn-ghost btn-sm" download>PDF EN</a>
+          <a href="/whitepaper/HacdsDeFi-Whitepaper.tr.pdf" class="btn btn-ghost btn-sm" download>PDF TR</a>
+        </div>
+      </div>
+
+      <div class="dl-card doc">
+        <div class="dl-icon">📗</div>
+        <div class="dl-name" data-i18n="dl.ug.name"></div>
+        <div class="dl-meta" data-i18n="dl.ug.meta"></div>
+        <p class="dl-note" data-i18n="dl.ug.note"></p>
+        <div class="dl-actions">
+          <a href="/docs/user-guide/" class="btn btn-primary btn-sm" data-i18n="dl.view"></a>
+          <a href="/whitepaper/HacdsDeFi-操作说明书.pdf" class="btn btn-ghost btn-sm" download data-i18n="dl.pdfZh"></a>
+          <a href="/whitepaper/HacdsDeFi-User-Guide.en.pdf" class="btn btn-ghost btn-sm" download>PDF EN</a>
+          <a href="/whitepaper/HacdsDeFi-User-Guide.tr.pdf" class="btn btn-ghost btn-sm" download>PDF TR</a>
+        </div>
+      </div>
+
+      <div class="dl-card doc">
+        <div class="dl-icon">📙</div>
+        <div class="dl-name" data-i18n="dl.rpc.name"></div>
+        <div class="dl-meta" data-i18n="dl.rpc.meta"></div>
+        <p class="dl-note" data-i18n="dl.rpc.note"></p>
+        <div class="dl-actions">
+          <a href="/docs/rpc/" class="btn btn-primary btn-sm" data-i18n="dl.view"></a>
+          <a href="/whitepaper/HacdsDeFi-RPC文档.pdf" class="btn btn-ghost btn-sm" download data-i18n="dl.pdfZh"></a>
+          <a href="/whitepaper/HacdsDeFi-RPC-Doc.en.pdf" class="btn btn-ghost btn-sm" download>PDF EN</a>
+          <a href="/whitepaper/HacdsDeFi-RPC-Doc.tr.pdf" class="btn btn-ghost btn-sm" download>PDF TR</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="dl-foot">
+      <span data-i18n="dl.foot"></span>
+      <a href="https://github.com/s6050105/HacdsDeFi/releases" target="_blank" rel="noopener">GitHub Releases</a>
+    </p>
+  </div>
+</section>
+
+<!-- 风险 -->
+<section class="section-sm">
+  <div class="wrap">
+    <div class="note danger" style="margin-bottom:16px">
+      <b data-i18n="risk.title"></b>
+    </div>
+    <div class="grid-2" style="gap:12px">
+      <p class="dim" style="font-size:13.5px;line-height:1.7" data-i18n="risk.1"></p>
+      <p class="dim" style="font-size:13.5px;line-height:1.7" data-i18n="risk.2"></p>
+      <p class="dim" style="font-size:13.5px;line-height:1.7" data-i18n="risk.3"></p>
+      <p class="dim" style="font-size:13.5px;line-height:1.7" data-i18n="risk.4"></p>
+    </div>
+  </div>
+</section>
+
+<!-- 页脚 -->
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-inner">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <img src="/assets/img/hacds_icon_32.png" style="width:20px;height:20px" alt="">
+          <b style="color:var(--text)">hacds</b>
+        </div>
+        <div data-i18n="footer.tagline"></div>
+      </div>
+      <div class="footer-links">
+        <a href="/app/" data-i18n="nav.app"></a>
+        <a href="/docs/" data-i18n="nav.docs"></a>
+        <a href="/whitepaper/" data-i18n="hero.cta2"></a>
+        <a href="https://github.com/s6050105/HacdsDeFi" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/hacashcom/MoneyNex" target="_blank" rel="noopener">MoneyNex</a>
+        <a href="https://explorer.hacash.org" target="_blank" rel="noopener">Explorer</a>
+      </div>
+    </div>
+    <div class="mt-5" style="font-size:12px;color:var(--text-faint);line-height:1.7" data-i18n="footer.disclaimer"></div>
+  </div>
+</footer>
+
+<script src="/assets/js/config.js?v=1794373175"></script>
+<script src="/assets/js/i18n.js?v=1794373175"></script>
+<script src="/assets/js/api.js?v=1794373175"></script>
+<script src="/assets/js/home.js?v=1794373175"></script>
+</body>
+</html>

@@ -110,13 +110,45 @@ def main():
     print("\n【评分内核】")
     # --no-build（用预编译内核）时不生成 manifest / hcf1，内核已内联进 deploy.json
     if not os.path.exists(MANIFEST):
-        # 反推：总大小 - 无内核版本的大小 ≈ 内核贡献
         print("  · 使用预编译内核（--no-build），未生成 manifest")
         print(f"  · 部署动作 {len(a):,} B 已含内联内核")
         print(f"     （内核源码编译版约 +1,674 B，此处为优化版）")
         print(f"  · 字节码 {len(a):,} 字节")
         print(f"  · 部署协议费 {int(d['protocol_cost_u232']) / 1e16:.6f} HAC")
-        bad = not os.path.exists(MAP)
+
+        # H-6（2026-11-12）：预编译内核**必须**与 SHA256SUMS 里登记的哈希一致，
+        # 否则任何人都能在构建机上把 hcf1 换掉，让「存入按 A 算分、赎回按 B 扣分」，
+        # 而所有既有自检照样通过 —— 这是部署后无法修复的账本 bug。
+        kpath = os.path.join(HERE, "..", "score_sum_opt.hcf1")
+        kpath = os.path.abspath(kpath)
+        exp = None
+        sums = os.path.join(HERE, "..", "..", "SHA256SUMS.txt")
+        if os.path.exists(sums):
+            for ln in open(sums, encoding="utf-8"):
+                ln = ln.strip()
+                if ln.endswith("score_sum_opt.hcf1"):
+                    exp = ln.split()[0]
+                    break
+        if exp is None:
+            print("  ✗ 内核哈希未登记在 SHA256SUMS.txt —— 拒绝判通过")
+            print("    请执行: sha256sum hacds_exchange/score_sum_opt.hcf1 并写入")
+            bad = True
+        elif not os.path.exists(kpath):
+            print("  ✗ 找不到 %s" % kpath)
+            bad = True
+        else:
+            import hashlib
+            got = hashlib.sha256(open(kpath, "rb").read()).hexdigest()
+            if got != exp:
+                print("  ✗ 内核哈希不符！")
+                print("    期望 %s" % exp)
+                print("    实际 %s" % got)
+                bad = True
+            else:
+                print("  ✓ 内核哈希与 SHA256SUMS 一致 (%s…)" % exp[:16])
+                print("  ⚠ 仍需人工确认已跑过 _test/diff_test.py（内核 vs 参考实现）")
+                bad = False
+        bad = bad or (not os.path.exists(MAP))
         print()
         print("自检通过" if not bad else "自检失败")
         return 0 if not bad else 1

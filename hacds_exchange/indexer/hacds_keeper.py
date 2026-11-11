@@ -88,24 +88,39 @@ VALUE_BASE = 20
 #   bad:  ×10 = 108,000 ✅ ／ 固定聚合键 ×10 = 108,000 ✅
 
 
-def _value_len(klen: int, blob_hex: str) -> int:
-    """估计该键的值字节数。用于算单键 storage 成本。
+def _one_value_len(key: bytes) -> int:
+    """单个地址类键的值字节数。"""
+    if key[:3] == b"ck:":
+        return 64                       # [chk:hac|chk:ds|lch:hac|lch:ds] = 4×16
+    if key[:3] == b"ln:":
+        return 48                       # [debt|coll|last] = 3×16
+    if key[:2] == b"u:":
+        return 48                       # [bal:hac|due|lpt] = 3×16
+    if key[:4] == b"bad:":
+        return 16                       # 单 u128（稀疏）
+    return 48                           # 未知前缀：保守估
 
-    blob_hex 是**一批键**的拼接，取前几个字节判断前缀即可（同批同类型）。
+
+def _value_len(klen: int, blob_hex: str) -> int:
+    """一批键里**最大的**值字节数（保守估计）。
+
+    ⚠ 2026-11-12：原实现只看**第一个键**的前缀。但索引器按 `len(key)` 分组，
+    `ln:`（24B/值48）与 `ck:`（24B/值64）会落进同一个 `klen=24` 批次 ——
+    只看首键会把整批按 48 算，实际有 ck: 时是 64，导致批次超桶 OutOfGas、
+    整笔回滚（实测 5 键混排：估 102,000，实 116,400 > 111,911）。
+
+    改为扫描批内每个键取最大值。批内键数上限是 RENT_MAX_KEYS(10)，
+    开销可忽略。
     """
     raw = bytes.fromhex(blob_hex)
-    if klen >= 23:                      # 地址类键：u: / ln: / ck: / bad:
-        head = raw[:4]
-        if head[:3] == b"ck:":
-            return 64                   # [chk:hac|chk:ds|lch:hac|lch:ds] = 4×16
-        if head[:3] == b"ln:":
-            return 48                   # [debt|coll|last] = 3×16
-        if head[:2] == b"u:":
-            return 48                   # [bal:hac|due|lpt] = 3×16
-        if head[:4] == b"bad:":
-            return 16                   # 单 u128（稀疏）
-        return 48                       # 未知前缀：按较大的 48 保守估
-    return 16                           # 固定聚合键（amm:hac 等）均为 u128
+    if klen < 23:
+        return 16                       # 固定聚合键（amm:hac 等）均为 u128
+    if klen == 0:
+        return 48
+    n = len(raw) // klen
+    if n <= 0:
+        return 48
+    return max(_one_value_len(raw[i * klen:(i + 1) * klen]) for i in range(n))
 
 
 def max_keys_per_batch(klen: int, blob_hex: str, period: int = RENT_PERIOD) -> int:
@@ -116,7 +131,6 @@ def max_keys_per_batch(klen: int, blob_hex: str, period: int = RENT_PERIOD) -> i
         return RENT_MAX_KEYS
     n = STORAGE_BUDGET // per_key
     return max(1, min(n, RENT_MAX_KEYS))
-RENT_THRESHOLD = 100       # 剩余租期低于此值才值得续
 
 
 def http_get(url, timeout=15):
@@ -521,8 +535,13 @@ def cmd_topup(args):
         except Exception as e:                                    # noqa: BLE001
             print("  ⚠ 跳过地址键 %s：%s" % (a, e))
             continue
+        # ⚠ 2026-11-12：klen 必须逐个前缀算 —— `u:` 是 2+21=23 字节，
+        #   而 `ck:` 是 3+21=**24** 字节。原实现统一写 23，ck: 那笔
+        #   `size % klen == 1` 被合约 rent_keys/topup_keys 以 `return 3`
+        #   （长度不符）整笔拒绝 → topup 的保护完全没生效。
         for prefix in (b"u:", b"ck:"):
-            jobs.append({"klen": 23, "blob": (prefix + a21).hex()})
+            key = prefix + a21
+            jobs.append({"klen": len(key), "blob": key.hex()})
 
     addr_key_n = len(jobs) - len(fixed_jobs)
     if addr_key_n:
@@ -539,9 +558,57 @@ def cmd_topup(args):
     return _execute(args, jobs, "topup_keys", 0)
 
 
+def selftest() -> int:
+    """离线自检：键长与批次容量。不联网、不需要私钥。
+
+    这两个缺陷都在 2026-11-12 审计中被发现，且都属于「不联网、不跑链
+    就看不出来」的类型，所以固化成回归测试。
+    """
+    ok = True
+    checks = []
+
+    def chk(label, got, exp):
+        nonlocal ok
+        good = (got == exp)
+        ok = ok and good
+        checks.append(("PASS" if good else "FAIL", label, got, exp))
+
+    a21 = b"\x00" * 21
+    # 1) 地址类键长必须按前缀分别计算（ck: 是 24，不是 23）
+    chk("len(u: + 21) = 23", len(b"u:" + a21), 23)
+    chk("len(ck: + 21) = 24", len(b"ck:" + a21), 24)
+    chk("len(ln: + 21) = 24", len(b"ln:" + a21), 24)
+    chk("len(bad: + 21) = 25", len(b"bad:" + a21), 25)
+
+    # 2) 值长取批内最大值（混合 ln:/ck: 必须按 ck: 的 64 算）
+    chk("u: 值长 = 48", _one_value_len(b"u:" + a21), 48)
+    chk("ln: 值长 = 48", _one_value_len(b"ln:" + a21), 48)
+    chk("ck: 值长 = 64", _one_value_len(b"ck:" + a21), 64)
+    chk("bad: 值长 = 16", _one_value_len(b"bad:" + a21), 16)
+
+    mixed = (b"ck:" + a21) * 3 + (b"ln:" + a21) * 2
+    chk("混合批取最大 64", _value_len(24, mixed.hex()), 64)
+
+    # 3) 满批容量不得超 storage 桶（用真实前缀 + 21 字节地址构造 10 个键）
+    for prefix in (b"u:", b"ln:", b"ck:", b"bad:"):
+        one = prefix + a21
+        klen = len(one)
+        blob = (one * 10).hex()
+        cap = max_keys_per_batch(klen, blob, RENT_PERIOD)
+        vlen = _value_len(klen, blob)
+        cost = cap * (vlen + VALUE_BASE) * RENT_PERIOD
+        chk("%s 满批 %d 键不超桶" % (prefix.decode(), cap),
+            cost <= STORAGE_BUDGET, True)
+
+    for st, label, got, exp in checks:
+        print("  [%s] %s = %s%s" % (st, label, got, "" if st == "PASS" else "  (expect %s)" % exp))
+    print("KEEPER SELFTEST " + ("PASSED" if ok else "FAILED"))
+    return 0 if ok else 1
+
+
 def main():
     ap = argparse.ArgumentParser(description="hacds keeper —— 无许可账本键续租")
-    ap.add_argument("cmd", choices=["check", "quote", "run", "topup"])
+    ap.add_argument("cmd", choices=["check", "quote", "run", "topup", "selftest"])
     ap.add_argument("--indexer", default=DEFAULT_INDEXER)
     ap.add_argument("--node", default=DEFAULT_NODE)
     ap.add_argument("--contract", default="T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH")
@@ -555,6 +622,8 @@ def main():
                     help="topup 时连地址键一起补（默认只补固定键）")
     args = ap.parse_args()
 
+    if args.cmd == "selftest":
+        sys.exit(selftest())
     if args.cmd == "check":
         sys.exit(cmd_check(args))
     if args.cmd == "quote":

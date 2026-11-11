@@ -1,0 +1,21 @@
+{
+  // hacds.com 静态站
+  //
+  // ⚠ `run_worker_first: true` 是必须的。
+  //   不加的话 assets 会直接命中、绕过 worker.js，
+  //   HTTP→HTTPS 和 www→主域 两条重定向都不会生效。
+  //
+  // ⚠ 不要把它放进仓库根目录。
+  //   根目录若存在 wrangler.jsonc 且 assets.directory 指向 hacds.com，
+  //   在 hacds.com/ 下执行 wrangler deploy 会把 worker/ 和 README.md
+  //   一起当静态资源传上去（实测泄漏过一次）。
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hacds",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-23",
+  "assets": {
+    "directory": "../public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  }
+}

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>白皮书 — hacds</title>
+<meta name="description" content="HacdsDeFi 白皮书：hacds 的设计、机制与现状。">
+<link rel="icon" href="/assets/img/hacds_icon_32.png">
+<link rel="stylesheet" href="/assets/css/design-tokens.css?v=1794373175">
+<link rel="stylesheet" href="/assets/css/main.css?v=1794373175">
+<link rel="stylesheet" href="/assets/css/docs.css?v=1794373175">
+<style>
+  .wp-wrap { max-width: 760px; margin: 0 auto; padding: var(--sp-7) var(--sp-5) var(--sp-9); }
+  .wp-title { font-size: clamp(28px, 4vw, 40px); font-weight: 700; letter-spacing: -.03em; margin-bottom: var(--sp-3); }
+  .wp-meta { font-size: 13px; color: var(--text-faint); font-family: var(--mono); margin-bottom: var(--sp-6); }
+  .wp-body h1 { font-size: 24px; margin-top: var(--sp-8); margin-bottom: var(--sp-4); padding-top: var(--sp-5); border-top: 1px solid var(--border); }
+  .wp-body h2 { font-size: 18px; margin-top: var(--sp-6); margin-bottom: var(--sp-3); }
+  .wp-body h3 { font-size: 15px; margin-top: var(--sp-5); margin-bottom: var(--sp-2); color: var(--text-dim); }
+  .wp-body p { font-size: 15px; line-height: 1.85; color: var(--text-dim); margin-bottom: var(--sp-3); }
+  .wp-body ul, .wp-body ol { margin: var(--sp-3) 0 var(--sp-4) var(--sp-5); color: var(--text-dim); }
+  .wp-body li { font-size: 15px; line-height: 1.8; margin-bottom: 6px; }
+  .wp-body blockquote {
+    border-left: 3px solid var(--blue); background: var(--blue-glow);
+    padding: var(--sp-3) var(--sp-5); margin: var(--sp-4) 0;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: 14px; color: var(--text-dim);
+  }
+  .wp-body table { width: 100%; border-collapse: collapse; margin: var(--sp-4) 0; font-size: 14px; }
+  .wp-body th { text-align: left; padding: 10px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border); color: var(--text-dim); font-size: 13px; }
+  .wp-body td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+  .wp-body strong { color: var(--text); }
+  .wp-body code { background: var(--bg-elev); border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px; font-size: 13px; color: var(--blue); }
+  .wp-body hr { border: none; border-top: 1px solid var(--border); margin: var(--sp-6) 0; }
+  .wp-legacy-banner {
+    border: 1px solid var(--amber, #d97706); border-left: 4px solid var(--amber, #d97706);
+    background: rgba(217, 119, 6, .08);
+    padding: var(--sp-4) var(--sp-5); margin-bottom: var(--sp-6);
+    border-radius: 0 var(--radius) var(--radius) 0; font-size: 14px; line-height: 1.75;
+  }
+  .wp-legacy-banner strong { display: block; margin-bottom: 8px; font-size: 15px; }
+  .wp-legacy-banner p { margin: 6px 0 0; color: var(--text-dim); }
+  .wp-legacy-banner code { font-size: 12px; }
+  .wp-legacy-banner a { color: var(--blue); text-decoration: underline; }
+  .wp-download { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-6); }
+  /* 三份文档之间的切换条 */
+  .doc-switch { display: flex; gap: 4px; margin-bottom: var(--sp-4); border-bottom: 1px solid var(--border); }
+  .doc-switch a {
+    padding: 9px 16px; font-size: 13.5px; color: var(--text-dim);
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .doc-switch a:hover { color: var(--text); }
+  .doc-switch a.on { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">
+      <img src="/assets/img/hacds_icon_64.png" alt="">
+      <span>hacds</span>
+    </a>
+    <div class="nav-links">
+      <a href="/">← <span data-i18n="nav.back"></span></a>
+      <div class="lang">
+        <button data-lang="zh">中</button>
+        <button data-lang="en">EN</button>
+        <button data-lang="tr">TR</button>
+      </div>
+      <a href="/app/" class="btn btn-primary btn-sm" data-i18n="nav.app"></a>
+    </div>
+  </div>
+</nav>
+
+<div class="wp-wrap">
+  <h1 class="wp-title">HacdsDeFi 白皮书</h1>
+  <div class="wp-meta">2026-11-11 · 第三版 · 对应合约 #3000</div>
+
+  <!-- 文档互链：三个阶段的三份文档，从任何一份都能跳到另外两份 -->
+  <div class="doc-switch">
+    <a href="/whitepaper/" class="on">白皮书</a>
+    <a href="/docs/user-guide/">使用说明</a>
+    <a href="/docs/rpc/">RPC 文档</a>
+  </div>
+
+  <div class="wp-download">
+    <a href="/whitepaper/HacdsDeFi-白皮书.pdf" class="btn btn-primary btn-sm" data-dl-lang="zh" download>下载 PDF（中文）</a>
+    <a href="/whitepaper/HacdsDeFi-Whitepaper.en.pdf" class="btn btn-ghost btn-sm" data-dl-lang="en" download>Download PDF (EN)</a>
+    <a href="/whitepaper/HacdsDeFi-Whitepaper.tr.pdf" class="btn btn-ghost btn-sm" data-dl-lang="tr" download>PDF indir (TR)</a>
+  </div>
+
+  <div class="wp-body" id="docBody">
+    <p class="dim">正在加载白皮书内容…</p>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-inner">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <img src="/assets/img/hacds_icon_32.png" style="width:20px;height:20px" alt="">
+          <b style="color:var(--text)">hacds</b>
+        </div>
+        <div data-i18n="footer.tagline"></div>
+      </div>
+      <div class="footer-links">
+        <a href="/app/" data-i18n="nav.app"></a>
+        <a href="/docs/" data-i18n="nav.docs"></a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/js/config.js?v=1794373175"></script>
+<script src="/assets/js/i18n.js?v=1794373175"></script>
+<script src="/assets/js/markdown.js?v=1794373175"></script>
+<script>
+  window.HACDS_DOC = {
+    zh: '/whitepaper/HacdsDeFi-白皮书.md',
+    en: '/whitepaper/HacdsDeFi-Whitepaper.en.md',
+    tr: '/whitepaper/HacdsDeFi-Whitepaper.tr.md',
+  };
+</script>
+<script src="/assets/js/docview.js?v=1794373176"></script>
+</body>
+</html>
