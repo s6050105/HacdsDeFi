@@ -2,6 +2,11 @@
 const $ = (s) => document.querySelector(s);
 // 取词（i18n.js 提供）
 const t = (k, p) => window.I18N.t(k, p);
+// HTML 转义：凡是要拼进 innerHTML 的**远端/外部文本**（节点或索引器返回的
+// error / hint / description / ret_val 等）都必须先过这里，防止把远端内容当作
+// HTML 注入界面（审计 D-1）。本地 i18n 文案与本地计算出的数字可不必转义。
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // 把页面上带 data-i18n 的元素按当前语言刷新（用于静态标签）
 function applyI18nStatic() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -16,16 +21,20 @@ function applyI18nStatic() {
 
 // ===================== 状态 =====================
 const S = {
-  cfg: { node: 'http://43.251.101.101:8082', oracle: 'http://43.251.101.101:8123',
-         contract: 'VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1' },
+  cfg: { node: 'http://43.251.101.101:8082',
+         indexer: 'http://43.251.101.101:8124',
+         contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH' },
   keyPath: null,
   addr: null,
   unlocked: false,
-  isAdmin: false,      // 当前地址是否合约管理员（决定“管理”页签是否出现）
+  // ⚠ #3000 无管理员概念：isAdmin 已删除
   pending: null,       // 最近一次构建结果
-  tab: 'trade',
+  tab: 'swap',         // 默认页签（原 'trade' 已不存在）
+  toolsGroup: 'query', // 工具页当前分组：query / ops / rent / advanced
   overview: null,      // 资产总览数据缓存
-  hacdList: null,      // HACD 详情缓存
+  hacdList: null,      // HACD 详情缓存（null = 未加载过，刷新时跳过）
+  poolHacdList: null,  // 合约地址内的 HACD 缓存（null = 未加载过）
+  poolHacdCount: 0,    // 合约地址内的 HACD 数量（未加载详情前用于按钮计数）
   hacdSel: null,       // 当前“查看详情”的钻石名
   hacdChecked: [],     // 批量勾选的钻石名（Ctrl/Shift）
   hacdAnchor: null,    // Shift 连选的锚点
@@ -63,10 +72,12 @@ const atoms = (n) => (n == null ? '—' : (Number(n) / ATOMS_PER_UNIT).toLocaleS
 const zhu   = (n) => (n == null ? '—' : (Number(n) / ATOMS_PER_UNIT).toLocaleString('en-US', { maximumFractionDigits: 8 }));
 // LP 份额 lpt = √(hac×ds)，无定标（设计 v4 §7），直接按原值显示
 const share = (n) => (n == null ? '—' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 4 }));
-// 【展示专用】hacds 链上原始量（atoms，即 #2000 的 amount 原样）。
+// 【展示专用】hacds 链上原始量（atoms）。
+// #3000 是 **decimal=0**：1 atom = 1 hacds，atoms 原值**就是个数**，不需要 ÷1e8。
+// （旧版 #2000 是 decimal=8，那时才要 ÷1e8；那套口径已作废。）
 // 仅用于「只读展示面板」（资产总览的链上实物 / 协议状态的池与账单侧），
-// 让链上数字与浏览器、交易所接口保持同一口径（raw atoms，不做 ÷1e8）。
-// ⚠ 不要用在操作区（输入框 / swap / 注入）：那里一律用 atoms 量纲 + ÷1e8 显示。
+// 让链上数字与浏览器、交易所接口保持同一口径（raw atoms）。
+// ⚠ 不要用在操作区（输入框 / swap / 注入）：那里也用原值，但走输入校验路径。
 // 【单位约定 D55】HAC 一律用 HAC（人类单位）；hacds 一律用 atoms（raw）。
 // 合约的 bal:hac / amm:hac / loan:debt 等是 **zhu**（1 HAC = 1e8 zhu），
 // 显示与输入都要 ÷1e8 换成 HAC；旧代码直接把 zhu 原样输出（数字小得看不懂）。
@@ -77,6 +88,10 @@ const hacOf = (zhuVal) => {
   return (Number.isFinite(v) ? v.toLocaleString('en-US', { maximumFractionDigits: 8 }) : '—') + ' HAC';
 };
 // HAC 输入框（人类单位）：填了数字就当 HAC，转成 zhu 上链。
+//: 单笔存入的硬上限：合约 PayableHACD 走 rv64im 内核 score_sum，一次最多 200 颗。
+//: 这个数字必须和 HacdsDeFi3000.fitsh 的 MAX_DEPOSIT_COUNT 保持一致。
+const MINT_MAX = 200;
+
 const HAC_RE = /^-?\d+(\.\d+)?$/;
 function hacInputToZhu(str) {
   const s0 = String(str == null ? '' : str).trim();
@@ -91,7 +106,7 @@ const rawHacds = (n, withUnit) => {
   let v;
   try { v = BigInt(String(n)).toLocaleString('en-US'); }
   catch (e) { v = Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
-  return withUnit ? v + ' atoms' : v;
+  return withUnit ? v + ' hacds' : v;
 };
 
 // ===================== 日志 =====================
@@ -122,13 +137,11 @@ async function initCfg() {
   const c = await window.api.loadCfg();
   Object.assign(S.cfg, c || {});
   $('#node').value = S.cfg.node;
-  $('#oracle').value = S.cfg.oracle;
   $('#contract').value = S.cfg.contract;
   const ie = $('#indexer'); if (ie) ie.value = S.cfg.indexer || '';
 }
 function readCfgFromUI() {
   S.cfg.node = $('#node').value.trim();
-  S.cfg.oracle = $('#oracle').value.trim();
   S.cfg.contract = $('#contract').value.trim();
   const ie = $('#indexer');
   if (ie) S.cfg.indexer = ie.value.trim();
@@ -159,14 +172,34 @@ async function refreshOverview() {
     if (lc) liquidityUpdate(OPS.find(o => o.id === 'addLiq'), lc);
   }
   else { logErr(t('r.protoFail'), p); }
+  // 顺带刷新块高缓存（deadline 自动填充用）
+  await refreshHeightCache();
+  // 第二段：HACD 列表跟随刷新。
+  // 必须放在 assetOverview 之后（loadHacdDetails 依赖 S.overview.diamonds）。
+  await refreshHacdLists(true);
+}
+
+// 刷新「已经加载过」的 HACD 列表（我的收藏 + 合约地址内的池）。
+// 只在 S.hacdList / S.poolHacdList 非 null（用户点过加载、看过面板）时才重拉，
+// 避免每次刷新资产都多打一轮 RPC；加载过一次之后就始终保持新鲜。
+// silent=true 时抑制常规成功日志（失败仍走 logErr 报出）。
+async function refreshHacdLists(silent) {
+  const jobs = [];
+  if (S.hacdList != null) jobs.push(loadHacdDetails(silent));
+  if (S.poolHacdList != null) jobs.push(loadPoolHacd(silent));
+  if (jobs.length) await Promise.all(jobs);
+  // 正在看 HACD 面板则重绘：已加载的列表换成新数据，未加载的也同步「加载 (n)」计数
+  if (S.tab === 'hacd') renderHacdPanel();
 }
 
 function renderAssets(d) {
   const host = $('#assetGrid');
   const hac = hacToNum(d.hac);
-  // 预期 hacds：本地算（需 HACD 详情；未加载时不显示数字）
   // 预期 hacds：与链上量纲保持一致 —— 1 分 = SCORE_SCALE(1e8) atoms。
-  // 先算 atoms 总量，再按 decimal=8 换算成「个数」显示（与 due / 实物余额同一路径）。
+  // 【#3000 decimal=0】atoms 就是「个数」，**不再 ÷1e8**。
+  //   旧代码 `expectedAtoms / 1e8` 是 #2000(decimal=8) 时代的写法，
+  //   在 decimal=0 下会让显示值虚低 1e8 倍（存 3.55 分的钻石实际铸 3.55 亿，
+  //   却显示「3.55 个」）。Android 端（HomeScreen.kt）早已按原值显示，此处对齐。
   let expectedAtoms = null, expectedKnown = false;
   if (S.hacdList) {
     const scoreSum = S.hacdList.reduce(
@@ -174,11 +207,12 @@ function renderAssets(d) {
     expectedAtoms = scoreSum * 1e8;          // atoms（与合约 total = sc * SCORE_SCALE 一致）
     expectedKnown = true;
   }
-  const expectedCount = expectedKnown ? expectedAtoms / 1e8 : null;  // decimal=8 → 个数
+  // decimal=0：atoms 即个数。用 rawHacds（BigInt）避免 3.55 亿级大数走科学计数法。
+  const expectedCount = expectedKnown ? rawHacds(expectedAtoms, false) : null;
   const cells = [
     { icon: 'hac', name: t('ov.hac'), val: fmt(hac, 4), sub: '' },
     { icon: 'hacd', name: t('ov.hacd'), val: String(d.diamondCount || 0),
-      sub: t('ov.expect') + ' ' + (expectedKnown ? fmt(expectedCount, 2) : '…') },
+      sub: t('ov.expect') + ' ' + (expectedKnown ? expectedCount : '…') },
     // 【展示口径 D44】链上 hacds 侧（实物 + due 配额）一律按 #2000 原始 amount 显示，
     // 与浏览器 / 交易所接口同口径；操作区仍走 ÷1e8。副标题注明 raw 以免误读。
     { icon: 'hacds', name: t('ov.due'), val: rawHacds(d.due, true), sub: t('ov.dueSub') },
@@ -212,69 +246,143 @@ function renderAssets(d) {
 }
 
 function renderProtocol(p) {
-  // 【展示口径 D44】hacds 侧（amm:ds / pendDs / stakedDs / treDs / loan:coll）显示 #2000 原始 amount。
+  // 【展示口径 D44】hacds 侧（amm:ds / pendDs / treDs / loan:coll）显示 #2000 原始 amount。
+  // #3000：奖励分配已改（AMM 费 LP80/金库20，赎回费 LP80/金库20，利息给 HAC 存款人）。
+  //       不再展示"质押/持仓奖励"（rpu 通道仅用于借贷利息，且无独立展示意义）。
   // HAC 侧（zhu）与份额、价格、健康度不受影响。
   const rows = [
     [t('p.poolHac'), hacOf(p.poolHac)], [t('p.poolDs'), rawHacds(p.poolDs, true)],
     [t('p.price'), p.poolPrice != null ? (Number(p.poolPrice) / 1e8).toFixed(6) + ' HAC/hacds' : '—'],
     [t('p.lpTotal'), share(p.lpTotal)], [t('p.myLp'), share(p.myLp)],
     [t('p.pendHac'), hacOf(p.pendHac)], [t('p.pendDs'), rawHacds(p.pendDs, true)],
-    [t('p.stakedHac'), hacOf(p.stakedHac)], [t('p.stakedDs'), rawHacds(p.stakedDs, true)],
     [t('p.treHac'), hacOf(p.treHac)], [t('p.treDs'), rawHacds(p.treDs, true)],
     [t('p.debt'), hacOf(p.debt)], [t('p.coll'), rawHacds(p.coll, true)],
     [t('p.health'), p.health == null ? '—' : (p.health === 999 ? t('p.noLoan') : (Number(p.health) / 100).toFixed(2))],
   ];
   $('#protoGrid').innerHTML = rows.map(([k, v]) =>
     `<div class="proto-row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+  // 社会化因子：只在异常时提示（见 UI重组方案-实施记录 §7）
+  checkSocialFactor();
 }
 
-async function loadHacdDetails() {
+/**
+ * 社会化因子（hcut / lcut）异常提示。
+ *
+ * 平时两者都是 1e12（=100%），不显示任何东西。
+ * 只有在协议产生过坏账、损失被分摊时才会下降 —— 那时必须告诉用户，
+ * 否则用户看到「存了 1 HAC，bal:hac 只有 0.98」会以为合约算错。
+ *
+ * ⚠ 关键：这不影响新存入和提取的 HAC 数量。
+ *   存入时 hac_to_nominal 除以 hcut，提取时 nominal_to_hac 又乘回去，
+ *   所以实际价值不变，只是账面数字按比例缩小。
+ *
+ * 为什么不提示 hacd_coverage：它正常恒等于 100%（所有操作分子分母配对）。
+ *   一旦偏离说明合约有重大漏洞、需要停用并重新部署，那时提示用户没有意义。
+ */
+async function checkSocialFactor() {
+  const host = $('#ovProto');
+  if (!host) return;
+  const old = host.querySelector('.sf-warn');
+  if (old) old.remove();
+  if (!S.cfg.contract) return;
+
+  const SCALE = 1e12;
+  const call = fn => window.api.contractCall({
+    node: S.cfg.node, contract: S.cfg.contract, fn, caller: S.addr || S.cfg.contract,
+  });
+  let hcut = null, lcut = null;
+  try {
+    const [r1, r2] = await Promise.all([call('hcut'), call('lcut')]);
+    if (r1.ok) hcut = Number(r1.data.ret_val);
+    if (r2.ok) lcut = Number(r2.data.ret_val);
+  } catch (e) { return; }
+  if (hcut == null && lcut == null) return;
+
+  const hPct = hcut == null ? null : (hcut / SCALE * 100);
+  const lPct = lcut == null ? null : (lcut / SCALE * 100);
+  const bad = (hPct != null && hPct < 99.999) || (lPct != null && lPct < 99.999);
+  if (!bad) return;   // 正常：不显示
+
+  const div = document.createElement('div');
+  div.className = 'dirbanner sf-warn';
+  div.style.cssText = 'margin-top:10px;font-weight:400;line-height:1.7';
+  div.innerHTML =
+    `<b>${t('sf.title')}</b><br>` +
+    t('sf.ratio', {
+      h: hPct == null ? '—' : hPct.toFixed(2),
+      l: lPct == null ? '—' : lPct.toFixed(2),
+    }) + '<br>' +
+    t('sf.why') + '<br>' +
+    `<b>${t('sf.impact')}</b>`;
+  host.querySelector('.ov-body').appendChild(div);
+}
+
+async function loadHacdDetails(silent) {
   if (!S.overview || !S.overview.diamonds || !S.overview.diamonds.length) {
-    log(t('r.noHacd'), 'warn'); return;
+    // 刷新场景静默，避免没有 HACD 的地址每次刷新都刷警告
+    if (!silent) log(t('r.noHacd'), 'warn');
+    // 曾经加载过但现在已无 HACD（如全部赎回）→ 清成空列表，别留着上一次的陈旧卡片
+    if (S.hacdList != null && S.overview) {
+      S.hacdList = [];
+      renderAssets(S.overview);
+      if (S.tab === 'hacd') renderHacdPanel();
+    }
+    return;
   }
-  log(t('r.loadingHacd',{n:S.overview.diamonds.length}));
+  if (!silent) log(t('r.loadingHacd',{n:S.overview.diamonds.length}));
   const r = await window.api.hacdDetails({ node: S.cfg.node, names: S.overview.diamonds });
   if (!r.ok) return logErr(t('r.hacdFail'), r);
   S.hacdList = r.list;
-  log(t('r.hacdLoaded',{n:r.list.length}), 'ok');
+  if (!silent) log(t('r.hacdLoaded',{n:r.list.length}), 'ok');
   renderAssets(S.overview);
+  // ⚠ 必须显式重绘 HACD 面板：renderAssets 只管首页资产卡，不碰 HACD 页。
+  //   原来漏了这行，导致点「加载」后数据已到但界面空白，
+  //   直到点「全选」（它会调 renderHacdPanel）才突然出现。
+  if (S.tab === 'hacd') renderHacdPanel();
 }
 
 
 // 加载「合约池」中的 HACD（可赎回的钻石，与个人地址无关）
-async function loadPoolHacd() {
+async function loadPoolHacd(silent) {
   readCfgFromUI();
   const b = await window.api.httpGet({ url: S.cfg.node.replace(/\/$/, '') + '/query/balance?address=' + S.cfg.contract + '&diamonds=true' });
   if (!b.ok) return logErr(t('r.hacdFail'), b);
   const item = (b.data.list || [])[0] || {};
   const names = (item.diamonds || '').match(/.{6}/g) || [];
   S.poolHacdCount = names.length;
-  if (!names.length) { S.poolHacdList = []; log(t('hacd.poolEmpty'), 'warn'); return; }
+  if (!names.length) {
+    S.poolHacdList = [];
+    if (!silent) log(t('hacd.poolEmpty'), 'warn');
+    if (S.tab === 'hacd') renderHacdPanel();
+    return;
+  }
   const r = await window.api.hacdDetails({ node: S.cfg.node, names });
   if (!r.ok) return logErr(t('r.hacdFail'), r);
   S.poolHacdList = r.list;
-  log(t('r.hacdLoaded', { n: r.list.length }), 'ok');
+  if (!silent) log(t('r.hacdLoaded', { n: r.list.length }), 'ok');
+  // 同上：显式重绘，否则点「加载」后界面不更新
+  if (S.tab === 'hacd') renderHacdPanel();
 }
 
 // ===================== 操作目录 =====================
 const OPS = [
-  { id:'redeem', tab:'trade', kind:'redeem', titleKey:'op.redeem.t',
+  { id:'redeem', tab:'hacd', kind:'redeem', titleKey:'op.redeem.t',
     descKey:'op.redeem.d',
     fields:[{name:'names',labelKey:'f.names',hintKey:'f.namesHint'}],
     redeemBuild:(v)=>({ names: v.names.split(/[\s,]+/).filter(Boolean).map(s=>s.toUpperCase()) }) },
-  { id:'claim', tab:'trade', kind:'transfer', titleKey:'op.claim.t',
+  { id:'claim', tab:'fund', kind:'transfer', titleKey:'op.claim.t',
     descKey:'op.claim.d',
     fields:[{name:'atoms',labelKey:'f.atoms',type:'u128',default:'100000000'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',S.cfg.contract,main,'hacds',v.atoms]}) },
-  { id:'hacIn', tab:'trade', kind:'transfer', titleKey:'op.hacIn.t',
+  { id:'hacIn', tab:'fund', kind:'transfer', titleKey:'op.hacIn.t',
     descKey:'op.hacIn.d',
     fields:[{name:'hac',labelKey:'f.hacAmt',type:'text',default:'1:248'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','hac-to',S.cfg.contract,v.hac]}) },
-  { id:'hacOut', tab:'trade', kind:'transfer', titleKey:'op.hacOut.t',
+  { id:'hacOut', tab:'fund', kind:'transfer', titleKey:'op.hacOut.t',
     descKey:'op.hacOut.d',
     fields:[{name:'hac',labelKey:'f.hacAmt2',type:'text',default:'0.5'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','hac-from-to',S.cfg.contract,main,v.hac]}) },
-  { id:'redeemHacd', tab:'trade', kind:'redeemHacd', titleKey:'op.redeemHacd.t',
+  { id:'redeemHacd', tab:'hacd', kind:'redeemHacd', titleKey:'op.redeemHacd.t',
     descKey:'op.redeemHacd.d',
     fields:[{name:'names',labelKey:'f.names'},{name:'to',labelKey:'f.toAddrDef',type:'address'}],
     redeemBuild:(v)=>({ names: v.names.split(/[\s,]+/).filter(Boolean).map(s=>s.toUpperCase()), to: v.to }) },
@@ -282,28 +390,41 @@ const OPS = [
   // 【单位 D55】hacFields 列出「以 HAC 计价」的输入字段（用户填 HAC，上链前 ×1e8 转 zhu）；
   //   未列出的字段保持原量纲（hacds 侧 = atoms；share 无定标）。
   //   注意 swap_ds_to_hac 的输出腿是 HAC，故其滑点保护 min_out 也以 HAC 计。
-  { id:'swapH2D', tab:'amm', kind:'call', fn:'swap_hac_to_ds', titleKey:'op.swapH2D.t',
+  // ⚠ #3000 合约签名已加滑点/deadline 保护（防 front-run 与延迟执行）：
+  //   swap_*          (x, min_out, deadline)
+  //   add_liquidity   (hac, ds, min_share, deadline)
+  //   remove_liquidity(share, min_hac_out, min_ds_out, deadline)
+  //   deadline 传 0 = 不检查（兼容/离线构建）；日常操作建议由钱包自动填「当前块高 + 窗口」。
+  //   注：deadline 的单位是**块高**，不是时间戳（合约里比的是 block_height）。
+  { id:'swapH2D', tab:'swap', kind:'call', ammV3000:true, fn:'swap_hac_to_ds', titleKey:'op.swapH2D.t',
     descKey:'op.swapH2D.d',
     quote:'swap_hac_to_ds',
     hacFields:['hac_in'],
     fields:[{name:'hac_in',labelKey:'f.hacInUnit',type:'u128',default:'1'},
-            {name:'min_out',labelKey:'f.minOutAtoms',type:'u128',default:'0'}] },
-  { id:'swapD2H', tab:'amm', kind:'call', fn:'swap_ds_to_hac', titleKey:'op.swapD2H.t',
+            {name:'min_out',labelKey:'f.minOutAtoms',type:'u128',default:'0'},
+            {name:'deadline',labelKey:'f.deadline',type:'u128',default:'0',autoDeadline:true}] },
+  { id:'swapD2H', tab:'swap', kind:'call', ammV3000:true, fn:'swap_ds_to_hac', titleKey:'op.swapD2H.t',
     descKey:'op.swapD2H.d',
     quote:'swap_ds_to_hac',
     hacFields:['min_out'],
     fields:[{name:'ds_in',labelKey:'f.dsInAtoms',type:'u128',default:'100000000'},
-            {name:'min_out',labelKey:'f.minOutHac',type:'u128',default:'0'}] },
-  { id:'addLiq', tab:'amm', kind:'call', fn:'add_liquidity', titleKey:'op.addLiq.t',
+            {name:'min_out',labelKey:'f.minOutHac',type:'u128',default:'0'},
+            {name:'deadline',labelKey:'f.deadline',type:'u128',default:'0',autoDeadline:true}] },
+  { id:'addLiq', tab:'lp', kind:'call', ammV3000:true, fn:'add_liquidity', titleKey:'op.addLiq.t',
     descKey:'op.addLiq.d',
     hacFields:['hac_amt'],
     liquidityHint:true,
     fields:[{name:'hac_amt',labelKey:'f.hacSideUnit',type:'u128',default:'1'},
-            {name:'ds_amt',labelKey:'f.dsSideAtoms',type:'u128',default:'0'}] },
-  { id:'rmLiq', tab:'amm', kind:'call', fn:'remove_liquidity', titleKey:'op.rmLiq.t',
+            {name:'ds_amt',labelKey:'f.dsSideAtoms',type:'u128',default:'0'},
+            {name:'min_share',labelKey:'f.minShare',type:'u128',default:'0'},
+            {name:'deadline',labelKey:'f.deadline',type:'u128',default:'0',autoDeadline:true}] },
+  { id:'rmLiq', tab:'lp', kind:'call', ammV3000:true, fn:'remove_liquidity', titleKey:'op.rmLiq.t',
     descKey:'op.rmLiq.d',
-    fields:[{name:'share',labelKey:'f.share',type:'u128',default:'1000000'}] },
-  { id:'harvest', tab:'amm', kind:'call', fn:'lp_harvest', titleKey:'op.harvest.t',
+    fields:[{name:'share',labelKey:'f.share',type:'u128',default:'1000000'},
+            {name:'min_hac_out',labelKey:'f.minHacOut',type:'u128',default:'0'},
+            {name:'min_ds_out',labelKey:'f.minDsOut',type:'u128',default:'0'},
+            {name:'deadline',labelKey:'f.deadline',type:'u128',default:'0',autoDeadline:true}] },
+  { id:'harvest', tab:'lp', kind:'call', fn:'lp_harvest', titleKey:'op.harvest.t',
     descKey:'op.harvest.d', fields:[] },
 
   { id:'coll', tab:'loan', kind:'call', fn:'loan_add_collateral', titleKey:'op.coll.t',
@@ -327,7 +448,17 @@ const OPS = [
     descKey:'op.trH2A.d',
     fields:[{name:'to',labelKey:'f.toAddr',type:'address'},{name:'hac',labelKey:'f.hacAmt',type:'text',default:'1:248'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','hac-to',v.to,v.hac]}) },
-  { id:'trA2C', tab:'xfer', kind:'transfer', titleKey:'op.trA2C.t',
+  // 【金库清扫】合约 → 金库（触发合约 PermitHAC/PermitAsset，扣 tre:）。
+  // ⚠ 必用 from-to 形态（from=合约）；写成 hac-to/asset-to 是"用户转"，不会清扫。
+  { id:'sweepHac', tab:'tools', kind:'transfer', titleKey:'op.sweepHac.t',
+    descKey:'op.sweepHac.d',
+    fields:[{name:'amount',labelKey:'f.hacAmt',type:'text',default:'1:248'}],
+    build:(v,[main])=>({mode:'transfer', args:[main,'0','hac-from-to',S.cfg.contract,'1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK',v.amount]}) },
+  { id:'sweepDs', tab:'tools', kind:'transfer', titleKey:'op.sweepDs.t',
+    descKey:'op.sweepDs.d',
+    fields:[{name:'atoms',labelKey:'f.atomsNum',type:'u128',default:'100000000'}],
+    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',S.cfg.contract,'1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK','hacds',v.atoms]}) },
+  { id:'trA2C', tab:'fund', kind:'transfer', titleKey:'op.trA2C.t',
     descKey:'op.trA2C.d',
     fields:[{name:'atoms',labelKey:'f.atomsNum',type:'u128',default:'100000000'}],
     build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-to',S.cfg.contract,'hacds',v.atoms]}) },
@@ -350,15 +481,10 @@ const OPS = [
         String(v.serial).trim().replace(/^#/, ''), v.atoms]}) },
 ];
 
-// 管理员操作
-const ADMIN_OPS = [
-  { fn:'set_fee', titleKey:'admin.setFee', descKey:'admin.setFeeD', fields:[{name:'bps',label:'bps',type:'u128',default:'50'}] },
-  { fn:'set_loan_rate', titleKey:'admin.setLoanRate', descKey:'admin.setLoanRateD', fields:[{name:'bps',label:'bps',type:'u128',default:'500'}] },
-  { fn:'set_liquidate_bonus', titleKey:'admin.setBonus', descKey:'admin.setBonusD', fields:[{name:'bps',label:'bps',type:'u128',default:'200'}] },
-  { fn:'set_paused', titleKey:'admin.setPaused', descKey:'admin.setPausedD', fields:[{name:'p',label:'0 / 1',type:'u8',default:'0'}] },
-  { fn:'set_oracle', titleKey:'admin.setOracle', descKey:'admin.setOracleD', fields:[{name:'o',labelKey:'net.oracle',type:'address'}] },
-  { fn:'rent_batch', titleKey:'admin.rent', descKey:'admin.rentD', fields:[{name:'keys',label:'keys hex'},{name:'klen',label:'klen',type:'u128',default:'21'},{name:'period',label:'period',type:'u128',default:'300'}] },
-];
+// ⚠ #3000 无管理员：原 ADMIN_OPS 的 6 个函数（set_fee / set_loan_rate /
+//   set_liquidate_bonus / set_paused / set_oracle / rent_batch）在
+//   HacdsDeFi3000.fitsh 里全部不存在，整个管理员页签已删除。
+//   续租改由链下 keeper 调用 rent_keys / topup_keys 完成，不走钱包 UI。
 
 // btnKey = 整句按钮文案（比「查询 + 标签」拼接更自然，尤其中/土语）
 const QUERIES = [
@@ -372,37 +498,55 @@ const QUERIES = [
   { labelKey:'p.coll',    btnKey:'qb.coll',    fn:'loan_coll_of', params:[{name:'who',type:'address',labelKey:'q.fieldWho'}] },
   { labelKey:'q.lpShare', btnKey:'qb.lpShare', fn:'lp_share_of', params:[{name:'who',type:'address',labelKey:'q.fieldWho'}] },
   { labelKey:'p.lpTotal', btnKey:'qb.lpTotal', fn:'lp_total', params:[] },
+  // #3000：AMM 费/赎回费给 LP，利息给 HAC 存款人 → total_staked 改名"总持仓（含 HAC 存款）"
   { labelKey:'q.stake',   btnKey:'qb.stake',   fn:'total_staked', params:[{name:'kind',type:'u128',labelKey:'q.fieldKind'}] },
 ];
 
 // ===================== 界面构建 =====================
+//
+// 页签按「**对手方是谁**」划分（2026-11-11 重组）：
+//   · 转账 xfer —— 链上地址 ↔ 链上地址，**不碰合约**
+//   · 资金 fund —— 我的地址 ↔ **合约地址**，只做充提
+//   · 兑换/流动性/借贷/HACD —— 与合约的具体业务交互
+//   · 工具 tools —— 查询、运维、高级，收拢低频功能
+//
+// 原 9+1 个页签（含 1 个在 #3000 下完全无效的管理员页）收敛为 7 个，
+// 且每个功能**只保留一个入口**。
 const TABS = [
-  { id:'trade', labelKey:'tab.trade' },
-  { id:'amm',   labelKey:'tab.amm' },
+  { id:'swap',  labelKey:'tab.swap' },
+  { id:'lp',    labelKey:'tab.lp' },
   { id:'loan',  labelKey:'tab.loan' },
-  { id:'xfer',  labelKey:'tab.xfer' },
   { id:'hacd',  labelKey:'tab.hacd' },
-  { id:'query', labelKey:'tab.query' },
-  { id:'liq',   labelKey:'tab.liq' },
-  { id:'combo', labelKey:'tab.combo' },
-  { id:'offline', labelKey:'tab.offline' },
-  { id:'admin', labelKey:'tab.admin', adminOnly:true },
+  { id:'xfer',  labelKey:'tab.xfer' },
+  { id:'fund',  labelKey:'tab.fund' },
+  { id:'tools', labelKey:'tab.tools' },
 ];
 
 function renderTabs() {
   const nav = $('#tabs');
   nav.innerHTML = '';
-  TABS.filter(tab => !tab.adminOnly || S.isAdmin).forEach(tab => {
+  TABS.forEach(tab => {
     const b = document.createElement('button');
     b.textContent = t(tab.labelKey);   // 注意：循环变量不能叫 t，会遮蔽取词函数
     b.className = S.tab === tab.id ? 'on' : '';
-    b.onclick = () => { S.tab = tab.id; renderTabs(); renderPanels(); };
+    b.onclick = () => {
+      const prev = S.tab;
+      S.tab = tab.id; renderTabs(); renderPanels();
+      // 切回 HACD 页签时，若之前加载过列表就静默重拉一次，
+      // 避免"离开后再回来看到的还是旧数据"（合约池可能已被他人变动）。
+      if (tab.id === 'hacd' && prev !== 'hacd' && S.addr) refreshHacdLists(true);
+    };
     nav.appendChild(b);
   });
-  $('#adminBadge').hidden = !S.isAdmin;
 }
-// 若非管理员却停在 admin 页，退回 trade
-function guardTab() { if (S.tab === 'admin' && !S.isAdmin) S.tab = 'trade'; }
+
+/** 跳到指定页签（供页面内的「去资金页」「去 HACD 页」等链接使用） */
+function goTab(id) {
+  if (!TABS.some(x => x.id === id)) return;
+  S.tab = id; renderTabs(); renderPanels();
+}
+// 页签守卫：当前页签若不在 TABS 里（如旧配置残留 admin/trade），退回首页
+function guardTab() { if (!TABS.some(x => x.id === S.tab)) S.tab = 'swap'; }
 
 function fieldEl(f, val) {
   const wrap = document.createElement('div');
@@ -429,16 +573,18 @@ function renderPanels() {
   $('#hacdPanel').hidden = (S.tab !== 'hacd');
   host.hidden = (S.tab === 'hacd');
 
-  if (S.tab === 'hacd') { renderHacdPanel(); return; }
-  if (S.tab === 'query') return renderQueryPanel(host);
-  if (S.tab === 'combo') return renderComboPanel(host);
-  if (S.tab === 'liq') return renderLiqPanel(host);
-  if (S.tab === 'offline') return renderOfflinePanel(host);
-  if (S.tab === 'admin') return renderAdminPanel(host);
+  if (S.tab === 'hacd')  { renderHacdPanel(); return; }
+  if (S.tab === 'tools') return renderToolsPanel(host);
+  if (S.tab === 'fund')  return renderFundPanel(host);
+
+  // 兑换 / 流动性 / 借贷三页用网页端的左右分栏布局
+  if (S.tab === 'swap') { renderSwapPage(host); return; }
+  if (S.tab === 'lp')   { renderLpPage(host);   return; }
+  if (S.tab === 'loan') { renderLoanPage(host); return; }
+  if (S.tab === 'xfer') { renderXferPage(host); return; }
 
   const ops = OPS.filter(o => o.tab === S.tab);
   ops.forEach(op => host.appendChild(opCard(op)));
-  if (S.tab === 'amm') host.appendChild(poolStatusCard());
   applyOpPrefill();
 }
 
@@ -446,7 +592,8 @@ function opCard(op) {
   const card = document.createElement('div');
   card.className = 'card';
   card.dataset.opCard = op.id;
-  card.innerHTML = `<h3>${t(op.titleKey)}</h3><p class="desc">${t(op.descKey)}</p>`;
+  card.innerHTML = `<h3>${t(op.titleKey)}</h3><p class="desc">${t(op.descKey)}</p>`
+    + (op.ammV3000 ? `<p class="hint" style="color:var(--warn,#d08770)">${t('amm.v3000only')}</p>` : '');
   const grid = document.createElement('div'); grid.className = 'grid';
   (op.fields || []).forEach(f => grid.appendChild(fieldEl(f)));
   card.appendChild(grid);
@@ -775,6 +922,472 @@ async function quoteUpdate(op, card) {
         h: hacOf(ph), d: rawHacds(pd, true) });
 }
 
+/**
+ * 兑换页底部的「去充值」提示。
+ *
+ * 为什么需要：兑换扣的是**合约内积分**（bal:hac / due），不是钱包里的链上资产。
+ * 用户在还没有积分时会看到「余额不足」，却不知道该先做什么。
+ * 这里给一条直达资金页的链接。
+ */
+function swapFundHint() {
+  const c = document.createElement('div');
+  c.className = 'card';
+  c.innerHTML = `<p class="desc">${t('swap.needFund')}</p>
+    <button class="ghost" id="goFundFromSwap">${t('swap.goFund')}</button>`;
+  c.querySelector('#goFundFromSwap').onclick = () => goTab('fund');
+  return c;
+}
+
+/**
+ * 兑换页（网页端布局）。
+ *
+ * 和原实现的差别：原来是「HAC→hacds」和「hacds→HAC」两张独立卡片，
+ * 用户得先判断方向再选卡。现在是一张卡 + 中间翻转箭头，符合 DEX 通行习惯。
+ *
+ * 左侧：兑换表单（大号输入框 / 翻转 / 最少收到 / 滑点）
+ * 右侧：行情栏（汇率 / 手续费 / 价格影响 / 最少收到）+ 池子储备
+ */
+function renderSwapPage(host) {
+  if (S.swapDir == null) S.swapDir = 0;   // 0 = HAC→hacds, 1 = hacds→HAC
+
+  const wrap = document.createElement('div');
+  wrap.className = 'grid-2';
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="card-hd">${t('swap.title')}</div>
+      <div class="swap-box">
+        <div class="swap-side">
+          <div class="swap-label">${t('swap.from')}</div>
+          <div class="swap-row">
+            <input class="swap-input mono" id="swIn" type="text" placeholder="0.0" inputmode="decimal">
+            <span class="swap-token" id="swFrom">HAC</span>
+          </div>
+        </div>
+        <button class="swap-arrow" id="swFlip" title="flip">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/>
+          </svg>
+        </button>
+        <div class="swap-side">
+          <div class="swap-label">${t('swap.to')}</div>
+          <div class="swap-row">
+            <input class="swap-input mono" id="swOut" type="text" placeholder="0.0" readonly>
+            <span class="swap-token" id="swTo">hacds</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="swap-meta">
+        <span>${t('swap.minOut')}</span>
+        <input class="meta-input mono" id="swMinOut" type="text" value="0" style="width:150px">
+      </div>
+      <div class="swap-meta">
+        <span>${t('swap.slippage')}</span>
+        <span class="mono" id="swSlip">0.50%</span>
+      </div>
+
+      <button class="btn-primary" id="swDo" style="width:100%;margin-top:var(--sp-5)">${t('swap.do')}</button>
+      <p class="hint" style="margin-top:var(--sp-3);font-size:var(--fs-sm);color:var(--text-faint)">${t('swap.needFund')}</p>
+      <button class="btn-ghost" id="swGoFund" style="width:100%;margin-top:var(--sp-2)">${t('swap.goFund')}</button>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">${t('swap.info')}</div>
+      <div class="info-rows">
+        <div class="info-row"><span>${t('swap.rate')}</span><span class="mono" id="swRate">—</span></div>
+        <div class="info-row"><span>${t('swap.fee')}</span><span class="mono">0.50%</span></div>
+        <div class="info-row"><span>${t('swap.impact')}</span><span class="mono" id="swImpact">—</span></div>
+        <div class="info-row"><span>${t('swap.minReceived')}</span><span class="mono" id="swMin">—</span></div>
+      </div>
+      <div class="proto-strip" style="margin-top:var(--sp-5)">
+        <div class="proto-item"><span class="pk">${t('swap.poolHac')}</span><span class="pv" id="swPH">—</span></div>
+        <div class="proto-item"><span class="pk">${t('swap.poolDs')}</span><span class="pv" id="swPD">—</span></div>
+      </div>
+    </div>`;
+  host.appendChild(wrap);
+
+  const $ = sel => wrap.querySelector(sel);
+  let poolHac = null, poolDs = null;
+
+  // 切方向
+  const syncDir = () => {
+    $('#swFrom').textContent = S.swapDir === 0 ? 'HAC' : 'hacds';
+    $('#swTo').textContent   = S.swapDir === 0 ? 'hacds' : 'HAC';
+    $('#swIn').value = '';
+    $('#swOut').value = '';
+    recalc();
+  };
+
+  // 实时报价
+  const recalc = () => {
+    const raw = Number($('#swIn').value || 0);
+    if (!raw || !poolHac || !poolDs) {
+      $('#swOut').value = '';
+      $('#swRate').textContent = '—';
+      $('#swImpact').textContent = '—';
+      $('#swMin').textContent = '—';
+      return;
+    }
+    // 单位：HAC 腿输入 HAC，×1e8 → zhu；hacds 腿输入 atoms
+    const inAmt = S.swapDir === 0 ? Math.round(raw * ATOMS_PER_UNIT) : raw;
+    const feeBps = 50;
+    const net = inAmt - Math.floor(inAmt * feeBps / 10000);
+    const out = S.swapDir === 0
+      ? Math.floor(poolDs * net / (poolHac + net))    // → atoms
+      : Math.floor(poolHac * net / (poolDs + net));   // → zhu
+    const spot = S.swapDir === 0 ? poolDs / poolHac : poolHac / poolDs;
+    const exec = inAmt ? out / inAmt : 0;
+    const impact = inAmt ? Math.abs(exec / spot - 1) * 100 : 0;
+
+    $('#swOut').value = S.swapDir === 0 ? rawHacds(out, false) : hacOf(out);
+    $('#swRate').textContent = S.swapDir === 0
+      ? (poolDs / poolHac).toFixed(6) + ' hacds/HAC'
+      : (poolHac / poolDs).toFixed(6) + ' HAC/hacds';
+    $('#swImpact').textContent = impact.toFixed(3) + '%';
+    $('#swImpact').style.color = impact > 5 ? 'var(--red)'
+                               : impact > 1 ? 'var(--amber)' : 'var(--text)';
+    $('#swMin').textContent = S.swapDir === 0 ? rawHacds(out, true) : hacOf(out);
+    // 自动填最少收到（0.5% 滑点保护）
+    $('#swMinOut').value = String(Math.floor(out * 0.995));
+  };
+
+  // 拉池子储备
+  (async () => {
+    const [r1, r2] = await Promise.all([
+      window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'amm_reserves', caller: S.addr || S.cfg.contract }),
+      window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'amm_reserve_ds', caller: S.addr || S.cfg.contract }),
+    ]);
+    if (r1.ok) poolHac = Number(r1.data.ret_val);
+    if (r2.ok) poolDs = Number(r2.data.ret_val);
+    if (poolHac != null) $('#swPH').textContent = hacOf(poolHac);
+    if (poolDs != null) $('#swPD').textContent = rawHacds(poolDs, true);
+    recalc();
+  })();
+
+  $('#swIn').addEventListener('input', recalc);
+  $('#swFlip').onclick = () => { S.swapDir = S.swapDir === 0 ? 1 : 0; syncDir(); };
+  $('#swGoFund').onclick = () => goTab('fund');
+
+  // 执行兑换
+  $('#swDo').onclick = async () => {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    const raw = $('#swIn').value.trim();
+    if (!raw || Number(raw) <= 0) return log(t('swap.needAmt'), 'warn');
+    const minOut = $('#swMinOut').value.trim() || '0';
+    const btn = $('#swDo');
+    btn.disabled = true; btn.textContent = t('btn.gening');
+    try {
+      readCfgFromUI();
+      const dl = await deadlineBlock();
+      const fn = S.swapDir === 0 ? 'swap_hac_to_ds' : 'swap_ds_to_hac';
+      const params = S.swapDir === 0
+        ? `${Math.round(Number(raw) * ATOMS_PER_UNIT)}:u128,${minOut}:u128,${dl}:u128`
+        : `${raw}:u128,${minOut}:u128,${dl}:u128`;
+      log(t('r.buildingCall', { fn, ps: params }));
+      const res = await window.api.buildTx({
+        mode: 'call',
+        args: [S.addr, '0', S.cfg.contract, fn, params],
+        keyPath: S.keyPath, fee: null, gasMax: null,
+        node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!res.ok) throw res;
+      S.pending = res;
+      showPreview(res);
+      log(t('common.signed', { n: res.signedBytes || res.txbytes }), 'ok');
+    } catch (e) {
+      logErr(t('common.buildFail'), e);
+    } finally {
+      btn.disabled = false; btn.textContent = t('swap.do');
+    }
+  };
+
+  syncDir();
+}
+
+/**
+ * 流动性页（网页端布局）。
+ *
+ * 左：加池（含两侧联动与份额预估）
+ * 右：我的仓位（份额/待领）+ 领取奖励 + 撤池
+ *
+ * 把「我的仓位」和「撤池」放在同一栏，因为撤池要用份额数据，
+ * 分开会让用户来回对照。
+ */
+function renderLpPage(host) {
+  const wrap = document.createElement('div');
+  wrap.className = 'grid-2';
+  wrap.innerHTML = `
+    <div class="card" id="lpAddCard">
+      <div class="card-hd">${t('lp.addTitle')}</div>
+      <label class="field-label">${t('lp.hacAmount')}</label>
+      <input class="field-input mono" id="lpHac" type="text" placeholder="0.0" inputmode="decimal">
+      <label class="field-label" style="margin-top:var(--sp-4)">${t('lp.dsAmount')}</label>
+      <input class="field-input mono" id="lpDs" type="text" placeholder="0.0" inputmode="decimal">
+      <div class="swap-meta" style="margin-top:var(--sp-3)">
+        <span>${t('lp.minShare')}</span>
+        <input class="meta-input mono" id="lpMinShare" type="text" value="0" style="width:140px">
+      </div>
+      <div id="lpHint" class="readout" style="margin-top:var(--sp-3);font-size:var(--fs-sm);color:var(--text-dim);white-space:pre-wrap"></div>
+      <button class="btn-primary" id="lpDoAdd" style="width:100%;margin-top:var(--sp-4)">${t('lp.doAdd')}</button>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">${t('lp.myPos')}</div>
+      <div class="info-rows">
+        <div class="info-row"><span>${t('lp.myShares')}</span><span class="mono" id="lpShares">—</span></div>
+        <div class="info-row"><span>${t('lp.pendingHac')}</span><span class="mono" id="lpPendHac">—</span></div>
+        <div class="info-row"><span>${t('lp.pendingDs')}</span><span class="mono" id="lpPendDs">—</span></div>
+      </div>
+      <button class="btn-ghost" id="lpHarvest" style="width:100%;margin-top:var(--sp-4)">${t('lp.doHarvest')}</button>
+
+      <div class="card-hd" style="margin-top:var(--sp-6)">${t('lp.rmTitle')}</div>
+      <label class="field-label">${t('lp.shareBurn')}</label>
+      <input class="field-input mono" id="rmShare" type="text" placeholder="0" inputmode="decimal">
+      <div class="grid-2" style="margin-top:var(--sp-3);gap:var(--sp-2)">
+        <div>
+          <label class="field-label">${t('lp.minHacOut')}</label>
+          <input class="field-input mono" id="rmMinHac" type="text" value="0">
+        </div>
+        <div>
+          <label class="field-label">${t('lp.minDsOut')}</label>
+          <input class="field-input mono" id="rmMinDs" type="text" value="0">
+        </div>
+      </div>
+      <button class="btn-ghost" id="lpDoRm" style="width:100%;margin-top:var(--sp-4)">${t('lp.doRm')}</button>
+    </div>`;
+  host.appendChild(wrap);
+
+  const $ = sel => wrap.querySelector(sel);
+  let poolHac = null, poolDs = null, lpTotal = null;
+
+  // 拉池子与我的仓位
+  (async () => {
+    const [r1, r2, r3] = await Promise.all([
+      window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'amm_reserves', caller: S.addr || S.cfg.contract }),
+      window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'amm_reserve_ds', caller: S.addr || S.cfg.contract }),
+      window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'lp_total', caller: S.addr || S.cfg.contract }),
+    ]);
+    if (r1.ok) poolHac = Number(r1.data.ret_val);
+    if (r2.ok) poolDs = Number(r2.data.ret_val);
+    if (r3.ok) lpTotal = Number(r3.data.ret_val);
+    if (S.addr) {
+      const [u1, u2, u3] = await Promise.all([
+        window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'lp_share_of', caller: S.addr, params: `${S.addr}:address` }),
+        window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'lp_pending_hac', caller: S.addr, params: `${S.addr}:address` }),
+        window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'lp_pending_ds', caller: S.addr, params: `${S.addr}:address` }),
+      ]);
+      if (u1.ok) $('#lpShares').textContent = thou(Number(u1.data.ret_val));
+      if (u2.ok) $('#lpPendHac').textContent = hacOf(Number(u2.data.ret_val));
+      if (u3.ok) $('#lpPendDs').textContent = rawHacds(Number(u3.data.ret_val), true);
+    }
+  })();
+
+  // 两侧联动：改一侧自动配平另一侧
+  const sync = src => {
+    if (!poolHac || !poolDs) return;
+    if (src === 'hac') {
+      const h = Number($('#lpHac').value || 0);
+      if (h > 0) $('#lpDs').value = String(Math.floor(h * ATOMS_PER_UNIT * poolDs / poolHac));
+    } else {
+      const d = Number($('#lpDs').value || 0);
+      if (d > 0) $('#lpHac').value = String((d * poolHac / poolDs) / ATOMS_PER_UNIT);
+    }
+    hint();
+  };
+
+  const hint = () => {
+    const el = $('#lpHint');
+    if (!poolHac || !poolDs) { el.textContent = t('lp.first'); return; }
+    el.textContent = t('lp.ratio', { h: hacOf(poolHac), d: rawHacds(poolDs, true) });
+  };
+
+  $('#lpHac').addEventListener('input', () => sync('hac'));
+  $('#lpDs').addEventListener('input', () => sync('ds'));
+
+  // 加池
+  $('#lpDoAdd').onclick = async () => {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    const h = $('#lpHac').value.trim(), d = $('#lpDs').value.trim();
+    if (!h || !d) return log(t('lp.needBoth'), 'warn');
+    const btn = $('#lpDoAdd'); btn.disabled = true; btn.textContent = t('btn.gening');
+    try {
+      readCfgFromUI();
+      const dl = await deadlineBlock();
+      const params = `${Math.round(Number(h) * ATOMS_PER_UNIT)}:u128,${Math.floor(Number(d))}:u128,${$('#lpMinShare').value || 0}:u128,${dl}:u128`;
+      const res = await window.api.buildTx({
+        mode: 'call', args: [S.addr, '0', S.cfg.contract, 'add_liquidity', params],
+        keyPath: S.keyPath, fee: null, gasMax: null, node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!res.ok) throw res;
+      S.pending = res; showPreview(res);
+      log(t('common.signed', { n: res.signedBytes || res.txbytes }), 'ok');
+    } catch (e) { logErr(t('common.buildFail'), e); }
+    finally { btn.disabled = false; btn.textContent = t('lp.doAdd'); }
+  };
+
+  // 领奖励
+  $('#lpHarvest').onclick = async () => {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    try {
+      readCfgFromUI();
+      const res = await window.api.buildTx({
+        mode: 'call', args: [S.addr, '0', S.cfg.contract, 'lp_harvest', '-'],
+        keyPath: S.keyPath, fee: null, gasMax: null, node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!res.ok) throw res;
+      S.pending = res; showPreview(res);
+    } catch (e) { logErr(t('common.buildFail'), e); }
+  };
+
+  // 撤池：C-4 —— 单笔会撞 resource 上限，必须先 lp_harvest 再 remove_liquidity
+  $('#lpDoRm').onclick = async () => {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    const share = $('#rmShare').value.trim();
+    if (!share || share === '0') return log(t('lp.needShare'), 'warn');
+    const btn = $('#lpDoRm'); btn.disabled = true; btn.textContent = t('btn.gening');
+    try {
+      readCfgFromUI();
+      const dl = await deadlineBlock();
+      // 第 1 步：先结算奖励（顺序不能反，先撤池会按减少后的份额结算）
+      log(t('lp.rmStep1'));
+      const h1 = await window.api.buildTx({
+        mode: 'call', args: [S.addr, '0', S.cfg.contract, 'lp_harvest', '-'],
+        keyPath: S.keyPath, fee: null, gasMax: null, node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!h1.ok) throw h1;
+      S.pending = h1; showPreview(h1);
+      log(t('lp.rmStep1Built'), 'warn');
+      // 第 2 步：撤池（记住参数，等第一笔广播后由用户再点一次）
+      const params = `${Math.floor(Number(share))}:u128,${$('#rmMinHac').value || 0}:u128,${$('#rmMinDs').value || 0}:u128,${dl}:u128`;
+      const h2 = await window.api.buildTx({
+        mode: 'call', args: [S.addr, '0', S.cfg.contract, 'remove_liquidity', params],
+        keyPath: S.keyPath, fee: null, gasMax: null, node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!h2.ok) throw h2;
+      S._pendingRemove = h2;
+      log(t('lp.rmStep2Ready'), 'warn');
+    } catch (e) { logErr(t('common.buildFail'), e); }
+    finally { btn.disabled = false; btn.textContent = t('lp.doRm'); }
+  };
+
+  hint();
+}
+
+/**
+ * 借贷页（网页端布局）。
+ *
+ * 左：借款 / 还款（顶部显示我的抵押、债务、健康度、可借上限）
+ * 右：追加抵押
+ *
+ * 把健康数据搬进借款卡，是因为用户要「看着可借额度决定借多少」，
+ * 分开放就得来回对照。
+ */
+function renderLoanPage(host) {
+  const wrap = document.createElement('div');
+  wrap.className = 'grid-2';
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="card-hd">${t('loan.borrowTitle')}</div>
+      <div class="info-rows">
+        <div class="info-row"><span>${t('loan.myColl')}</span><span class="mono" id="lnColl">—</span></div>
+        <div class="info-row"><span>${t('loan.myDebt')}</span><span class="mono" id="lnDebt">—</span></div>
+        <div class="info-row"><span>${t('loan.myHealth')}</span><span class="mono" id="lnHealth">—</span></div>
+        <div class="info-row"><span>${t('loan.maxBorrow')}</span><span class="mono" id="lnMax">—</span></div>
+      </div>
+      <label class="field-label" style="margin-top:var(--sp-5)">${t('loan.borrowAmt')}</label>
+      <input class="field-input mono" id="lnBorrowAmt" type="text" placeholder="0.0" inputmode="decimal">
+      <button class="btn-primary" id="lnDoBorrow" style="width:100%;margin-top:var(--sp-4)">${t('loan.doBorrow')}</button>
+      <label class="field-label" style="margin-top:var(--sp-5)">${t('loan.repayAmt')}</label>
+      <input class="field-input mono" id="lnRepayAmt" type="text" placeholder="0.0" inputmode="decimal">
+      <button class="btn-ghost" id="lnDoRepay" style="width:100%;margin-top:var(--sp-4)">${t('loan.doRepay')}</button>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">${t('loan.collTitle')}</div>
+      <label class="field-label">${t('loan.collAmt')}</label>
+      <input class="field-input mono" id="lnCollAmt" type="text" placeholder="0" inputmode="decimal">
+      <button class="btn-primary" id="lnDoColl" style="width:100%;margin-top:var(--sp-4)">${t('loan.doColl')}</button>
+      <p class="hint" style="margin-top:var(--sp-5);font-size:var(--fs-sm);color:var(--text-faint)">${t('loan.note')}</p>
+    </div>`;
+  host.appendChild(wrap);
+
+  const $ = sel => wrap.querySelector(sel);
+
+  // 拉健康数据
+  (async () => {
+    if (!S.addr) return;
+    const [s1, d1, c1] = await Promise.all([
+      window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'loan_status', caller: S.addr, params: `${S.addr}:address` }),
+      window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'loan_debt_of', caller: S.addr, params: `${S.addr}:address` }),
+      window.api.contractCall({ node: S.cfg.node, contract: S.cfg.contract, fn: 'loan_coll_of', caller: S.addr, params: `${S.addr}:address` }),
+    ]);
+    if (c1.ok) $('#lnColl').textContent = rawHacds(Number(c1.data.ret_val), true);
+    if (d1.ok) $('#lnDebt').textContent = hacOf(Number(d1.data.ret_val));
+    if (s1.ok) {
+      const h = Number(s1.data.ret_val);
+      $('#lnHealth').textContent = h ? (h / 100).toFixed(2) + '%' : '—';
+      $('#lnHealth').style.color = h && h < 16000 ? 'var(--red)' : 'var(--text)';
+    }
+  })();
+
+  // 借款
+  $('#lnDoBorrow').onclick = async () => {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    const a = $('#lnBorrowAmt').value.trim();
+    if (!a || Number(a) <= 0) return log(t('swap.needAmt'), 'warn');
+    const btn = $('#lnDoBorrow'); btn.disabled = true; btn.textContent = t('btn.gening');
+    try {
+      readCfgFromUI();
+      const res = await window.api.buildTx({
+        mode: 'call',
+        args: [S.addr, '0', S.cfg.contract, 'loan_borrow', `${Math.round(Number(a) * ATOMS_PER_UNIT)}:u128`],
+        keyPath: S.keyPath, fee: null, gasMax: null, node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!res.ok) throw res;
+      S.pending = res; showPreview(res);
+    } catch (e) { logErr(t('common.buildFail'), e); }
+    finally { btn.disabled = false; btn.textContent = t('loan.doBorrow'); }
+  };
+
+  // 还款
+  $('#lnDoRepay').onclick = async () => {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    const a = $('#lnRepayAmt').value.trim();
+    if (!a || Number(a) <= 0) return log(t('swap.needAmt'), 'warn');
+    const btn = $('#lnDoRepay'); btn.disabled = true; btn.textContent = t('btn.gening');
+    try {
+      readCfgFromUI();
+      const res = await window.api.buildTx({
+        mode: 'call',
+        args: [S.addr, '0', S.cfg.contract, 'loan_repay', `${Math.round(Number(a) * ATOMS_PER_UNIT)}:u128`],
+        keyPath: S.keyPath, fee: null, gasMax: null, node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!res.ok) throw res;
+      S.pending = res; showPreview(res);
+    } catch (e) { logErr(t('common.buildFail'), e); }
+    finally { btn.disabled = false; btn.textContent = t('loan.doRepay'); }
+  };
+
+  // 追加抵押
+  $('#lnDoColl').onclick = async () => {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    const a = $('#lnCollAmt').value.trim();
+    if (!a || Number(a) <= 0) return log(t('swap.needAmt'), 'warn');
+    const btn = $('#lnDoColl'); btn.disabled = true; btn.textContent = t('btn.gening');
+    try {
+      readCfgFromUI();
+      const res = await window.api.buildTx({
+        mode: 'call',
+        args: [S.addr, '0', S.cfg.contract, 'loan_add_collateral', `${Math.floor(Number(a))}:u128`],
+        keyPath: S.keyPath, fee: null, gasMax: null, node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!res.ok) throw res;
+      S.pending = res; showPreview(res);
+    } catch (e) { logErr(t('common.buildFail'), e); }
+    finally { btn.disabled = false; btn.textContent = t('loan.doColl'); }
+  };
+}
+
 // AMM 池状态卡
 function poolStatusCard() {
   const c = document.createElement('div'); c.className = 'card';
@@ -782,7 +1395,7 @@ function poolStatusCard() {
   (async () => {
     const r = await window.api.protocolOverview({ node: S.cfg.node, contract: S.cfg.contract, address: S.addr });
     const host = c.querySelector('#ammPoolStatus');
-    if (!r.ok) { host.innerHTML = `<span class="qerr">${r.error}</span>`; return; }
+    if (!r.ok) { host.innerHTML = `<span class="qerr">${esc(r.error)}</span>`; return; }
     const p = r.data;
     // 【展示口径 D44】hacds 侧与协议状态统一走 raw（#2000 原始 amount），
     // HAC 侧走 zhu、份额走 share。
@@ -802,12 +1415,37 @@ function poolStatusCard() {
 function buildCallParams(op, v) {
   const hacSet = new Set(op.hacFields || []);
   return (op.fields || []).map(f => {
+    // deadline：用户没填（或填 0）时自动取「当前块高 + 窗口」。
+    // 合约里比的是 block_height（不是时间戳）；窗口取 3600 块 ≈ 5 小时（300s/块），
+    // 足够覆盖签名到上链的常规延迟，又不会久到失去保护意义。
+    if (f.autoDeadline && !Number(v[f.name])) {
+      return `${deadlineBlock()}:${f.type}`;
+    }
     if (hacSet.has(f.name)) {
       const z = hacInputToZhu(v[f.name]);
       return `${z == null ? '0' : z}:${f.type}`;
     }
     return `${v[f.name]}:${f.type}`;
   }).join(',') || '-';
+}
+
+// 块高缓存（10 秒有效）+ deadline 计算。
+// 取不到块高时回退 0（= 合约不检查 deadline），宁可少一层保护也不要发不出交易。
+let _heightCache = { h: 0, at: 0 };
+async function refreshHeightCache() {
+  try {
+    const r = await window.api.httpGet({ url: `${S.cfg.node.replace(/\/$/, '')}/query/block/height/latest` });
+    if (r.ok && r.data && r.data.height) {
+      _heightCache = { h: Number(r.data.height), at: Date.now() };
+    }
+  } catch (e) { /* 静默：回退到 0 */ }
+}
+const DEADLINE_WINDOW = 3600;   // 块
+function deadlineBlock() {
+  if (!_heightCache.h) return 0;
+  // 缓存过期（>10s）时用估算值兜底：本次交易从签名到上链通常 < 几分钟
+  const age = Math.floor((Date.now() - _heightCache.at) / 1000);
+  return _heightCache.h + Math.floor(age / 300) + DEADLINE_WINDOW;
 }
 
 function opToAction(op, v) {
@@ -853,19 +1491,9 @@ function renderLiqPanel(host) {
   const card = document.createElement('div'); card.className = 'card';
   card.innerHTML =
     '<h3>' + t('liq.title') + '</h3><p class="desc">' + t('liq.desc') + '</p>' +
-    // ① LP 奖励
-    '<div class="liq-sec"><b>' + t('liq.secLp') + '</b>' +
-      '<div class="row"><button class="primary" id="liqHarvest">' + t('liq.harvest') + '</button>' +
-      '<span class="hint">' + t('liq.harvestHint') + '</span></div></div>' +
-    // ② 金库清扫
-    '<div class="liq-sec"><b>' + t('liq.secTre') + '</b>' +
-      '<div class="proto-grid" id="liqTreGrid" style="margin-top:8px"><span class="muted">' + t('ov.loading') + '</span></div>' +
-      '<div class="row">' +
-        '<button id="liqSweepHac">' + t('liq.sweepHac') + '</button>' +
-        '<button id="liqSweepDs">' + t('liq.sweepDs') + '</button>' +
-      '</div>' +
-      '<div class="hint" id="liqTreHint"></div></div>' +
-    // ③ 借贷清算台
+    // ⚠ 2026-11-11 重组：原「① LP 奖励」已并入流动性页(lp_harvest 卡片)；
+    //   原「② 金库清扫」已并入本页下文的 tools 卡片。
+    //   本页只保留「③ 借贷清算台」。
     '<div class="liq-sec"><b>' + t('liq.secLoan') + '</b>' +
       '<div class="row">' +
         '<button class="primary" id="liqSync">' + t('liq.sync') + '</button>' +
@@ -877,41 +1505,6 @@ function renderLiqPanel(host) {
       '<div id="liqTable" style="margin-top:8px"></div></div>';
 
   host.appendChild(card);
-
-  // ① LP 奖励结算 → 复用通用构建（lp_harvest 无参）
-  card.querySelector('#liqHarvest').onclick = (e) =>
-    buildCall('lp_harvest', '-', card, e.currentTarget);
-
-  // ② 金库清扫（普通转账到金库地址；合约 PermitHAC/PermitAsset 自动扣 tre:）
-  const TREASURY = '1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK';
-  card.querySelector('#liqTreHint').textContent = t('liq.treHint', { a: TREASURY });
-  const loadTre = async () => {
-    readCfgFromUI();
-    const r = await window.api.liqTreasury({ node:S.cfg.node, contract:S.cfg.contract, caller:S.addr });
-    const g = card.querySelector('#liqTreGrid');
-    if (!r.ok) { g.innerHTML = '<span class="qerr">' + r.error + '</span>'; return; }
-    g.innerHTML = [[t('liq.treHac'), hacOf(r.hac)], [t('liq.treDs'), rawHacds(r.ds, true)]]
-      .map(([k,v]) => '<div class="proto-row"><span class="k">' + k + '</span><span class="v">' + (v==null?'—':v) + '</span></div>').join('');
-    card._tre = r;
-  };
-  loadTre();
-  card.querySelector('#liqSweepHac').onclick = () => {
-    const tr = card._tre || {};
-    const hacNum = hacToNum(tr.hac);
-    if (!hacNum) { log(t('liq.noSweep'), 'warn'); return; }
-    S.tab = 'xfer'; renderTabs(); renderPanels();
-    window._opPrefill = Object.assign({}, window._opPrefill, { trH2A: { to: TREASURY, hac: String(hacNum) } });
-    applyOpPrefill();
-    log(t('liq.treSweep') + ' HAC -> ' + TREASURY, 'ok');
-  };
-  card.querySelector('#liqSweepDs').onclick = () => {
-    const tr = card._tre || {};
-    if (!Number(tr.ds || 0)) { log(t('liq.noSweep'), 'warn'); return; }
-    S.tab = 'xfer'; renderTabs(); renderPanels();
-    window._opPrefill = Object.assign({}, window._opPrefill, { trA2C: { atoms: String(tr.ds) } });
-    applyOpPrefill();
-    log(t('liq.treSweep') + ' hacds -> ' + S.cfg.contract, 'ok');
-  };
 
   // ③ 借贷清算台
   const renderTable = (list) => {
@@ -1014,9 +1607,9 @@ function renderComboPanel(host) {
     if (S.combo.length < 1) return log(t('combo.empty'), 'err');
     const spec = { contract: S.cfg.contract, actions: S.combo };
     log(t('combo.building', { n: S.combo.length }));
-    const r = await window.api.combo({ specObject: spec, mainAddr: S.addr, node: S.cfg.node, keyPath: S.keyPath });
+    const r = await window.api.combo({ specObject: spec, mainAddr: S.addr, node: S.cfg.node, keyPath: S.keyPath, contract: S.cfg.contract });
     if (!r.ok) return logErr(t('common.buildFail'), r);
-    S.pending = r; showPreview(r); log(t('common.signed', { n: r.txbytes }), 'ok');
+    S.pending = r; showPreview(r); log(t('common.signed', { n: r.signedBytes || r.txbytes }), 'ok');
   };
   card.querySelector('#comboClear').onclick = () => { S.combo = []; render(); };
   card.querySelector('#comboLoadJson').onclick = () => {
@@ -1049,11 +1642,11 @@ function renderQueryPanel(host) {
       const r = await window.api.contractCall({ node:S.cfg.node, contract:S.cfg.contract, fn:q.fn, caller, params });
       out.hidden = false;
       if (r.ok) {
-        out.innerHTML = `<span class="qval">${q.label} = ${r.data.ret_val}</span>\n` +
-          `<span class="muted">${t('common.raw')}${JSON.stringify(r.data)}</span>`;
+        out.innerHTML = `<span class="qval">${esc(q.label)} = ${esc(r.data.ret_val)}</span>\n` +
+          `<span class="muted">${esc(t('common.raw'))}${esc(JSON.stringify(r.data))}</span>`;
         log(t(q.btnKey || 'btn.query')+' = '+r.data.ret_val, 'ok');
       } else {
-        out.innerHTML = `<span class="qerr">${r.error}</span>` + (r.hint ? `\n<span class="qhint">${r.hint}</span>` : '');
+        out.innerHTML = `<span class="qerr">${esc(r.error)}</span>` + (r.hint ? `\n<span class="qhint">${esc(r.hint)}</span>` : '');
         log(t(q.btnKey || 'btn.query')+': '+r.error, 'err');
       }
     };
@@ -1061,6 +1654,400 @@ function renderQueryPanel(host) {
     card.appendChild(box);
   });
   host.appendChild(card);
+}
+
+// ---- 资金页：本地址 ↔ 合约地址，只做充提 ----
+//
+// 设计边界（2026-11-11 重组）：
+//   · 本页**只处理** HAC 与 hacds 两种资产与合约的充提
+//   · HACD（钻石）与合约的交互在 HACD 页，本页不出现
+//   · 链上地址之间的转账在「转账」页，本页不出现
+/**
+ * 转账页（网页端双卡布局）。
+ *
+ * 只做链上地址之间的转账，不碰合约：
+ *   左卡 HAC 转账 / 右卡 hacds 转账（均用 asset-to，发送方隐含为交易主地址）
+ *   下方 HACD 转账 + 其它资产转账
+ */
+function renderXferPage(host) {
+  const wrap = document.createElement('div');
+  wrap.className = 'grid-2';
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="card-hd">${t('xfer.hacTitle')}</div>
+      <label class="field-label">${t('f.toAddr')}</label>
+      <input class="field-input mono" id="xferHacTo" type="text" placeholder="1XXXXXXXX...">
+      <label class="field-label" style="margin-top:var(--sp-4)">${t('f.hacAmt')}</label>
+      <input class="field-input mono" id="xferHacAmt" type="text" placeholder="0.0" inputmode="decimal">
+      <button class="btn-primary" id="btnXferHac" style="width:100%;margin-top:var(--sp-4)">${t('xfer.doHac')}</button>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">${t('xfer.dsTitle')}</div>
+      <label class="field-label">${t('f.toAddr')}</label>
+      <input class="field-input mono" id="xferDsTo" type="text" placeholder="1XXXXXXXX...">
+      <label class="field-label" style="margin-top:var(--sp-4)">${t('f.atomsNum')}</label>
+      <input class="field-input mono" id="xferDsAmt" type="text" placeholder="0" inputmode="decimal">
+      <button class="btn-primary" id="btnXferDs" style="width:100%;margin-top:var(--sp-4)">${t('xfer.doDs')}</button>
+    </div>`;
+  host.appendChild(wrap);
+
+  // HACD 转账（整行）
+  const hacdCard = document.createElement('div');
+  hacdCard.className = 'card';
+  hacdCard.style.marginTop = 'var(--sp-4)';
+  hacdCard.innerHTML = `
+    <div class="card-hd">${t('xfer.hacdTitle')}</div>
+    <p class="desc" style="font-size:12.5px">${t('xfer.hacdNote')}</p>
+    <label class="field-label">${t('xfer.hacdNames')}</label>
+    <input class="field-input mono" id="xferHacdNames" type="text" placeholder="WTYUIA,HYXYHY">
+    <label class="field-label" style="margin-top:var(--sp-4)">${t('f.toAddr')}</label>
+    <input class="field-input mono" id="xferHacdTo" type="text" placeholder="1XXXXXXXX...">
+    <button class="btn-primary" id="btnXferHacd" style="width:100%;margin-top:var(--sp-4)">${t('xfer.doHacd')}</button>`;
+  host.appendChild(hacdCard);
+
+  // 其它资产（PC 端独有，网页端也已加）
+  const otherCard = document.createElement('div');
+  otherCard.className = 'card';
+  otherCard.style.marginTop = 'var(--sp-4)';
+  otherCard.innerHTML = `
+    <div class="card-hd">${t('op.trOther.t')}</div>
+    <p class="desc" style="font-size:12.5px">${t('op.trOther.d')}</p>
+    <div class="grid-2" style="gap:var(--sp-3)">
+      <div>
+        <label class="field-label">${t('f.serialNum')}</label>
+        <input class="field-input mono" id="xferOtherSerial" type="text" placeholder="2000">
+      </div>
+      <div>
+        <label class="field-label">${t('f.atomsNum2')}</label>
+        <input class="field-input mono" id="xferOtherAtoms" type="text" placeholder="0">
+      </div>
+    </div>
+    <label class="field-label" style="margin-top:var(--sp-3)">${t('f.toAddr')}</label>
+    <input class="field-input mono" id="xferOtherTo" type="text" placeholder="1XXXXXXXX...">
+    <button class="btn-primary" id="btnXferOther" style="width:100%;margin-top:var(--sp-4)">${t('op.trOther.t')}</button>`;
+  host.appendChild(otherCard);
+
+  // ---------------- 事件 ----------------
+  const $w = sel => host.querySelector(sel);
+
+  /** 统一构建 + 预览 */
+  const build = async (sub, args) => {
+    readCfgFromUI();
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    try {
+      log(t('xfer.building') || t('r.building'));
+      const res = await window.api.buildTx({
+        mode: 'transfer', args: [S.addr, '0', sub].concat(args),
+        keyPath: S.keyPath, fee: null, gasMax: null,
+        node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!res.ok) throw res;
+      S.pending = res; showPreview(res);
+      log(t('common.signed', { n: res.signedBytes || res.txbytes }), 'ok');
+    } catch (e) {
+      logErr(t('xfer.fail'), e);
+    }
+  };
+
+  const needAddr = v => {
+    if (!v) { log(t('xfer.needAddr'), 'warn'); return false; }
+    return true;
+  };
+  const needAmt = v => {
+    if (!v || Number(v) <= 0) { log(t('fund.needAmt'), 'warn'); return false; }
+    return true;
+  };
+
+  $w('#btnXferHac').onclick = () => {
+    const to = ($w('#xferHacTo').value || '').trim();
+    const amt = ($w('#xferHacAmt').value || '').trim();
+    if (!needAddr(to) || !needAmt(amt)) return;
+    build('hac-to', [to, amt]);
+  };
+
+  $w('#btnXferDs').onclick = () => {
+    const to = ($w('#xferDsTo').value || '').trim();
+    const amt = ($w('#xferDsAmt').value || '').trim();
+    if (!needAddr(to) || !needAmt(amt)) return;
+    build('asset-to', [to, 'hacds', String(Math.floor(Number(amt)))]);
+  };
+
+  $w('#btnXferHacd').onclick = () => {
+    const names = ($w('#xferHacdNames').value || '').split(/[\s,]+/)
+      .map(x => x.trim().toUpperCase()).filter(Boolean);
+    const to = ($w('#xferHacdTo').value || '').trim();
+    if (!names.length) { log(t('xfer.needNames'), 'warn'); return; }
+    if (!needAddr(to)) return;
+    build('hacd-to', [to, names.join(',')]);
+  };
+
+  $w('#btnXferOther').onclick = () => {
+    const serial = ($w('#xferOtherSerial').value || '').trim().replace(/^#/, '');
+    const atoms = ($w('#xferOtherAtoms').value || '').trim();
+    const to = ($w('#xferOtherTo').value || '').trim();
+    if (!needAddr(to) || !needAmt(atoms)) return;
+    if (!/^\d+$/.test(serial)) { log(t('xfer.needSerial'), 'warn'); return; }
+    build('asset-to', [to, serial, String(Math.floor(Number(atoms)))]);
+  };
+}
+
+function renderFundPanel(host) {
+  // ① 顶部：合约内余额（PC 端独有，网页端没有）
+  const bal = document.createElement('div');
+  bal.className = 'card';
+  bal.style.marginBottom = 'var(--sp-3)';
+  bal.innerHTML = `<div class="card-hd">${t('fund.inContract')}</div>` +
+    `<div class="proto-grid" id="fundBal"><span class="muted">${t('ov.loading')}</span></div>`;
+  host.appendChild(bal);
+  (async () => {
+    const el = bal.querySelector('#fundBal');
+    if (!S.addr) { el.innerHTML = `<span class="muted">${t('fund.needUnlock')}</span>`; return; }
+    const r = await window.api.protocolOverview({ node: S.cfg.node, contract: S.cfg.contract, address: S.addr });
+    if (!r.ok) { el.innerHTML = '<span class="qerr">' + esc(r.error) + '</span>'; return; }
+    const d = r.data || {};
+    el.innerHTML = [
+      [t('fund.hacCredit'), hacOf(d.balHac)],
+      [t('fund.dsQuota'), rawHacds(d.balDs, true)],
+    ].map(([k, v]) => `<div class="proto-item"><span class="pk">${esc(k)}</span><span class="pv">${esc(v)}</span></div>`).join('');
+  })();
+
+  // ② 双卡：左 HAC 充提 / 右 hacds 充提
+  const wrap = document.createElement('div');
+  wrap.className = 'grid-2';
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="card-hd">${t('fund.hacTitle')}</div>
+
+      <label class="field-label">${t('fund.hacIn')}</label>
+      <input class="field-input mono" id="fundHacIn" type="text" placeholder="0.0" inputmode="decimal">
+      <button class="btn-primary" id="btnFundHacIn" style="width:100%;margin-top:var(--sp-2)">${t('fund.doHacIn')}</button>
+
+      <label class="field-label" style="margin-top:var(--sp-5)">${t('fund.hacOut')}</label>
+      <input class="field-input mono" id="fundHacOut" type="text" placeholder="0.0" inputmode="decimal">
+      <button class="btn-ghost" id="btnFundHacOut" style="width:100%;margin-top:var(--sp-2)">${t('fund.doHacOut')}</button>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">${t('fund.dsTitle')}</div>
+
+      <label class="field-label">${t('fund.dsIn')}</label>
+      <input class="field-input mono" id="fundDsIn" type="text" placeholder="0" inputmode="decimal">
+      <button class="btn-primary" id="btnFundDsIn" style="width:100%;margin-top:var(--sp-2)">${t('fund.doDsIn')}</button>
+
+      <label class="field-label" style="margin-top:var(--sp-5)">${t('fund.dsOut')}</label>
+      <input class="field-input mono" id="fundDsOut" type="text" placeholder="0" inputmode="decimal">
+      <button class="btn-ghost" id="btnFundDsOut" style="width:100%;margin-top:var(--sp-2)">${t('fund.doDsOut')}</button>
+
+      <div class="note" style="margin-top:var(--sp-5);font-size:12.5px">
+        ${t('fund.hacdNote')}
+        <button class="ghost" id="goHacdFromFund" style="margin-left:8px">${t('fund.goHacd')}</button>
+      </div>
+    </div>`;
+  host.appendChild(wrap);
+
+  // ③ 事件
+  const on = (sel, fn) => { const el = wrap.querySelector(sel); if (el) el.onclick = fn; };
+
+  /** 四种充提：都走原生转账动作 */
+  const doFund = async (kind) => {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    if (S.busy) return;
+    const cfg = {
+      'hac-in':  { input: '#fundHacIn',  sub: 'hac-to',        labelKey: 'fund.doHacIn',  unit: 'hac' },
+      'hac-out': { input: '#fundHacOut', sub: 'hac-from-to',   labelKey: 'fund.doHacOut', unit: 'hac' },
+      'ds-in':   { input: '#fundDsIn',   sub: 'asset-to',      labelKey: 'fund.doDsIn',   unit: 'atoms' },
+      'ds-out':  { input: '#fundDsOut',  sub: 'asset-from-to', labelKey: 'fund.doDsOut',  unit: 'atoms' },
+    }[kind];
+    if (!cfg) return;
+    const raw = (wrap.querySelector(cfg.input).value || '').trim();
+    if (!raw || Number(raw) <= 0) return log(t('fund.needAmt'), 'warn');
+
+    S.busy = true;
+    try {
+      log(t('fund.building'));
+      const args = [S.addr, '0', cfg.sub];
+      if (cfg.sub.endsWith('from-to')) args.push(S.cfg.contract);          // from = 合约
+      args.push(kind.endsWith('-in') ? S.cfg.contract : S.addr);           // to
+      if (cfg.unit === 'hac') args.push(raw);
+      else { args.push('hacds'); args.push(String(Math.floor(Number(raw)))); }
+
+      const res = await window.api.buildTx({
+        mode: 'transfer', args, keyPath: S.keyPath, fee: null, gasMax: null,
+        node: S.cfg.node, contract: S.cfg.contract,
+      });
+      if (!res.ok) throw res;
+      S.pending = res; showPreview(res);
+      log(t(cfg.labelKey) + ' — ' + t('common.signed', { n: res.signedBytes || res.txbytes }), 'ok');
+    } catch (e) {
+      logErr(t('fund.fail'), e);
+    } finally { S.busy = false; }
+  };
+
+  on('#btnFundHacIn',  () => doFund('hac-in'));
+  on('#btnFundHacOut', () => doFund('hac-out'));
+  on('#btnFundDsIn',   () => doFund('ds-in'));
+  on('#btnFundDsOut',  () => doFund('ds-out'));
+  on('#goHacdFromFund', () => goTab('hacd'));
+}
+
+// ---- 工具页：查询 / 运维 / 高级 ----
+//
+// 子面板（renderQueryPanel / renderLiqPanel / renderComboPanel / renderOfflinePanel）
+// 都各自生成带 <h3> 的 card，所以这里**只加分组小标题**，不再包一层 card，
+// 否则会出现「工具标题 + 子面板标题」两个 h3 叠在一起。
+function renderToolsPanel(host) {
+  // 工具页用「分组选择器」，而不是把所有内容平铺一页。
+  // 一页全展开会有 8+ 张卡片，滚动很长且找不到东西。
+  const GROUPS = [
+    { id: 'query',    labelKey: 'tools.query' },
+    { id: 'ops',      labelKey: 'tools.ops' },
+    { id: 'rent',     labelKey: 'tools.rent' },
+    { id: 'advanced', labelKey: 'tools.advanced' },
+  ];
+  if (!GROUPS.some(g => g.id === S.toolsGroup)) S.toolsGroup = 'query';
+
+  // 选择器
+  const bar = document.createElement('div');
+  bar.className = 'card';
+  bar.style.padding = '10px 14px';
+  bar.innerHTML = GROUPS.map(g =>
+    `<button class="ghost" data-tg="${g.id}" style="margin-right:8px${S.toolsGroup === g.id ? ';font-weight:600' : ''}">${t(g.labelKey)}</button>`
+  ).join('');
+  host.appendChild(bar);
+  bar.querySelectorAll('[data-tg]').forEach(b => {
+    b.onclick = () => { S.toolsGroup = b.dataset.tg; renderPanels(); };
+  });
+
+  const g = S.toolsGroup;
+  if (g === 'query') { renderQueryPanel(host); return; }
+  if (g === 'advanced') { renderComboPanel(host); renderOfflinePanel(host); return; }
+  if (g === 'rent') { renderRentPanel(host); return; }
+
+  // ---- ops：金库清扫 + 清算监控 ----
+  const TREASURY = '1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK';
+  const treCard = document.createElement('div');
+  treCard.className = 'card';
+  treCard.innerHTML = `<h3>${t('liq.secTre')}</h3>` +
+    `<div class="proto-grid" id="toolsTreGrid"><span class="muted">${t('ov.loading')}</span></div>` +
+    `<div class="hint" id="toolsTreHint"></div>`;
+  host.appendChild(treCard);
+  treCard.querySelector('#toolsTreHint').textContent = t('liq.treHint', { a: TREASURY });
+  (async () => {
+    readCfgFromUI();
+    const el = treCard.querySelector('#toolsTreGrid');
+    const r = await window.api.liqTreasury({ node: S.cfg.node, contract: S.cfg.contract, caller: S.addr });
+    if (!r.ok) { el.innerHTML = '<span class="qerr">' + esc(r.error) + '</span>'; return; }
+    el.innerHTML = [[t('liq.treHac'), hacOf(r.hac)], [t('liq.treDs'), rawHacds(r.ds, true)]]
+      .map(([k, v]) => '<div class="proto-row"><span class="k">' + k + '</span><span class="v">' + (v == null ? '—' : v) + '</span></div>').join('');
+    window._treasuryCache = r;
+  })();
+  OPS.filter(o => o.tab === 'tools').forEach(op => host.appendChild(opCard(op)));
+  renderLiqPanel(host);
+}
+
+/**
+ * 续租面板（storage 键续期）。
+ *
+ * 为什么需要：Hacash 的 storage 是按租期计费的，键到期后 storage_load 会
+ * 报 StorageNotActive(108)，导致该用户所有操作整笔回滚。所以账本键必须持续续租。
+ *
+ * 关键约束（合约 rent_keys）：
+ *   · 入参是**原始键字节的连排**（如 "u:" + 地址21字节），钱包自己拼不出来
+ *     —— 必须从索引器 /rent_batches 取。
+ *   · 同批键必须**等长**（klen 一致），所以索引器按长度分组。
+ *   · 单笔上限 RENT_MAX_KEYS = 10 键（storage 单桶 111,911 的限制）。
+ *   · period 必须 >= 300 且 <= 3000，否则合约返回 62/63。
+ *   · rent_keys **有报酬**（0.07 HAC/键，从 tre:hac 出），任何人可调。
+ *   · topup_keys **无报酬**，用于首注后把新键从 100 期补到 300 期。
+ */
+function renderRentPanel(host) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    `<h3>${t('rent.title')}</h3>` +
+    `<p class="desc">${t('rent.desc')}</p>` +
+    `<div class="proto-grid" id="rentStat"><span class="muted">${t('ov.loading')}</span></div>` +
+    `<div class="row" style="margin-top:10px">` +
+      `<button class="primary" id="rentLoad">${t('rent.load')}</button>` +
+      `<button id="rentDo" disabled>${t('rent.do')}</button>` +
+      `<span class="hint" id="rentHint"></span>` +
+    `</div>` +
+    `<div id="rentBatches" style="margin-top:12px"></div>`;
+  host.appendChild(card);
+
+  const btnLoad = card.querySelector('#rentLoad');
+  const btnDo = card.querySelector('#rentDo');
+  const hint = card.querySelector('#rentHint');
+  const stat = card.querySelector('#rentStat');
+  const listBox = card.querySelector('#rentBatches');
+  let batches = [];
+
+  // ① 先从索引器拉续租批次
+  btnLoad.onclick = async () => {
+    readCfgFromUI();
+    if (!S.cfg.indexer) { hint.textContent = t('rent.noIndexer'); return; }
+    btnLoad.disabled = true;
+    hint.textContent = t('rent.loading');
+    try {
+      const r = await window.api.httpGet({ url: `${S.cfg.indexer}/rent_batches?max=10` });
+      if (!r.ok) { hint.textContent = t('rent.loadFail') + r.error; return; }
+      // 实测返回：{ ret, batches:[{klen,blob,count,keys}], total, total_all, truncated, dropped }
+      batches = (r.data && r.data.batches) || [];
+      const total = (r.data && r.data.total != null) ? r.data.total : batches.length;
+      stat.innerHTML = `<div class="proto-item"><span class="pk">${t('rent.batchCount')}</span><span class="pv">${batches.length}</span></div>`
+        + `<div class="proto-item"><span class="pk">${t('rent.keyTotal')}</span><span class="pv">${total}</span></div>`;
+      if (!batches.length) { listBox.innerHTML = `<div class="muted">${t('rent.empty')}</div>`; hint.textContent = ''; return; }
+      listBox.innerHTML = batches.map((b, i) =>
+        `<div class="proto-row"><span class="k">#${i + 1}</span>` +
+        `<span class="v">klen=${b.klen} · ${b.count} ${t('rent.keys')}</span></div>`).join('');
+      btnDo.disabled = false;
+      hint.textContent = t('rent.ready', { n: batches.length })
+        + ((r.data && r.data.truncated) ? ' ' + t('rent.truncated') : '');
+    } catch (e) {
+      hint.textContent = t('rent.loadFail') + (e.message || e);
+    } finally { btnLoad.disabled = false; }
+  };
+
+  // ② 生成续租交易（逐批构建，交给统一的预览+签名流程）
+  //
+  // 复用 buildTx + showPreview：钱包不自动广播，用户在预览卡里确认后签名。
+  // 逐批是因为合约单笔上限 10 键；每批单独确认，出问题容易定位。
+  btnDo.onclick = async () => {
+    if (!S.addr) { log(t('acct.locked'), 'err'); return; }
+    if (!batches.length) return;
+    btnDo.disabled = true;
+    try {
+      let built = 0;
+      for (let i = 0; i < batches.length; i++) {
+        const b = batches[i];
+        // rent_keys(keys: bytes, klen: u128, period: u128)
+        // keys 是连排的原始键字节（hex），klen 决定合约如何切分；period 取 300（RENT_PERIOD）
+        const params = `${b.blob}:bytes,${b.klen}:u128,300:u128`;
+        hint.textContent = t('rent.sending', { i: i + 1, n: batches.length });
+        const res = await window.api.buildTx({
+          mode: 'call',
+          args: [S.addr, '0', S.cfg.contract, 'rent_keys', params],
+          keyPath: S.keyPath, fee: null, gasMax: null,
+          node: S.cfg.node, contract: S.cfg.contract,
+        });
+        if (!res.ok) {
+          log(t('rent.failOne', { i: i + 1 }) + (res.error || ''), 'err');
+          continue;
+        }
+        built++;
+        S.pending = res;
+        showPreview(res);
+        log(t('rent.built', { i: i + 1, n: batches.length }), 'ok');
+        // 多批时只生成第一笔，避免一次弹出多张预览卡；
+        // 用户签完再点一次「生成」拿下一批。
+        if (batches.length > 1) { hint.textContent = t('rent.oneAtATime'); break; }
+      }
+      if (built === 1 && batches.length === 1) hint.textContent = t('rent.builtOne');
+    } catch (e) {
+      logErr(t('common.buildFail'), e);
+    } finally { btnDo.disabled = false; }
+  };
 }
 
 // ---- 离线签名面板 ----
@@ -1118,7 +2105,7 @@ function renderOfflinePanel(host) {
     if (kind === 'combo') {
       let obj;
       try { obj = JSON.parse(bv('combo')); } catch (e) { return log(t('off.badJson') + e.message, 'err'); }
-      const r = await window.api.buildUnsigned({ mode: 'combo', args: [main, '0'], spec: obj });
+      const r = await window.api.buildUnsigned({ mode: 'combo', args: [main, '0'], spec: obj, contract: S.cfg.contract });
       if (!r.ok) return logErr(t('common.buildFail'), r);
       pending = r; fill(r); return;
     }
@@ -1135,7 +2122,7 @@ function renderOfflinePanel(host) {
       else if (tt === 'asset-to') args = [main, '0', 'asset-to', to, 'hacds', amt.replace('hacds', '').trim()];
       else args = [main, '0', 'asset-from-to', main, to, 'hacds', amt.replace('hacds', '').trim()];
     }
-    const r = await window.api.buildUnsigned({ mode: mode, args: args });
+    const r = await window.api.buildUnsigned({ mode: mode, args: args, contract: S.cfg.contract });
     if (!r.ok) return logErr(t('common.buildFail'), r);
     pending = r; fill(r);
   }
@@ -1172,7 +2159,7 @@ function renderOfflinePanel(host) {
     const r = await window.api.signRaw({ unsignedHex: u, keyPath: S.keyPath });
     if (!r.ok) return logErr(t('off.needUnsigned'), r);
     document.querySelector('#offSigned').value = '0x' + r.signed;
-    log(t('common.signed', { n: r.txbytes }), 'ok');
+    log(t('common.signed', { n: r.signedBytes || r.txbytes }), 'ok');
   };
   card.querySelector('#offCheck').onclick = async () => {
     readCfgFromUI();
@@ -1258,29 +2245,7 @@ function renderOfflinePanel(host) {
   };
 }
 
-// ---- 管理员面板 ----
-function renderAdminPanel(host) {
-  const info = document.createElement('div'); info.className = 'card';
-  info.innerHTML = `<h3>${t('admin.title')}</h3>
-    <p class="desc">${t('admin.desc',{a:S.addr||'—'})}</p>
-    <p class="desc warn">${t('admin.noReadback')}</p>`;
-  host.appendChild(info);
-  ADMIN_OPS.forEach(op => {
-    const card = document.createElement('div'); card.className = 'card';
-    card.innerHTML = `<h3>${t(op.titleKey)}</h3><p class="desc">${t(op.descKey)}</p>`;
-    const grid = document.createElement('div'); grid.className = 'grid';
-    op.fields.forEach(f => grid.appendChild(fieldEl(f)));
-    card.appendChild(grid);
-    const row = document.createElement('div'); row.className = 'row';
-    const b = document.createElement('button'); b.className = 'primary'; b.textContent = t('btn.genTx2');
-    b.onclick = () => {
-      const v = collectFields(card);
-      const params = op.fields.map(f => `${v[f.name]}:${f.type}`).join(',');
-      buildCall(op.fn, params, card, b, 1);
-    };
-    row.appendChild(b); card.appendChild(row); host.appendChild(card);
-  });
-}
+// ⚠ #3000 无管理员：renderAdminPanel 已整块删除（对应 6 个合约函数全部不存在）
 
 // ===================== 构建 =====================
 async function buildOp(op, card, btn) {
@@ -1294,19 +2259,13 @@ async function buildOp(op, card, btn) {
     if (op.kind === 'redeem') {
       const spec = op.redeemBuild(v);
       if (!spec.names.length) throw new Error(t('off.needArgs'));
-      // 合约 resource 单桶硬上限（主网 6,100）：链上 verify_cert 会重算评分，
-      // 实测约 3,000/颗 → 单笔存入 ≥2 颗必然 OutOfGas(31)，且与 gas_max 无关。
-      if (spec.names.length > 1) {
-        const go = await modal({
-          title: t('hacd.depositBulk', { n: spec.names.length }),
-          fields: [], okLabel: t('btn.ok'),
-          warn: t('hacd.depositWarn'),
-          extraHtml: '<div class="muted" style="margin-top:6px;font-family:Consolas,monospace">' + spec.names.join(',') + '</div>',
-        });
-        if (!go) { btn.disabled = false; btn.textContent = t('btn.genTx'); return; }
+      // v1.3.0 calc 内核上线后，PayableHACD 一次最多收 200 颗（打包成一笔交易）。
+      // 超上限直接拒绝，不静默截断 —— 用户得知道哪些没进去。
+      if (spec.names.length > MINT_MAX) {
+        throw new Error(t('hacd.tooMany', { n: spec.names.length, max: MINT_MAX }));
       }
       log(t('r.fetchCerts',{n:spec.names.length}));
-      res = await window.api.redeem({ names:spec.names, oracle:S.cfg.oracle, node:S.cfg.node,
+      res = await window.api.redeem({ names:spec.names, node:S.cfg.node,
         keyPath:S.keyPath, contract:S.cfg.contract, fee, gasMax, mainAddr:S.addr });
       if (res.ok) log(t('r.certTotal',{n:res.totalScore}), 'ok');
     } else if (op.kind === 'redeemHacd') {
@@ -1314,7 +2273,7 @@ async function buildOp(op, card, btn) {
       const to = spec.to || S.addr;
       if (!spec.names.length) throw new Error(t('off.needArgs'));
       log(t('r.fetchCertsRedeem',{n:spec.names.length}));
-      res = await window.api.redeemHacd({ names:spec.names, oracle:S.cfg.oracle, node:S.cfg.node,
+      res = await window.api.redeemHacd({ names:spec.names, node:S.cfg.node,
         keyPath:S.keyPath, contract:S.cfg.contract, toAddr:to, fee, gasMax, mainAddr:S.addr });
     } else if (op.kind === 'hacdTransfer') {
       // HACD 点对点：主进程用官方 WASM 本地签名，返回 tx_body（hex）
@@ -1329,14 +2288,14 @@ async function buildOp(op, card, btn) {
     } else if (op.kind === 'call') {
       const params = buildCallParams(op, v);
       log(t('r.buildingCall',{fn:op.fn,ps:params}));
-      res = await window.api.buildTx({ mode:'call', args:[S.addr,'0',S.cfg.contract,op.fn,params], keyPath:S.keyPath, fee, gasMax, node:S.cfg.node });
+      res = await window.api.buildTx({ mode:'call', args:[S.addr,'0',S.cfg.contract,op.fn,params], keyPath:S.keyPath, fee, gasMax, node:S.cfg.node, contract:S.cfg.contract });
     } else {
       const spec = op.build(v, [S.addr]);
       log(t('r.building',{mode:spec.mode,args:spec.args.join(' ')}));
-      res = await window.api.buildTx({ mode:spec.mode, args:spec.args, keyPath:S.keyPath, fee, gasMax, node:S.cfg.node });
+      res = await window.api.buildTx({ mode:spec.mode, args:spec.args, keyPath:S.keyPath, fee, gasMax, node:S.cfg.node, contract:S.cfg.contract });
     }
     if (!res.ok) throw res;   // res.error 交给 logErr
-    S.pending = res; showPreview(res); log(t('common.signed',{n:res.txbytes}), 'ok');
+    S.pending = res; showPreview(res); log(t('common.signed',{n:res.signedBytes || res.txbytes}), 'ok');
   } catch (e) {
     logErr(t('common.buildFail'), e);
   } finally { btn.disabled = false; btn.textContent = t('btn.genTx'); }
@@ -1349,11 +2308,50 @@ async function buildCall(fn, params, card, btn, minPurity) {
   const fee = v.__fee || null, gasMax = v.__gas || null;
   btn.disabled = true; btn.textContent = t('btn.gening');
   try {
-    const res = await window.api.buildTx({ mode:'call', args:[S.addr,'0',S.cfg.contract,fn,params], keyPath:S.keyPath, fee, gasMax, node:S.cfg.node });
+    // C-4：remove_liquidity 单笔会撞主网 resource 上限（6,102 > 6,100）。
+    // resource_limit_byte=56 是主网参数，独立于 gas_max，调高 gas 也绕不过。
+    // 合约不可升级，所以在钱包侧拆成两笔：先 lp_harvest 结算奖励，再撤池。
+    // 顺序不能反：先撤池会按减少后的 lpt 结算，用户少拿奖励。
+    if (fn === 'remove_liquidity') {
+      const h = await window.api.buildTx({
+        mode:'call', args:[S.addr,'0',S.cfg.contract,'lp_harvest','-'],
+        keyPath:S.keyPath, fee, gasMax, node:S.cfg.node, contract:S.cfg.contract
+      });
+      if (!h.ok) throw h;
+      S.pending = h; showPreview(h);
+      log(t('amm.splitHarvest'), 'warn');
+      log(t('common.signed',{n:h.signedBytes || h.txbytes}), 'ok');
+      // 记住撤池参数，等第一笔广播后再生成第二笔
+      S._pendingRemove = { params, card };
+      return;
+    }
+    const res = await window.api.buildTx({ mode:'call', args:[S.addr,'0',S.cfg.contract,fn,params], keyPath:S.keyPath, fee, gasMax, node:S.cfg.node, contract:S.cfg.contract });
     if (!res.ok) throw res;
-    S.pending = res; showPreview(res); log(t('common.signed',{n:res.txbytes}), 'ok');
+    S.pending = res; showPreview(res); log(t('common.signed',{n:res.signedBytes || res.txbytes}), 'ok');
   } catch (e) { logErr(t('common.buildFail'), e); }
   finally { btn.disabled = false; btn.textContent = t('btn.genTx'); }
+}
+
+// C-4 第二步：lp_harvest 广播成功后，自动生成 remove_liquidity 交易体。
+async function buildRemoveAfterHarvest() {
+  const p = S._pendingRemove;
+  if (!p) return;
+  S._pendingRemove = null;
+  readCfgFromUI();
+  try {
+    const res = await window.api.buildTx({
+      mode:'call', args:[S.addr,'0',S.cfg.contract,'remove_liquidity',p.params],
+      keyPath:S.keyPath, node:S.cfg.node, contract:S.cfg.contract
+    });
+    if (!res.ok) throw res;
+    S.pending = res; showPreview(res);
+    log(t('amm.splitRemove'), 'ok');
+    log(t('common.signed',{n:res.signedBytes || res.txbytes}), 'ok');
+  } catch (e) {
+    // 第 1 步（lp_harvest）已成功上链，只是第 2 步构建失败——没有资金损失。
+    log(t('amm.splitStep2Fail'), 'warn');
+    logErr(t('common.buildFail'), e);
+  }
 }
 
 // ===================== 预览 / 校验 / 广播 =====================
@@ -1395,10 +2393,10 @@ $('#pvTranslate').onclick = async () => {
   const hex = ($('#pvHex').value || '').replace(/^0x/, '');
   const r = await window.api.translateTx({ node:S.cfg.node, hex });
   const box = $('#pvTrans'); box.hidden = false;
-  if (!r.ok) { box.innerHTML = `<span class="qerr">${r.error}</span>`; return; }
+  if (!r.ok) { box.innerHTML = `<span class="qerr">${esc(r.error)}</span>`; return; }
   const d = r.data || {};
-  box.innerHTML = `<b>${t('common.translTitle')}</b>: ${d.description || t('common.none2')}\n` +
-    (d.actions || []).map((a,i) => `  [${i+1}] ${a.description || JSON.stringify(a.action)}`).join('\n');
+  box.innerHTML = `<b>${t('common.translTitle')}</b>: ${esc(d.description || t('common.none2'))}\n` +
+    (d.actions || []).map((a,i) => `  [${i+1}] ${esc(a.description || JSON.stringify(a.action))}`).join('\n');
   log(t('common.translated'), 'ok');
 };
 $('#pvSend').onclick = async () => {
@@ -1411,6 +2409,15 @@ $('#pvSend').onclick = async () => {
     log(t('common.broadcastOk',{h:r.data.hash}), 'ok');
     refreshOverview();               // 立即刷新：合约内账目（due/积分）本笔已生效的会立刻反映
     schedulePostBroadcastRefresh();  // 链上余额需等打包，按出块节奏延迟再刷
+    // C-4 第二步：lp_harvest 已上链，接着生成 remove_liquidity 的交易体
+    if (S._pendingRemove) setTimeout(buildRemoveAfterHarvest, 400);
+  }
+  else if (r && r.chain) {
+    // 已在链上 / 已在待打包池：交易并非失败，链上状态已由它决定
+    log(t('common.broadcastChain', { h: r.height || '?' }), 'warn');
+    refreshOverview();
+    schedulePostBroadcastRefresh();
+    if (S._pendingRemove) setTimeout(buildRemoveAfterHarvest, 400);
   }
   else {
     const msg = (r && r.translated) ? r.translated : ((r.data && (r.data.err || r.data.error)) || '');
@@ -1442,8 +2449,10 @@ $('#pingNet').onclick = async () => {
   readCfgFromUI();
   const h = await window.api.httpGet({ url: `${S.cfg.node}/query/block/height/latest` });
   log(h.ok ? t('net.nodeOk',{h:h.data.height}) : t('net.nodeFail')+h.error, h.ok?'ok':'err');
-  const o = await window.api.httpGet({ url: `${S.cfg.oracle}/health` });
-  log(o.ok ? t('net.oracleOk',{a:o.data.oracle}) : t('net.oracleFail')+o.error, o.ok?'ok':'err');
+  if (S.cfg.indexer) {
+    const ix = await window.api.httpGet({ url: `${S.cfg.indexer}/health` });
+    log(ix.ok ? t('net.idxOk',{h:ix.data.head}) : t('net.idxFail')+ix.error, ix.ok?'ok':'err');
+  }
 };
 $('#clearLog').onclick = () => { $('#log').innerHTML = ''; };
 $('#btnRefresh').onclick = () => refreshOverview();
@@ -1452,7 +2461,8 @@ $('#btnRefresh').onclick = () => refreshOverview();
 async function setAccount(addr, unlocked) {
   // 切换地址时清空上一个地址的 HACD 缓存/选中（避免残留显示）
   if (addr !== S.addr) {
-    S.hacdList = null; S.poolHacdList = null; S.hacdSel = null; S.overview = null;
+    S.hacdList = null; S.poolHacdList = null; S.poolHacdCount = 0;
+    S.hacdSel = null; S.overview = null;
     S.hacdChecked = []; S.hacdAnchor = null;
     if (typeof renderHacdPanel === 'function') { /* 面板在切页时重建 */ }
   }
@@ -1461,14 +2471,9 @@ async function setAccount(addr, unlocked) {
   $('#unlockedView').hidden = !unlocked;
   $('#overview').hidden = !unlocked;
   if (addr) $('#addr').textContent = addr;
-  if (!unlocked) { S.isAdmin = false; $('#overview').hidden = true; renderTabs(); return; }
-  // 管理员探测
+  if (!unlocked) { $('#overview').hidden = true; renderTabs(); return; }
+  // #3000 无管理员：不再做 adminProbe 探测
   readCfgFromUI();
-  if (S.cfg.contract) {
-    const r = await window.api.adminProbe({ node:S.cfg.contract && S.cfg.node, contract:S.cfg.contract, address:addr });
-    S.isAdmin = !!(r.ok && r.isAdmin);
-    if (S.isAdmin) log(t('log.adminDetected'), 'ok');
-  }
   renderTabs();
   await refreshOverview();
   renderPanels();
@@ -1632,214 +2637,239 @@ $('#mBody').addEventListener('click', async (ev) => {
 
 // ===================== HACD 收藏 =====================
 function renderHacdPanel() {
-  const grid = $('#hacdGrid'), filter = $('#hacdFilter');
-  const src = window._hacdSrc || 'mine';                       // 'mine' | 'pool'
-  const list = (src === 'pool') ? (S.poolHacdList || null) : S.hacdList;
+  const myGrid = $('#hacdGrid'), poolGrid = $('#poolHacdGrid'), filter = $('#hacdFilter');
 
-  let bar = '<select id="hacdSrc">' +
-    '<option value="mine"' + (src === 'mine' ? ' selected' : '') + '>' + t('hacd.srcMine') + '</option>' +
-    '<option value="pool"' + (src === 'pool' ? ' selected' : '') + '>' + t('hacd.srcPool') + '</option>' +
-    '</select> ';
-  if (!list) {
-    const cnt = src === 'pool' ? (S.poolHacdCount || 0) : (S.overview ? (S.overview.diamondCount || 0) : 0);
-    bar += '<button id="hacdLoad" class="primary">' + t('hacd.load', { n: cnt }) + '</button>';
-    filter.innerHTML = bar;
-    grid.innerHTML = '<div class="muted">' + (src === 'pool' ? t('hacd.poolEmpty') : t('hacd.notLoaded')) + '</div>';
-    filter.querySelector('#hacdSrc').onchange = e => { window._hacdSrc = e.target.value; renderHacdPanel(); };
-    filter.querySelector('#hacdLoad').onclick = async () => {
-      if (src === 'pool') await loadPoolHacd(); else await loadHacdDetails();
-      renderHacdPanel();
-    };
-    return;
+  // ================= 左：我的钻石 =================
+  const mine = S.hacdList;   // null = 未加载
+  if (!mine) {
+    if (filter) filter.innerHTML = '';
+    myGrid.innerHTML = '<div class="muted" style="font-size:12px">' + t('hacd.notLoaded') + '</div>';
+  } else if (!mine.length) {
+    if (filter) filter.innerHTML = '';
+    myGrid.innerHTML = '<div class="muted" style="font-size:12px">' + t('hacd.none') + '</div>';
+  } else {
+    const items = mine.map(x => {
+      const r = DiamondScore.analyse(x.name, x.number, x.visual_gene);
+      return { ...x, score: r.score, dims: r };
+    });
+
+    // 筛选栏（只作用于左侧「我的钻石」）
+    if (filter) {
+      const fShape = window._hf_shape || '', fStyle = window._hf_style || '', fMin = window._hf_min || '';
+      const sortBy = window._hf_sort || 'scoreDesc';
+      const shapes = [...new Set(items.map(i => i.dims.shapes))].sort();
+      const styles = [...new Set(items.map(i => i.dims.styles_or_color))].sort();
+      const opt = (arr, sel) => '<option value="">' + t('hacd.all') + '</option>' +
+        arr.map(v => '<option value="' + v + '"' + (v === sel ? ' selected' : '') + '>' + v + '</option>').join('');
+      const sopt = (v, lk) => '<option value="' + v + '"' + (sortBy === v ? ' selected' : '') + '>' + t(lk) + '</option>';
+
+      filter.innerHTML =
+        t('hacd.filterShape') + ' <select id="hfShape">' + opt(shapes, fShape) + '</select>' +
+        ' ' + t('hacd.filterStyle') + ' <select id="hfStyle">' + opt(styles, fStyle) + '</select>' +
+        ' ' + t('hacd.filterMin') + ' <input id="hfMin" style="width:56px" value="' + fMin + '" placeholder="0">' +
+        ' <select id="hfSort">' +
+          sopt('scoreDesc', 'hacd.sortScore') + sopt('scoreAsc', 'hacd.sortScoreAsc') +
+          sopt('numAsc', 'hacd.sortNum') + sopt('numDesc', 'hacd.sortNumDesc') + sopt('name', 'hacd.sortName') +
+        '</select>' +
+        ' <button id="hfClear" class="ghost">' + t('btn.clear') + '</button>';
+      filter.querySelector('#hfShape').onchange = e => { window._hf_shape = e.target.value; renderHacdPanel(); };
+      filter.querySelector('#hfStyle').onchange = e => { window._hf_style = e.target.value; renderHacdPanel(); };
+      filter.querySelector('#hfMin').onchange = e => { window._hf_min = e.target.value; renderHacdPanel(); };
+      filter.querySelector('#hfSort').onchange = e => { window._hf_sort = e.target.value; renderHacdPanel(); };
+      filter.querySelector('#hfClear').onclick = () => {
+        window._hf_shape = window._hf_style = window._hf_min = '';
+        window._hf_sort = 'scoreDesc';
+        renderHacdPanel();
+      };
+    }
+
+    // 过滤 + 排序
+    let shown = items.filter(i =>
+      (!window._hf_shape || i.dims.shapes === window._hf_shape) &&
+      (!window._hf_style || i.dims.styles_or_color === window._hf_style) &&
+      (!window._hf_min || i.score >= Number(window._hf_min)));
+    const cmp = {
+      scoreDesc: (a, b) => b.score - a.score,
+      scoreAsc:  (a, b) => a.score - b.score,
+      numAsc:    (a, b) => Number(a.number) - Number(b.number),
+      numDesc:   (a, b) => Number(b.number) - Number(a.number),
+      name:      (a, b) => a.name.localeCompare(b.name),
+    }[window._hf_sort || 'scoreDesc'];
+    shown.sort(cmp);
+
+    myGrid.innerHTML = shown.map(i => cardHtml(i, S.hacdChecked.includes(i.name))).join('');
+    if (!shown.length) myGrid.innerHTML = '<div class="muted" style="font-size:12px">' + t('hacd.none') + '</div>';
+
+    myGrid.querySelectorAll('.hacd-card').forEach(el => {
+      el.onclick = ev => {
+        const n = el.dataset.name;
+        const item = items.find(x => x.name === n);
+        // 点右上角圆点 = 只切换勾选
+        if (ev.target.closest('[data-check]')) {
+          const k = S.hacdChecked.indexOf(n);
+          if (k >= 0) S.hacdChecked.splice(k, 1); else S.hacdChecked.push(n);
+          renderHacdPanel();
+          return;
+        }
+        // 点其它区域 = 只看详情，不改勾选
+        if (item) showHacdModal(item);
+      };
+    });
   }
 
-  const items = list.map(x => {
-    const r = DiamondScore.analyse(x.name, x.number, x.visual_gene);
-    return { ...x, score: r.score, dims: r };
+  // ================= 右：合约池 =================
+  const pool = S.poolHacdList;   // null = 未加载
+  if (!pool) {
+    poolGrid.innerHTML = '<div class="muted" style="font-size:12px">' + t('hacd.poolEmpty') + '</div>';
+  } else if (!pool.length) {
+    poolGrid.innerHTML = '<div class="muted" style="font-size:12px">' + t('hacd.poolEmpty') + '</div>';
+  } else {
+    const pitems = pool.map(x => {
+      const r = DiamondScore.analyse(x.name, x.number, x.visual_gene);
+      return { ...x, score: r.score, dims: r };
+    }).sort((a, b) => b.score - a.score);
+
+    poolGrid.innerHTML = pitems.map(i => cardHtml(i, false, false)).join('');
+    poolGrid.querySelectorAll('.hacd-card').forEach(el => {
+      el.onclick = () => {
+        const n = el.dataset.name;
+        const inp = $('#redeemName');
+        if (inp) inp.value = n;
+        const item = pitems.find(x => x.name === n);
+        if (item) showHacdModal(item);
+      };
+    });
+  }
+
+  // 同步「已选 N 颗」与预估
+  const cnt = S.hacdChecked.length;
+  const cntEl = $('#mintCount');
+  if (cntEl) cntEl.textContent = String(cnt);
+  const tagEl = $('#mintSelCount');
+  if (tagEl) tagEl.textContent = cnt ? t('hacd.selCount2', { n: cnt }) : t('hacd.selNone2b');
+  const bulk = $('#hacdDepositBulk');
+  if (bulk) bulk.textContent = cnt ? t('hacd.depositBulk', { n: cnt }) : t('hacd.batchIn');
+  const outBtn = $('#hacdBatchOut');
+  if (outBtn) outBtn.textContent = t('hacd.batchOut');
+  const est = $('#mintTotalEst');
+  if (est) {
+    if (!cnt) est.textContent = '—';
+    else {
+      const sel = (S.hacdList || []).filter(x => S.hacdChecked.includes(x.name));
+      const total = sel.reduce((s, x) => s + (DiamondScore.analyse(x.name, x.number, x.visual_gene).score || 0), 0);
+      est.textContent = total * 1e8 >= 1e15 ? (total / 1e7).toFixed(2) + 'e15' : String(total) + 'e8';
+    }
+  }
+
+  // ---- 事件绑定（每次重渲染都重新绑，元素是新建的）----
+  const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+
+  on('#hacdLoadMine', () => loadHacdDetails());
+  on('#hacdLoadPool', () => loadPoolHacd());
+
+  on('#hacdSelAll', () => {
+    S.hacdChecked = (S.hacdList || []).map(x => x.name);
+    renderHacdPanel();
   });
-  const fShape = window._hf_shape || '', fStyle = window._hf_style || '', fMin = window._hf_min || '';
-  const sortBy = window._hf_sort || 'scoreDesc';
-  const shapes = [...new Set(items.map(i => i.dims.shapes))].sort();
-  const styles = [...new Set(items.map(i => i.dims.styles_or_color))].sort();
-  const opt = (arr, sel) => '<option value="">' + t('hacd.all') + '</option>' +
-    arr.map(v => '<option value="' + v + '"' + (v === sel ? ' selected' : '') + '>' + v + '</option>').join('');
-  const sopt = (v, lk) => '<option value="' + v + '"' + (sortBy === v ? ' selected' : '') + '>' + t(lk) + '</option>';
+  on('#hacdSelNone', () => {
+    S.hacdChecked = [];
+    renderHacdPanel();
+  });
 
-  bar += t('hacd.filterShape') + ' <select id="hfShape">' + opt(shapes, fShape) + '</select>' +
-    ' ' + t('hacd.filterStyle') + ' <select id="hfStyle">' + opt(styles, fStyle) + '</select>' +
-    ' ' + t('hacd.filterMin') + ' <input id="hfMin" style="width:64px" value="' + fMin + '" placeholder="0">' +
-    ' ' + t('hacd.sortBy') + ' <select id="hfSort">' +
-      sopt('scoreDesc', 'hacd.sortScore') + sopt('scoreAsc', 'hacd.sortScoreAsc') +
-      sopt('numAsc', 'hacd.sortNum') + sopt('numDesc', 'hacd.sortNumDesc') + sopt('name', 'hacd.sortName') +
-    '</select>' +
-    ' <button id="hfClear" class="ghost">' + t('btn.clear') + '</button>' +
-    '<div style="margin-top:6px">' +
-      '<span class="muted" id="hacdCount"></span>' +
-      ' <button id="hacdSelAll" class="ghost">' + t('hacd.selAll') + '</button>' +
-      ' <button id="hacdSelNone" class="ghost">' + t('hacd.selNone') + '</button>' +
-      ' <button id="hacdCopy" class="primary">' + t('hacd.copyNames') + '</button>' +
-      ' <button id="hacdDepositBulk" class="ghost"></button>' +
-      ' <button id="hacdBatchIn" class="primary"></button>' +
-      ' <button id="hacdBatchOut" class="ghost"></button>' +
-      ' <span class="hint">' + t('hacd.multiHint') + '</span>' +
-    '</div>' +
-    '<div class="hint" style="margin-top:4px;color:var(--warn,#d08770)">' + t('hacd.depositWarn') + '</div>';
-  filter.innerHTML = bar;
-  filter.querySelector('#hacdSrc').onchange = e => { window._hacdSrc = e.target.value; renderHacdPanel(); };
-  filter.querySelector('#hfShape').onchange = e => { window._hf_shape = e.target.value; renderHacdPanel(); };
-  filter.querySelector('#hfStyle').onchange = e => { window._hf_style = e.target.value; renderHacdPanel(); };
-  filter.querySelector('#hfMin').onchange = e => { window._hf_min = e.target.value; renderHacdPanel(); };
-  filter.querySelector('#hfSort').onchange = e => { window._hf_sort = e.target.value; renderHacdPanel(); };
-  filter.querySelector('#hfClear').onclick = () => { window._hf_shape = window._hf_style = window._hf_min = ''; renderHacdPanel(); };
-
-  let shown = items.filter(i =>
-    (!fShape || i.dims.shapes === fShape) &&
-    (!fStyle || i.dims.styles_or_color === fStyle) &&
-    (!fMin || i.score >= Number(fMin)));
-  const cmp = {
-    scoreDesc: (a, b) => b.score - a.score, scoreAsc: (a, b) => a.score - b.score,
-    numAsc: (a, b) => a.number - b.number, numDesc: (a, b) => b.number - a.number,
-    name: (a, b) => a.name.localeCompare(b.name),
-  }[sortBy] || ((a, b) => b.score - a.score);
-  shown = shown.slice().sort(cmp);
-
-  // 勾选集：只保留当前来源列表内仍然存在的名称，并按当前排序顺序排列
-  const poolNames = new Set(items.map(i => i.name));
-  S.hacdChecked = (S.hacdChecked || []).filter(n => poolNames.has(n));
-  const order = shown.map(i => i.name);
-  S.hacdChecked.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-
-  // 勾选工具条状态
-  const cntEl = filter.querySelector('#hacdCount');
-  if (cntEl) cntEl.textContent = t('hacd.selected', { n: S.hacdChecked.length });
-  const bulkBtn = filter.querySelector('#hacdDepositBulk');
-  if (bulkBtn) {
-    const n = S.hacdChecked.length;
-    bulkBtn.disabled = n === 0;
-    bulkBtn.textContent = t('hacd.depositBulk', { n });
-    bulkBtn.onclick = () => {
-      if (!S.hacdChecked.length) { log(t('hacd.needPick'), 'warn'); return; }
-      fillDepositNames(S.hacdChecked.slice());
-    };
-  }
-  // 一键批量转入 / 批量赎回（自动拆成单颗多笔并逐笔广播）
-  const inBtn = filter.querySelector('#hacdBatchIn');
-  const outBtn = filter.querySelector('#hacdBatchOut');
-  const wireBatch = (btn, kind) => {
-    if (!btn) return;
-    const n = S.hacdChecked.length;
-    const cd = cooldownLeft(kind);            // ★ 反向冷却剩余秒数
-    btn.disabled = n === 0 || cd > 0;
-    btn.textContent = t(kind === 'in' ? 'hacd.batchIn' : 'hacd.batchOut')
-      + (n ? '（' + n + '）' : '') + (cd > 0 ? t('hacd.coolBtn', { s: cd }) : '');
-    btn.onclick = () => {
-      if (cooldownLeft(kind) > 0) return;   // 冷却期内不响应
-      if (!S.hacdChecked.length) { log(t('hacd.needPick'), 'warn'); return; }
-      if (!S.addr) { log(t('acct.locked'), 'err'); return; }
-      runBatchHacd(kind, S.hacdChecked.slice());
-    };
-  };
-  wireBatch(inBtn, 'in');
-  wireBatch(outBtn, 'out');
-
-  // 点击卡片：Ctrl/Cmd 切换单张、Shift 按当前排序连选、普通点击只查看详情
-  const handlePick = (i, ev) => {
-    const name = i.name;
-    if (ev && (ev.ctrlKey || ev.metaKey)) {
-      const k = S.hacdChecked.indexOf(name);
-      if (k >= 0) S.hacdChecked.splice(k, 1); else S.hacdChecked.push(name);
-      S.hacdSel = name; S.hacdAnchor = name;
-      renderHacdPanel(); showHacdDetail(i);
-      return;
-    }
-    if (ev && ev.shiftKey && S.hacdAnchor != null) {
-      const a = order.indexOf(S.hacdAnchor), b = order.indexOf(name);
-      if (a >= 0 && b >= 0) {
-        const lo = Math.min(a, b), hi = Math.max(a, b);
-        const range = order.slice(lo, hi + 1);
-        const set = new Set(S.hacdChecked);
-        range.forEach(n => set.add(n));
-        S.hacdChecked = order.filter(n => set.has(n));
-      } else {
-        if (!S.hacdChecked.includes(name)) S.hacdChecked.push(name);
-      }
-      S.hacdSel = name;
-      renderHacdPanel(); showHacdDetail(i);
-      return;
-    }
-    S.hacdSel = name; S.hacdAnchor = name;
-    renderHacdPanel(); showHacdDetail(i);
-  };
-
-  filter.querySelector('#hacdSelAll').onclick = () => { S.hacdChecked = order.slice(); renderHacdPanel(); };
-  filter.querySelector('#hacdSelNone').onclick = () => { S.hacdChecked = []; renderHacdPanel(); };
-  filter.querySelector('#hacdCopy').onclick = async () => {
+  // 批量存入（左卡）
+  on('#hacdDepositBulk', () => {
     if (!S.hacdChecked.length) { log(t('hacd.needPick'), 'warn'); return; }
-    const names = S.hacdChecked.join(',');
-    // 交易标准格式：逗号分隔的名称列表（TransferHacdTo / 存入兑换的 names 参数）
-    let ok = false;
-    try { await navigator.clipboard.writeText(names); ok = true; } catch (e) { ok = false; }
-    if (!ok) {
-      const ta = document.createElement('textarea');
-      ta.value = names; document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); ok = true; } catch (e2) { ok = false; }
-      document.body.removeChild(ta);
-    }
-    log(ok ? t('hacd.copied', { n: S.hacdChecked.length }) : names, ok ? 'ok' : 'warn');
-  };
-
-  grid.innerHTML = '';
-  shown.forEach(i => {
-    const c = document.createElement('div');
-    const picked = S.hacdChecked.includes(i.name);
-    c.className = 'hacd-card' + (S.hacdSel === i.name ? ' on' : '') + (picked ? ' picked' : '');
-    let svg = '';
-    try { svg = window.CreateDiamondImageTagSVG(i.visual_gene, 96); } catch (e) { svg = ''; }
-    const badge = picked ? '<div class="hc-badge">✓</div>' : '';
-    c.innerHTML = badge + svg + '<div class="hc-name">' + i.name + '</div><div class="hc-score">' + i.score + ' ' + t('hacd.scoreUnit') + '</div>';
-    c.onclick = (ev) => handlePick(i, ev);
-    grid.appendChild(c);
+    runBatchHacd('in', S.hacdChecked.slice());
   });
-  if (!shown.length) grid.innerHTML = '<div class="muted">' + t('hacd.none') + '</div>';
+
+  // 批量赎回（右卡）：优先用输入框里的名字，没有则用勾选的
+  on('#hacdBatchOut', () => {
+    const inp = ($('#redeemName') && $('#redeemName').value || '').trim().toUpperCase();
+    const names = /^[WTYUIAHXVMEKBSZN]{6}$/.test(inp) ? [inp] : S.hacdChecked.slice();
+    if (!names.length) { log(t('hacd.needPick'), 'warn'); return; }
+    runBatchHacd('out', names);
+  });
 }
 
-function showHacdDetail(i) {
-  const host = $('#hacdRight');
+/** 一张钻石卡片（双卡布局共用） */
+/**
+ * 一张钻石卡片。
+ *
+ * 点击区域分两种（方案 B）：
+ *   · 右上角圆点 .hc-check —— 只切换勾选，不弹窗
+ *   · 卡片其它区域         —— 只弹详情，不改勾选
+ *
+ * 原来整张卡点击会同时做两件事，批量勾选时被弹窗打断，只看详情时又
+ * 顺手改了勾选状态。
+ *
+ * @param {boolean} pickable  是否能勾选（合约池的钻石不可勾选）
+ */
+function cardHtml(i, picked, pickable) {
   let svg = '';
-  try { svg = window.CreateDiamondImageTagSVG(i.visual_gene, 320); } catch(e) {}
-  host.innerHTML = `
-    ${svg}
-    <div class="det">
-      <div><span class="k">${t('hacd.name')}</span><span class="v">${i.name}</span></div>
-      <div><span class="k">${t('hacd.number')}</span><span class="v">${i.number}</span></div>
-      <div><span class="k">${t('hacd.score')}</span><span class="v" style="color:var(--gold)">${i.score}</span></div>
-      <div><span class="k">${t('hacd.shape')}</span><span class="v">${i.dims.shapes}</span></div>
-      <div><span class="k">${t('hacd.style')}</span><span class="v">${i.dims.styles_or_color}</span></div>
-      <div><span class="k">${t('hacd.namelit')}</span><span class="v">${i.dims.nameliteral}</span></div>
-      <div><span class="k">${t('hacd.numlit')}</span><span class="v">${i.dims.numberliteral}</span></div>
-      <div><span class="k">${t('hacd.vg')}</span><span class="v">${i.visual_gene}</span></div>
-      ${i.belong ? `<div><span class="k">${t('hacd.owner')}</span><span class="v">${i.belong}</span></div>` : ''}
-      ${i.inscriptions && i.inscriptions.length ? `<div><span class="k">${t('hacd.insc')}</span><span class="v">${i.inscriptions.join(', ')}</span></div>` : ''}
-    </div>
-    <div class="acts">
-      <button id="hacdRedeem">${t('hacd.deposit')}</button>
-      <button id="hacdRedeemOut" class="ghost">${t('hacd.redeemOut')}</button>
-      <button id="hacdOneIn" class="primary">${t('hacd.batchIn')}</button>
-      <button id="hacdOneOut" class="ghost">${t('hacd.batchOut')}</button>
-    </div>`;
-  host.querySelector('#hacdRedeem').onclick = () => fillDepositNames([i.name]);
-  host.querySelector('#hacdRedeemOut').onclick = () => fillRedeemNames([i.name]);
-  host.querySelector('#hacdOneIn').onclick = () => runBatchHacd('in', [i.name]);
-  host.querySelector('#hacdOneOut').onclick = () => runBatchHacd('out', [i.name]);
+  try { svg = window.CreateDiamondImageTagSVG(i.visual_gene, 84); } catch (e) { svg = ''; }
+  const check = pickable === false
+    ? ''
+    : '<div class="hc-check' + (picked ? ' on' : '') + '" data-check="1" title="' + t('hacd.selectHint') + '"></div>';
+  return '<div class="hacd-card' + (picked ? ' picked' : '') + '" data-name="' + i.name + '">' +
+    check + svg +
+    '<div class="hc-name">' + i.name + '</div>' +
+    '<div class="hc-score">' + i.score + ' ' + t('hacd.scoreUnit') + '</div></div>';
 }
+
+/** 详情弹窗（替代原右侧常驻面板） */
+function showHacdModal(i) {
+  const modal = $('#hacdModal'), body = $('#hacdModalBody');
+  if (!modal || !body) return;
+  let svg = '';
+  try { svg = window.CreateDiamondImageTagSVG(i.visual_gene, 240); } catch (e) {}
+  // 「标签：值」连写，不用 space-between —— 后者会把两者推到两端，
+  // 中间一条长空白，读起来像两段无关的文字（用户反馈过）。
+  const row = (k, v, extra) => v == null || v === ''
+    ? ''
+    : `<div class="det-row"><span class="k">${k}</span><span class="v"${extra || ''}>${v}</span></div>`;
+  body.innerHTML =
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">' +
+      '<div style="flex:0 0 240px">' + svg + '</div>' +
+      '<div class="det" style="flex:1;min-width:180px;font-size:12.5px">' +
+        row(t('hacd.name'), i.name) +
+        row(t('hacd.number'), i.number) +
+        row(t('hacd.score'), i.score, ' style="color:var(--gold);font-weight:600"') +
+        row(t('hacd.shape'), i.dims && i.dims.shapes) +
+        row(t('hacd.style'), i.dims && i.dims.styles_or_color) +
+        row(t('hacd.namelit'), i.dims && i.dims.nameliteral) +
+        row(t('hacd.numlit'), i.dims && i.dims.numberliteral) +
+        row(t('hacd.vg'), i.visual_gene) +
+        row(t('hacd.owner'), i.belong) +
+        (i.inscriptions && i.inscriptions.length ? row(t('hacd.insc'), i.inscriptions.join(', ')) : '') +
+      '</div>' +
+    '</div>';
+  modal.hidden = false;
+  const close = $('#hacdModalClose');
+  if (close) close.onclick = () => { modal.hidden = true; };
+  modal.onclick = ev => { if (ev.target === modal) modal.hidden = true; };
+}
+
+
+// showHacdDetail 已被 showHacdModal 取代（详情改为弹窗）
 
 // ===================== 批量转入 / 批量赎回（D43） =====================
-// 受 VM resource 单桶硬上限（主网 6,100）约束，每颗钻石链上重算评分约 3,000，
-// 故一笔只能 1 颗 → 这里自动拆成 N 笔「单颗」交易并逐笔广播。
+//
+// v1.3.0（2026-11-11）之后两端行为不再对称：
+//   • 存入：合约 PayableHACD 走 rv64im 内核 score_sum，一次最多 200 颗
+//           → **打包成一笔交易，只签一次**。
+//   • 赎回：仍是 1 颗/笔（要逐颗算挑钻溢价，内核只返回总和，拆不出单颗）
+//           → 仍拆成 N 笔逐笔广播。
 async function runBatchHacd(kind, names) {
   if (!names || !names.length) { log(t('hacd.needPick'), 'warn'); return; }
   readCfgFromUI();
   if (!S.addr) { log(t('acct.locked'), 'err'); return; }
+
+  // 存入超上限直接拒绝，不静默截断
+  if (kind === 'in' && names.length > MINT_MAX) {
+    log(t('hacd.tooMany', { n: names.length, max: MINT_MAX }), 'warn');
+    return;
+  }
+
   const opLabel = t(kind === 'in' ? 'hacd.batchOpIn' : 'hacd.batchOpOut');
 
   // ★ 防呆 1：方向横幅。批量存入/赎回的按钮相邻，实测出现过「刚赎回完又误点存入、
@@ -1847,31 +2877,57 @@ async function runBatchHacd(kind, names) {
   const dirText = t(kind === 'in' ? 'hacd.dirIn' : 'hacd.dirOut', { n: names.length });
   const dirHtml = '<div class="dirbanner ' + (kind === 'in' ? 'dir-in' : 'dir-out') + '">' + dirText + '</div>';
 
-  // 二次确认：明确告知方向 + 会拆成 N 笔
+  // 二次确认：明确告知方向；存入告知打包成一笔，赎回告知拆成 N 笔
   const okGo = await modal({
     title: t('hacd.batchTitle', { op: opLabel, n: names.length }),
     fields: [], okLabel: t('btn.ok'),
-    warn: t('hacd.batchPlan', { n: names.length }),
+    warn: kind === 'in'
+      ? t('hacd.batchPlanOne', { n: names.length })
+      : t('hacd.batchPlan', { n: names.length }),
     extraHtml: dirHtml + '<div class="muted" style="margin-top:6px;font-family:Consolas,monospace">' + names.join(',') + '</div>',
   });
   if (!okGo) return;
 
   log(t('hacd.batchStart', { op: opLabel, n: names.length }), 'ok');
-  // 赎回默认回到自己地址
-  const toAddr = kind === 'out' ? S.addr : undefined;
+
+  // ---- 存入：一次打包（主进程 hacd 模式接受名字列表，一次构造 + 一次广播） ----
+  // ⚠ 必须用 redeemBatch 而不是 redeem：tx:redeem 只构造不广播。
+  if (kind === 'in') {
+    const r1 = await window.api.redeemBatch({
+      names, kind, toAddr: undefined,
+      node: S.cfg.node, contract: S.cfg.contract, mainAddr: S.addr,
+    });
+    if (!r1.ok) { logErr(t('hacd.batchIn'), r1); return; }
+    const it = (r1.items || [])[0];
+    if (it && it.ok) log(t('hacd.batchOneOk', { n: names.length }), 'ok');
+    else logErr(t('hacd.batchIn'), it || r1);
+    S.hacdChecked = [];
+    refreshOverview();
+    startBatchCooldown('out');
+    if (S.tab === 'hacd') renderHacdPanel();
+    return;
+  }
+
+  // ---- 赎回：仍逐颗（合约限制） ----
+  const toAddr = S.addr;
   const r = await window.api.redeemBatch({
     names, kind, toAddr,
-    oracle: S.cfg.oracle, node: S.cfg.node, contract: S.cfg.contract, mainAddr: S.addr,
+    node: S.cfg.node, contract: S.cfg.contract, mainAddr: S.addr,
   });
   if (!r.ok) { logErr(t('hacd.batchIn'), r); return; }
 
   (r.items || []).forEach((it, i) => {
     const n = r.total;
-    if (it.ok) log(t('hacd.batchItemOk', { i: i + 1, n, name: it.name, hash: (it.hash || '').slice(0, 16) + '…' }), 'ok');
-    else log(t('hacd.batchItemFail', { i: i + 1, n, name: it.name, err: it.translated || it.error }), 'err');
+    if (it.alreadyOnChain) {
+      // 该交易此前已上链（hash 已存在于链上）：资产状态已生效，不算失败
+      log(t('hacd.batchItemChain', { i: i + 1, n, name: it.name, h: it.height || '?' }), 'warn');
+    } else if (it.ok) {
+      log(t('hacd.batchItemOk', { i: i + 1, n, name: it.name, hash: (it.hash || '').slice(0, 16) + '…' }), 'ok');
+    } else log(t('hacd.batchItemFail', { i: i + 1, n, name: it.name, err: it.translated || it.error }), 'err');
   });
-  if (r.failed === 0) log(t('hacd.batchAllOk', { op: opLabel, n: r.total }), 'ok');
-  else log(t('hacd.batchDone', { op: opLabel, ok: r.succeeded, fail: r.failed, n: r.total }), r.succeeded ? 'warn' : 'err');
+  if (r.failed === 0) {
+    log(t('hacd.batchAllOk', { op: opLabel, n: r.total }) + (r.onChain ? t('hacd.batchOnChainNote', { n: r.onChain }) : ''), 'ok');
+  } else log(t('hacd.batchDone', { op: opLabel, ok: r.succeeded, fail: r.failed, n: r.total }), r.succeeded ? 'warn' : 'err');
   // 全部成功则清空勾选，避免误重复提交
   if (r.failed === 0) { S.hacdChecked = []; }
   refreshOverview();
@@ -1961,7 +3017,7 @@ function initLang() {
 const UI = { zoom: 1, collapsed: {} };
 
 // 把界面偏好（缩放/折叠/日志高度）写回配置，与网络配置同存 config.json。
-// 先 readCfgFromUI 保留 node/oracle/contract 的当前输入，再落盘。
+// 先 readCfgFromUI 保留 node/indexer/contract 的当前输入，再落盘。
 async function saveCfg() {
   try {
     S.cfg.zoom = UI.zoom;

@@ -60,32 +60,44 @@ object Ops {
     /** 主要操作。 */
     val MAIN: List<Op> = listOf(
         // ---- 兑换 / 存取（trade）----
-        Op("hacIn", "trade", OpKind.TRANSFER, "op.hacIn.t", "op.hacIn.d",
+        // 领取 hacds 实物：把合约账面配额（due）兑现为链上流通 hacds（合约 → 我）。
+        // 与 PC 端 `claim` 完全一致：asset-from-to 合约→main，serial=hacds。
+        Op("claim", "fund", OpKind.TRANSFER, "op.claim.t", "op.claim.d",
+            fields = listOf(Field("atoms", "f.atoms", null, "u128", "100000000")),
+            build = { v, main, contract -> listOf(main, "0", "asset-from-to", contract, main, "hacds", v["atoms"] ?: "") }),
+        Op("hacIn", "fund", OpKind.TRANSFER, "op.hacIn.t", "op.hacIn.d",
             fields = listOf(Field("hac", "f.hacAmt", null, "text", "1:248")),
             build = { v, main, contract -> listOf(main, "0", "hac-to", contract, v["hac"] ?: "") }),
-        Op("hacOut", "trade", OpKind.TRANSFER, "op.hacOut.t", "op.hacOut.d",
+        Op("hacOut", "fund", OpKind.TRANSFER, "op.hacOut.t", "op.hacOut.d",
             fields = listOf(Field("hac", "f.hacAmt2", null, "text", "0.5")),
             build = { v, main, contract -> listOf(main, "0", "hac-from-to", contract, main, v["hac"] ?: "") }),
-        Op("redeemHacd", "trade", OpKind.REDEEM_HACD, "op.redeemHacd.t", "op.redeemHacd.d",
+        Op("redeemHacd", "hacd", OpKind.REDEEM_HACD, "op.redeemHacd.t", "op.redeemHacd.d",
             fields = listOf(Field("names", "f.names"), Field("to", "f.toAddrDef", null, "address"))),
 
         // ---- AMM 与流动性 ----
-        Op("swapH2D", "amm", OpKind.CALL, "op.swapH2D.t", "op.swapH2D.d",
+        Op("swapH2D", "swap", OpKind.CALL, "op.swapH2D.t", "op.swapH2D.d",
             fn = "swap_hac_to_ds", hacFields = listOf("hac_in"), quote = "swap_hac_to_ds",
             fields = listOf(Field("hac_in", "f.hacInUnit", null, "u128", "1"),
                 Field("min_out", "f.minOutAtoms", null, "u128", "0"))),
-        Op("swapD2H", "amm", OpKind.CALL, "op.swapD2H.t", "op.swapD2H.d",
+        Op("swapD2H", "swap", OpKind.CALL, "op.swapD2H.t", "op.swapD2H.d",
             fn = "swap_ds_to_hac", hacFields = listOf("min_out"), quote = "swap_ds_to_hac",
             fields = listOf(Field("ds_in", "f.dsInAtoms", null, "u128", "100000000"),
                 Field("min_out", "f.minOutHac", null, "u128", "0"))),
-        Op("addLiq", "amm", OpKind.CALL, "op.addLiq.t", "op.addLiq.d",
+        Op("addLiq", "lp", OpKind.CALL, "op.addLiq.t", "op.addLiq.d",
             fn = "add_liquidity", hacFields = listOf("hac_amt"),
             fields = listOf(Field("hac_amt", "f.hacSideUnit", null, "u128", "1"),
                 Field("ds_amt", "f.dsSideAtoms", null, "u128", "0"))),
-        Op("rmLiq", "amm", OpKind.CALL, "op.rmLiq.t", "op.rmLiq.d",
+        // ⚠ #3000 合约签名：remove_liquidity(share, min_hac_out, min_ds_out, deadline)
+        //   旧版只传 share，上链必报 CallArgvTypeFail（参数个数不符）。
+        //   C-4：单笔会撞主网 resource 上限（6,102 > 6,100），必须由 UI 拆成
+        //   「先 lp_harvest、再 remove_liquidity」两笔（见 OpsFlow.removeLiquidity）。
+        Op("rmLiq", "lp", OpKind.CALL, "op.rmLiq.t", "op.rmLiq.d",
             fn = "remove_liquidity",
-            fields = listOf(Field("share", "f.share", null, "u128", "1000000"))),
-        Op("harvest", "amm", OpKind.CALL, "op.harvest.t", "op.harvest.d", fn = "lp_harvest"),
+            fields = listOf(Field("share", "f.share", null, "u128", "1000000"),
+                Field("min_hac_out", "f.minHacOut", null, "u128", "0"),
+                Field("min_ds_out", "f.minDsOut", null, "u128", "0"),
+                Field("deadline", "f.deadline", null, "u128", "0"))),
+        Op("harvest", "lp", OpKind.CALL, "op.harvest.t", "op.harvest.d", fn = "lp_harvest"),
 
         // ---- 借贷 ----
         Op("coll", "loan", OpKind.CALL, "op.coll.t", "op.coll.d",
@@ -106,7 +118,17 @@ object Ops {
             fields = listOf(Field("to", "f.toAddr", null, "address"),
                 Field("hac", "f.hacAmt", null, "text", "1:248")),
             build = { v, main, _ -> listOf(main, "0", "hac-to", v["to"] ?: "", v["hac"] ?: "") }),
-        Op("trA2C", "xfer", OpKind.TRANSFER, "op.trA2C.t", "op.trA2C.d",
+        // 【金库清扫】合约 → 金库（触发合约 PermitHAC/PermitAsset，扣 tre:）。
+        // ⚠ 必须是 from-to 形态（from=合约）；"用户→金库"不会清扫。
+        Op("sweepHac", "tools", OpKind.TRANSFER, "op.sweepHac.t", "op.sweepHac.d",
+            fields = listOf(Field("amount", "f.hacAmt", null, "text", "1:248")),
+            build = { v, main, contract -> listOf(main, "0", "hac-from-to", contract,
+                "1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK", v["amount"] ?: "") }),
+        Op("sweepDs", "tools", OpKind.TRANSFER, "op.sweepDs.t", "op.sweepDs.d",
+            fields = listOf(Field("atoms", "f.atomsNum", null, "u128", "100000000")),
+            build = { v, main, contract -> listOf(main, "0", "asset-from-to", contract,
+                "1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK", "hacds", v["atoms"] ?: "") }),
+        Op("trA2C", "fund", OpKind.TRANSFER, "op.trA2C.t", "op.trA2C.d",
             fields = listOf(Field("atoms", "f.atomsNum", null, "u128", "100000000")),
             build = { v, main, contract -> listOf(main, "0", "asset-to", contract, "hacds", v["atoms"] ?: "") }),
         Op("trA2A", "xfer", OpKind.TRANSFER, "op.trA2A.t", "op.trA2A.d",
@@ -124,19 +146,20 @@ object Ops {
             }),
     )
 
-    /** 管理员操作（D25）。 */
+    /**
+     * 管理员操作（D25）。
+     * ⚠ **#3000 起合约完全取消管理员**（无 set_fee/set_loan_rate/set_liquidate_bonus/
+     *   set_paused/set_oracle）；本组**仅对 #2000 合约有效**，#3000 下应隐藏。
+     *   唯一保留的 `rent_keys` 在 #3000 是**任何人可调**（keeper 续租）。
+     */
     val ADMIN: List<Op> = listOf(
-        Op("set_fee", "admin", OpKind.CALL, "admin.setFee", "admin.setFeeD", fn = "set_fee",
-            fields = listOf(Field("bps", null, "bps", "u128", "50"))),
-        Op("set_loan_rate", "admin", OpKind.CALL, "admin.setLoanRate", "admin.setLoanRateD", fn = "set_loan_rate",
-            fields = listOf(Field("bps", null, "bps", "u128", "500"))),
-        Op("set_liquidate_bonus", "admin", OpKind.CALL, "admin.setBonus", "admin.setBonusD", fn = "set_liquidate_bonus",
-            fields = listOf(Field("bps", null, "bps", "u128", "200"))),
-        Op("set_paused", "admin", OpKind.CALL, "admin.setPaused", "admin.setPausedD", fn = "set_paused",
-            fields = listOf(Field("p", null, "0 / 1", "u8", "0"))),
-        Op("set_oracle", "admin", OpKind.CALL, "admin.setOracle", "admin.setOracleD", fn = "set_oracle",
-            fields = listOf(Field("o", "net.oracle", null, "address"))),
-        Op("rent_batch", "admin", OpKind.CALL, "admin.rent", "admin.rentD", fn = "rent_batch",
+        // ⚠ 2026-11-11：删除 set_fee / set_loan_rate / set_liquidate_bonus /
+        //   set_paused / set_oracle —— #3000 合约已完全取消管理员，这些函数
+        //   在链上**不存在**（实测全部返回 CallNotExist(51)），保留入口只会
+        //   让用户点了之后拿到看不懂的错误。
+        //
+        // 只保留 rent_keys：#3000 起它是**无许可**的，任何人可调（keeper 续租）。
+        Op("rent_keys", "tools", OpKind.CALL, "admin.rent", "admin.rentD", fn = "rent_keys",
             fields = listOf(Field("keys", null, "keys (hex，无 0x)", "bytes"),
                 Field("klen", null, "klen", "u128", "21"),
                 Field("period", null, "period", "u128", "300"))),

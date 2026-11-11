@@ -52,6 +52,7 @@ fun LiquidationScreen(vm: AppViewModel) {
             Section(tr("x_liqTre"), subtitle = tr("x_treTransfer")) {
                 KV(tr("x_treHac"), proto?.treHac?.let { formatHac(it) } ?: "—")
                 KV(tr("x_treDs"), proto?.treDs ?: "—")
+                // 清扫操作见「链上转账」页的「清扫金库(合约→金库)」两张卡（sweepHac / sweepDs）
                 Notice(tr("x_sweepNote", com.hacds.defi.core.AppConfig.DEFAULT_TREASURY))
             }
         }

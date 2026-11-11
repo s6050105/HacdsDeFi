@@ -5,17 +5,17 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
 <title>HacdsDeFi</title>
+<link rel="stylesheet" href="design-tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span data-i18n="app.title">HacdsDeFi 控制台</span> <span class="ver">v0.2</span>
+  <div class="brand"><span data-i18n="app.title">HacdsDeFi 控制台</span> <span class="ver">v0.3</span>
     <span class="slogan" data-i18n="app.slogan">冷热共用钱包 + DeFi 控制台</span></div>
   <div class="net">
     <label><span data-i18n="net.node">节点</span> <input id="node" spellcheck="false"></label>
-    <label><span data-i18n="net.oracle">预言机</span> <input id="oracle" spellcheck="false"></label>
-    <label><span data-i18n="net.contract">合约</span> <input id="contract" spellcheck="false"></label>
     <label><span data-i18n="net.indexer">索引器</span> <input id="indexer" spellcheck="false" placeholder="http://…:8124"></label>
+    <label><span data-i18n="net.contract">合约</span> <input id="contract" spellcheck="false"></label>
     <button id="saveNet" class="ghost" data-i18n="net.save">保存</button>
     <button id="pingNet" class="ghost" data-i18n="net.ping">检测</button>
     <span class="zoomctl" title="UI zoom">
@@ -44,7 +44,6 @@
   <div id="unlockedView" hidden>
     <span class="chip">🔓</span>
     <span id="addr" class="addr clickable" title="点击切换钱包地址">—</span>
-    <span id="adminBadge" class="admin-badge" hidden data-i18n="acct.admin">管理员</span>
     <span class="grow"></span>
     <button id="btnRefresh" class="ghost" data-i18n="acct.refresh">刷新资产</button>
     <button id="btnExportKey" class="ghost" data-i18n="acct.exportKey">导出私钥</button>
@@ -80,15 +79,79 @@
 <main id="panels"></main>
 
 <!-- HACD 收藏：左网格 + 右详情栏 -->
+<!-- HACD 双卡布局（2026-11-11 与网页端统一）
+     左：我的钻石 → 存入；右：合约池 → 赎回
+     详情改为点击弹窗，不占布局空间 -->
 <section class="hacd-panel" id="hacdPanel" hidden>
-  <div class="hacd-left">
-    <div class="hacd-filter" id="hacdFilter"></div>
-    <div class="hacd-grid" id="hacdGrid"></div>
+  <div class="grid-2" style="width:100%">
+
+    <!-- 左：我的钻石 → 存入 -->
+    <div class="card">
+      <div class="flex between center" style="margin-bottom:6px">
+        <div class="card-hd" style="margin:0" data-i18n="hacd.mintTitle"></div>
+        <span class="tag" id="mintSelCount">0</span>
+      </div>
+      <p class="desc" style="font-size:12.5px;margin-bottom:8px" data-i18n="hacd.mintNote"></p>
+
+      <div class="flex between center" style="margin-bottom:8px">
+        <span class="muted" style="font-size:12px" data-i18n="hacd.myHacd"></span>
+        <div class="flex gap-2">
+          <button class="ghost" id="hacdSelAll" data-i18n="hacd.selAll"></button>
+          <button class="ghost" id="hacdSelNone" data-i18n="hacd.selNone"></button>
+          <button class="ghost" id="hacdLoadMine" data-i18n="hacd.loadMine"></button>
+        </div>
+      </div>
+
+      <div class="hacd-filter" id="hacdFilter"></div>
+      <div class="hacd-grid" id="hacdGrid"></div>
+
+      <div class="pick-summary" style="margin-top:10px">
+        <span data-i18n="hacd.selected"></span>
+        <b class="mono" id="mintCount">0</b>
+        <span data-i18n="hacd.diamonds2"></span>
+        <span class="sep">·</span>
+        <span data-i18n="hacd.estMint"></span>
+        <b class="mono" id="mintTotalEst">—</b>
+      </div>
+
+      <button class="primary" id="hacdDepositBulk" style="width:100%;margin-top:10px"></button>
+      <p class="hint" style="margin-top:6px;font-size:11.5px" data-i18n="hacd.mintSplitNote"></p>
+    </div>
+
+    <!-- 右：合约池 → 赎回 -->
+    <div class="card">
+      <div class="card-hd" data-i18n="hacd.redeemTitle"></div>
+      <p class="desc" style="font-size:12.5px;margin-bottom:8px" data-i18n="hacd.redeemNote"></p>
+
+      <div class="flex between center" style="margin-bottom:8px">
+        <span class="muted" style="font-size:12px" data-i18n="hacd.poolHacdLabel"></span>
+        <button class="ghost" id="hacdLoadPool" data-i18n="hacd.loadPool"></button>
+      </div>
+
+      <div class="hacd-grid" id="poolHacdGrid"></div>
+
+      <div style="margin-top:12px">
+        <label class="field-label" style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px" data-i18n="hacd.redeemName"></label>
+        <input id="redeemName" placeholder="AAAAAA" maxlength="6" style="width:100%;text-transform:uppercase">
+      </div>
+
+      <button class="ghost" id="hacdBatchOut" style="width:100%;margin-top:10px"></button>
+      <p class="hint" style="margin-top:6px;font-size:11.5px" data-i18n="hacd.redeemHint2"></p>
+    </div>
+
   </div>
-  <aside class="hacd-right" id="hacdRight">
-    <div class="muted" data-i18n="hacd.pickHint">点左侧钻石查看详情</div>
-  </aside>
 </section>
+
+<!-- 钻石详情弹窗 -->
+<div class="modal" id="hacdModal" hidden>
+  <div class="modal-box" style="max-width:560px">
+    <div class="pv-head">
+      <b data-i18n="hacd.detail"></b>
+      <button class="ghost" id="hacdModalClose">✕</button>
+    </div>
+    <div id="hacdModalBody"></div>
+  </div>
+</div>
 
 <!-- 通用模态框 -->
 <div class="modal" id="modal" hidden>

@@ -132,8 +132,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         sum = sum.add(BigInteger.valueOf(DiamondScore.analyse(nm, num, vg).score.toLong()))
                     }
                 }
-                // 预期 hacds = Σ评分 × 1e8（D13 单位：Σ评分 = 个数）
-                val expected = sum.multiply(BigInteger.valueOf(100_000_000L))
+                // 预期 hacds = Σ评分 × SCORE_SCALE
+                // #3000 起 decimal=0，SCORE_SCALE = 1，即 **Σ评分就是 hacds 个数**。
+                // （旧版 #2000 是 decimal=8、SCORE_SCALE=1e8，那套口径已作废。）
+                val expected = sum.multiply(BigInteger.valueOf(Units.SCORE_SCALE))
                 _assets.value = cur.copy(diamondsDetail = list, expectedHacds = expected)
                 log("已加载 ${list.size} 颗 HACD 详情")
             }.onFailure { log("加载 HACD 详情失败：${it.message}") }
@@ -159,7 +161,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     bal.hac, bal.satoshi, bal.diamondCount, bal.diamonds,
                     null, null, "0", emptyList(),
                     diamondsDetail = list,
-                    expectedHacds = sum.multiply(BigInteger.valueOf(100_000_000L)),
+                    expectedHacds = sum.multiply(BigInteger.valueOf(Units.SCORE_SCALE)),
                 )
                 log("已加载地址 $addr 的 ${list.size} 颗 HACD")
             }.onFailure { log("加载失败：${it.message}") }
@@ -192,30 +194,91 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _lastBuilt = MutableStateFlow<Built?>(null)
     val lastBuilt: StateFlow<Built?> = _lastBuilt.asStateFlow()
 
+    // 纯转账不触发 VM，gas_max=1 足够；涉及合约（from/to/contract=合约）的转账
+    // 会触发 Permit*/Payable* 钩子，必须用引擎默认 99（预算 111911）。
+    // hacds 资产转账是 extra9 动作：每笔约 500+ gas。按笔数选 gas_max。
+    private fun gasByteForAssetCount(n: Int): Int = when {
+        n <= 6 -> 50
+        n <= 12 -> 60
+        n <= 24 -> 70
+        n <= 48 -> 80
+        n <= 96 -> 90
+        else -> 99
+    }
+
+    private fun defaultGasMax(mode: String, args: List<String>, contract: String): Int? {
+        if (mode != "transfer") return null
+        val sub = args.getOrNull(2) ?: return null
+        val addrs = when (sub) {
+            "hac-to", "asset-to", "hacd-to" -> listOf(args.getOrNull(3))
+            "hac-from-to", "asset-from-to" -> listOf(args.getOrNull(3), args.getOrNull(4))
+            "hac-from", "asset-from" -> listOf(args.getOrNull(3))
+            else -> emptyList()
+        }
+        if (addrs.any { it == contract }) return null
+        return if (sub == "asset-to" || sub == "asset-from-to" || sub == "asset-from") gasByteForAssetCount(1) else 1
+    }
+
     /** 构建某个操作（已解锁 → 直接签名；未解锁 → 构建未签名体，用于离线/预览）。 */
     fun buildOp(op: com.hacds.defi.ui.Op, values: Map<String, String>, fee: String?, gasMax: Int?) {
         val c = _cfg.value
         val main = WalletSession.address
         if (main == null) { log("未解锁钱包"); return }
         viewModelScope.launch {
+            // C-4：remove_liquidity 单笔撞主网 resource 上限（6,102 > 6,100）。
+            // resource_limit_byte=56 是主网参数，独立于 gas_max，调高 gas 绕不过；
+            // 合约不可升级，所以客户端拆成两笔：先 lp_harvest 结算，再撤池。
+            // 顺序不能反——先撤池会按减少后的 lpt 结算，用户少拿奖励。
+            val fnName = if (op.fn == "remove_liquidity") "lp_harvest" else op.fn
             val args = when (op.kind) {
                 com.hacds.defi.ui.OpKind.CALL -> {
-                    val params = Ops.callParams(op, values)
-                    listOf(main, "0", c.contract, op.fn ?: "", params)
+                    val params =
+                        if (op.fn == "remove_liquidity") "-"
+                        else Ops.callParams(op, values)
+                    listOf(main, "0", c.contract, fnName ?: "", params)
                 }
                 else -> op.build?.invoke(values, main, c.contract)
                     ?: listOf(main, "0", "hac-to", values["to"] ?: "", values["hac"] ?: "")
             }
             val mode = if (op.kind == com.hacds.defi.ui.OpKind.CALL) "call" else "transfer"
             val key = if (WalletSession.isUnlocked) WalletSession.keyHex else null
+            val gm = gasMax ?: defaultGasMax(mode, args, c.contract)
             val b = if (fee.isNullOrBlank() && key != null) {
-                TxBuilder.buildWithAutoFee(c.baseNode(), mode, args, key, WalletSession.address ?: "<wallet>", gasMax)
+                TxBuilder.buildWithAutoFee(c.baseNode(), mode, args, key, WalletSession.address ?: "<wallet>", gm)
             } else {
-                TxBuilder.buildWithFee(mode, args, key, WalletSession.address ?: "<wallet>", fee, gasMax)
+                TxBuilder.buildWithFee(mode, args, key, WalletSession.address ?: "<wallet>", fee, gm)
             }
             _lastBuilt.value = b
-            if (b.ok) log("已构建：${b.result?.label ?: mode}（${b.result?.txBytes ?: 0} 字节，fee ${b.feeUsed ?: "-"}）")
-            else log("构建失败：${b.error}")
+            if (b.ok) {
+                log("已构建：${b.result?.label ?: mode}（${b.result?.txBytes ?: 0} 字节，fee ${b.feeUsed ?: "-"}）")
+                // C-4：记住撤池参数，等 lp_harvest 广播成功后自动生成第二笔
+                pendingRemoveParams = if (op.fn == "remove_liquidity") Ops.callParams(op, values) else null
+                if (pendingRemoveParams != null) log("撤池分两步：这是第 1 步「结算 LP 奖励」。广播成功后会自动构建第 2 步。")
+            } else log("构建失败：${b.error}")
+        }
+    }
+
+    /** C-4 等待第二步的撤池参数（null = 当前不是撤池流程）。 */
+    private var pendingRemoveParams: String? = null
+
+    /** C-4 第二步：lp_harvest 已上链，构建 remove_liquidity。 */
+    fun buildPendingRemove() {
+        val p = pendingRemoveParams ?: return
+        pendingRemoveParams = null
+        val c = _cfg.value
+        val main = WalletSession.address
+        if (main == null) { log("未解锁钱包"); return }
+        viewModelScope.launch {
+            val args = listOf(main, "0", c.contract, "remove_liquidity", p)
+            val key = if (WalletSession.isUnlocked) WalletSession.keyHex else null
+            val b = if (key != null) {
+                TxBuilder.buildWithAutoFee(c.baseNode(), "call", args, key, WalletSession.address ?: "<wallet>", 99)
+            } else {
+                TxBuilder.buildWithFee("call", args, key, WalletSession.address ?: "<wallet>", null, 99)
+            }
+            _lastBuilt.value = b
+            if (b.ok) log("第 2 步：撤池交易体已生成，请签名后广播。")
+            else log("第 1 步「结算 LP 奖励」已成功上链，只是第 2 步「撤池」未生成。资金无损失，可重试撤池。原因：${b.error}")
         }
     }
 
@@ -228,8 +291,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 val d = NodeApi.broadcast(c.baseNode(), hex)
                 val ret = d.optInt("ret", -1)
-                if (ret == 0) log("✔ 已接受 hash=${d.optString("hash")}（仅进入 mempool，需等待打包）")
-                else log("✘ 广播失败：${d.optString("_translated", d.optString("err"))}")
+                if (ret == 0) {
+                    log("✔ 已接受 hash=${d.optString("hash")}（仅进入 mempool，需等待打包）")
+                    // C-4：第 1 步（lp_harvest）已进 mempool → 生成第 2 步交易体。
+                    // 两步可以连续广播：harvest 只改 chk/lch 检查点，撤池读的是 lpt/amm，
+                    // 顺序在同一 mempool 里按 nonce/时间戳排队执行即可。
+                    if (pendingRemoveParams != null) buildPendingRemove()
+                } else log("✘ 广播失败：${d.optString("_translated", d.optString("err"))}")
             }.onFailure { log("广播异常：${it.message}") }
         }
     }
@@ -307,20 +375,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             var okCount = 0
             for ((i, nm) in names.withIndex()) {
                 try {
-                    val cert = NodeApi.cert(c.baseOracle(), nm)
-                    val cm = cert.optString("cert_message_hex")
-                    val sg = cert.optString("sign_hex")
-                    if (cm.length != 58) throw IllegalStateException("$nm 证书消息应 29B")
-                    if (sg.length != 194) throw IllegalStateException("$nm 签名应 97B")
-                    val certFile = java.io.File(getApplication<Application>().cacheDir, "cert_$nm.hex")
-                    certFile.writeText(cm + sg)
+                    // ⚠ D-1：#3000 已删除证书与预言机（合约 0 处读取 tx_message/blob），
+                    //   不再向预言机取证，也不写 cert 临时文件。
+                    //   直接 TransferHacdTo / TransferHacdFromTo 驱动钩子。
                     val mode: String; val args: List<String>
                     if (isOut) {
                         mode = "redeem-hacd"
-                        args = listOf(main, "0", c.contract, main, nm, certFile.absolutePath)
+                        args = listOf(main, "0", c.contract, main, nm)
                     } else {
                         mode = "hacd"
-                        args = listOf(main, "0", c.contract, nm, certFile.absolutePath)
+                        args = listOf(main, "0", c.contract, nm)
                     }
                     val b = TxBuilder.buildWithAutoFee(c.baseNode(), mode, args, WalletSession.keyHex, main, 99)
                     if (!b.ok) throw IllegalStateException(b.error)
@@ -333,7 +397,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         val tr = ContractErrors.translateNodeError(d.optString("err"))
                         _batch.value = _batch.value + "[${i + 1}/${names.size}] $nm ✘ ${tr.text}"
                     }
-                    certFile.delete()
                 } catch (e: Exception) {
                     _batch.value = _batch.value + "[${i + 1}/${names.size}] $nm ✘ ${e.message}"
                 }
@@ -356,7 +419,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 导出当前私钥明文（D1，UI 层做二次确认）。 */
-    fun exportKey(): String? = WalletSession.keyHex
+    /**
+     * 导出当前会话私钥。
+     *
+     * ⚠ M-12（上线前审计）：原实现无任何闸门——`fun exportKey() = WalletSession.keyHex`，
+     * 无密码、无生物识别、无二次确认，私钥直接进 Compose 状态并上屏。
+     * 对比 PC 端已在 `main.js` 加了主进程原生 dialog 二次确认，Android 落后。
+     *
+     * 现在要求：
+     *   1. 必须已解锁
+     *   2. 必须显式传 `confirm = true`（UI 层必须先弹确认框）
+     *   3. 导出后 60 秒自动失效（UI 应只展示一次、不缓存）
+     *
+     * 真正的强保护（系统认证）需要 Keystore 配合，见 M-11 的后续项。
+     */
+    private var lastExportAt = 0L
+
+    fun exportKey(confirm: Boolean = false): String? {
+        if (!confirm) return null
+        if (!WalletSession.isUnlocked) return null
+        val now = System.currentTimeMillis()
+        // 60 秒内只允许一次，避免脚本反复抓取
+        if (now - lastExportAt < 60_000) return null
+        lastExportAt = now
+        return WalletSession.keyHex
+    }
 
     // ---- 只读查询（D16/D50）----
     private val _query = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -427,7 +514,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (names.size > 200) { log("一笔最多 200 颗钻石"); return }
         viewModelScope.launch {
             val args = listOf(main, "0", "hacd-to", to, names.joinToString(","))
-            val b = TxBuilder.buildWithAutoFee(c.baseNode(), "transfer", args, WalletSession.keyHex, main)
+            val b = TxBuilder.buildWithAutoFee(c.baseNode(), "transfer", args, WalletSession.keyHex, main, 1)
             _lastBuilt.value = b
             if (b.ok) log("HACD 点对点转账已构建（${names.size} 颗 → $to）") else log("构建失败：${b.error}")
         }
@@ -491,7 +578,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val specFile = java.io.File(getApplication<Application>().cacheDir, "combo_${System.currentTimeMillis()}.json")
             specFile.writeText(spec.toString())
             val args = listOf(main, "0", specFile.absolutePath)
-            val b = TxBuilder.buildWithAutoFee(c.baseNode(), "combo", args, WalletSession.keyHex, main)
+            val acts = spec.getJSONArray("actions")
+            var touchesContract = hasCall
+            var nAsset = 0
+            for (i in 0 until acts.length()) {
+                val o = acts.getJSONObject(i)
+                if (o.optString("from", "") == c.contract ||
+                    o.optString("to", "") == c.contract ||
+                    o.optString("contract", "") == c.contract) touchesContract = true
+                val ty = o.optString("type", "")
+                if (ty == "asset-to" || ty == "asset-from-to" || ty == "asset-from") nAsset++
+            }
+            val gm = if (touchesContract) null else if (nAsset > 0) gasByteForAssetCount(nAsset) else 1
+            val b = TxBuilder.buildWithAutoFee(c.baseNode(), "combo", args, WalletSession.keyHex, main, gm)
             specFile.delete()
             _lastBuilt.value = b
             if (b.ok) log("原子交易已构建（${actions.size} 个动作）") else log("构建失败：${b.error}")

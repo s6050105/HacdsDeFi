@@ -4,7 +4,7 @@ import android.content.Context
 import com.hacds.defi.R
 
 /**
- * i18n 取词（D28/D36/D47）。键与 PC 版 `i18n.js` 一一对应（475 条 × 中/英/土），
+ * i18n 取词（D28/D36/D47）。键与 PC 版 `i18n.js` 一一对应（479 条 × 中/英/土），
  * 资源名 = 键里的 `.` 换成 `_`。文案里的 {x} 占位在 PC 侧已转成 %1$s。
  *
  * 文案中可能残留 web 的 HTML 标签（如 &lt;b&gt;），显示前统一剥离。

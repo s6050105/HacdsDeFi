@@ -30,7 +30,12 @@ fun DiamondImage(
     height: Dp = 160.dp,
     label: String? = null,
 ) {
-    val ok = visualGeneHex.length >= 19
+    // M-14：原实现只校验长度 >= 19，visual_gene 来自明文 HTTP 的 /query/diamond，
+    // 攻击者可让长度合法但内容含 `</script><script>…` → WebView 内执行任意 JS。
+    // 改为严格的**十六进制白名单**：只允许 [0-9a-fA-F]，且长度为偶数。
+    val ok = visualGeneHex.length >= 19 &&
+             visualGeneHex.length % 2 == 0 &&
+             visualGeneHex.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
     if (!ok) {
         Box(modifier.fillMaxWidth().height(height)) {
             Text(
@@ -83,4 +88,15 @@ fun DiamondImage(
 }
 
 /** JS 字符串字面量转义（gene 是纯 hex，安全）。 */
-private fun jsStr(s: String): String = "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'"
+// M-14：除反斜杠/单引号外，还必须转义 `<`、`>`、`&` 与换行——
+// 只转义前两者时，`</script>` 仍能闭合外层的 <script> 块执行注入代码。
+private fun jsStr(s: String): String = "'" + s
+    .replace("\\", "\\\\")
+    .replace("'", "\\'")
+    .replace("<", "\\x3C")
+    .replace(">", "\\x3E")
+    .replace("&", "\\x26")
+    .replace("\n", "\\n")
+    .replace("\r", "\\r")
+    .replace(" ", "\\u2028")
+    .replace(" ", "\\u2029") + "'"

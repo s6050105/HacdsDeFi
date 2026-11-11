@@ -85,7 +85,23 @@ object Keystore {
         val iv = unhex(j.getString("iv"))
         val tag = unhex(j.getString("tag"))
         val ct = unhex(j.getString("ct"))
-        val key = Scrypt.derive(password, salt, j.getInt("n"), j.getInt("r"), j.getInt("p"), j.getInt("dklen"))
+        // M-15：scrypt 参数全部来自**外部文件**，原实现无上界校验 →
+        // 构造 n=2^27 的 keystore 可打爆堆（IntArray(n*words)），
+        // 或让 n*words 溢出成负数 → NegativeArraySizeException。
+        // 这里与 PC 侧 `maxmem: 256MB` 对齐：限制内存上限，拒绝异常参数。
+        val n = j.getInt("n")
+        val r = j.getInt("r")
+        val p = j.getInt("p")
+        val dklen = j.getInt("dklen")
+        if (n < 2 || (n and (n - 1)) != 0) throw IllegalArgumentException("keystore n 必须是 ≥2 的 2 的幂")
+        if (r < 1 || p < 1) throw IllegalArgumentException("keystore r/p 必须 ≥1")
+        if (dklen !in 16..64) throw IllegalArgumentException("keystore dklen 超出范围")
+        // 内存估算：v 数组 = n * 32 * r 字节（IntArray 每元素 4B → n*32r 字节）
+        val memBytes = n.toLong() * 32L * r.toLong()
+        if (memBytes > 256L * 1024 * 1024) {
+            throw IllegalArgumentException("keystore scrypt 参数过大（需 ${memBytes / 1024 / 1024}MB > 256MB 上限）")
+        }
+        val key = Scrypt.derive(password, salt, n, r, p, dklen)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
         cipher.updateAAD(AAD)

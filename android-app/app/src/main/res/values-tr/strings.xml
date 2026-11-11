@@ -27,7 +27,7 @@
     <string name="admin_setPausedD">1=durdur, 0=devam.</string>
     <string name="admin_title">Yönetici işlemleri</string>
     <string name="adv_title">Gelişmiş (ücret / gas)</string>
-    <string name="amm_inTpl">Giren &lt;b&gt;%1$s&lt;/b&gt; → beklenen çıkış ≈ &lt;b class=\"qval\"&gt;%1$s&lt;/b&gt;</string>
+    <string name="amm_inTpl">Giren &lt;b&gt;%1$s&lt;/b&gt; → beklenen çıkış ≈ &lt;b class=\"qval\"&gt;%2$s&lt;/b&gt;</string>
     <string name="amm_poolStatus">Havuz durumu</string>
     <string name="amm_quoteLine">Fiyat 1→%1$s   Ücret %2$s%% (varsayılan)   Havuz %3$s / %4$s</string>
     <string name="app_slogan">Soğuk &amp; sıcak çift cüzdan + DeFi konsolu</string>
@@ -79,21 +79,21 @@
     <string name="common_translTitle">Çeviri</string>
     <string name="common_translateFail">Çeviri başarısız: </string>
     <string name="common_translated">İşlem çevrildi</string>
-    <string name="f_atoms">Tutar (atoms)</string>
-    <string name="f_atomsNum">Tutar atoms</string>
-    <string name="f_atomsNum2">Miktar (atoms)</string>
+    <string name="f_atoms">Tutar (adet, tam sayi)</string>
+    <string name="f_atomsNum">Tutar (adet)</string>
+    <string name="f_atomsNum2">Miktar (adet)</string>
     <string name="f_borrowAmt">Borç tutarı</string>
     <string name="f_borrowUnit">Borc miktari (HAC)</string>
     <string name="f_borrower">Borçlu adresi</string>
     <string name="f_dsColl">hacds teminat</string>
-    <string name="f_dsCollAtoms">Teminat hacds ekle (atoms, 1 hacds = 1e8 atoms)</string>
+    <string name="f_dsCollAtoms">Teminat hacds ekle (adet)</string>
     <string name="f_dsIn">Giren hacds</string>
-    <string name="f_dsInAtoms">Giren hacds (atoms)</string>
+    <string name="f_dsInAtoms">Giren hacds (adet)</string>
     <string name="f_dsSide">hacds tarafı</string>
-    <string name="f_dsSideAtoms">hacds tarafi (atoms)</string>
+    <string name="f_dsSideAtoms">hacds tarafi (adet)</string>
     <string name="f_feeAdv">İşlem ücreti (boş = otomatik)</string>
     <string name="f_feeAdvHint">Varsayılan düğüm oranına göre</string>
-    <string name="f_gasMax">gas_max bayt (varsayılan 99)</string>
+    <string name="f_gasMax">gas_max baytı (boş = otomatik: HAC/HACD 1, hacds 50, kontrat 99)</string>
     <string name="f_hacAmt">Tutar (örn. 1:248 = 1 HAC)</string>
     <string name="f_hacAmt2">Tutar (örn. 0.5 veya 1:248)</string>
     <string name="f_hacIn">Giren HAC puanı</string>
@@ -102,7 +102,7 @@
     <string name="f_hacSideUnit">HAC tarafi (HAC)</string>
     <string name="f_hacdNames">Elmas adları (virgülle ayrılmış, örn. KWTVSH,VHUSMI)</string>
     <string name="f_minOut">Min çıkış (kayma, 0=kapalı)</string>
-    <string name="f_minOutAtoms">Min cikis (atoms, 0 = sinirsiz)</string>
+    <string name="f_minOutAtoms">Min cikis (adet, 0 = sinirsiz)</string>
     <string name="f_minOutHac">Min cikis (HAC, 0 = sinirsiz)</string>
     <string name="f_names">Elmas adları (virgülle)</string>
     <string name="f_namesHint">örn. MVUUBA,HYXYHY</string>
@@ -132,7 +132,7 @@
     <string name="hacd_copyNames">Adları kopyala</string>
     <string name="hacd_deposit">hacds\'e yatır</string>
     <string name="hacd_depositBulk">Toplu yatır (%1$s)</string>
-    <string name="hacd_depositWarn">⚠ Tek yatırma, kontratın resource gas limitiyle sınırlıdır: elmas başına ~3.000, üst sınır 6.100 → işlem başına 1 elmas. Birkaç yatırmayı tek atomik işlemde birleştirmek bunu AŞMAZ (aynı gas bütçesini paylaşırlar). Birden fazla elmas seçip \"Toplu yatır\" kullanın — tek elmaslık işlemlere bölüp sırayla gönderir.</string>
+    <string name="hacd_depositWarn">Yatirma basina en fazla 200 elmas. Kontrat rv64im cekirdeginde puanlar, seciminiz tek islemde paketlenir — tek imza. 200den fazlasi ikinci parti gerektirir.</string>
     <string name="hacd_detail">Ayrıntı</string>
     <string name="hacd_dirIn">Yon: %1$s elmasinizi kontrata AKTAR (due kotasi olarak islenir)</string>
     <string name="hacd_dirOut">Yon: %1$s elmasinizi kontrattan GERI AL</string>
@@ -195,7 +195,7 @@
     <string name="liq_liquidate">Tasfiye et</string>
     <string name="liq_needAddr">Once bir adres girin</string>
     <string name="liq_noSweep">Supurulecek bir sey yok</string>
-    <string name="liq_pendingDs">Havuz oranina gore diger taraf hacds %1$s atoms ister</string>
+    <string name="liq_pendingDs">Havuz oranina gore diger taraf hacds %1$s ister</string>
     <string name="liq_pendingHac">Havuz oranina gore diger taraf HAC %1$s ister</string>
     <string name="liq_ratio">Havuz orani %1$s - %1$s; bir tarafi degistirince digeri doldurulur</string>
     <string name="liq_removed">Kaldirildi: </string>
@@ -209,7 +209,7 @@
     <string name="liq_stSafe">Guvenli</string>
     <string name="liq_stUnknown">Bilinmiyor</string>
     <string name="liq_state">Durum</string>
-    <string name="liq_suggestDs">Havuz oranina gore bu taraf hacds %1$s atoms olmali</string>
+    <string name="liq_suggestDs">Havuz oranina gore bu taraf hacds %1$s olmali</string>
     <string name="liq_suggestHac">Havuz oranina gore bu taraf HAC %1$s olmali</string>
     <string name="liq_sweepDs">hacds supur</string>
     <string name="liq_sweepHac">HAC supur</string>
@@ -276,7 +276,7 @@
     <string name="off_sign">Mevcut cüzdanla imzala</string>
     <string name="off_signed">2) İmzalı işlem hex</string>
     <string name="off_title">Çevrimdışı imza akışı (soğuk/sıcak)</string>
-    <string name="off_trAmt">Tutar / atoms</string>
+    <string name="off_trAmt">Tutar / adet</string>
     <string name="off_trTo">Alıcı</string>
     <string name="off_trType">Transfer alt türü</string>
     <string name="off_translate">İşlemi çevir (çevrimiçi)</string>
@@ -358,8 +358,8 @@
     <string name="p_poolHac">Havuz HAC</string>
     <string name="p_price">Fiyat</string>
     <string name="p_rate">Teminat orani</string>
-    <string name="p_stakedDs">Stake hacds</string>
-    <string name="p_stakedHac">Stake HAC</string>
+    <string name="p_stakedDs">Tutucu ödülü (kota)</string>
+    <string name="p_stakedHac">Tutucu ödülü (HAC mevduat)</string>
     <string name="p_treDs">Hazine bekleyen hacds</string>
     <string name="p_treHac">Hazine bekleyen HAC</string>
     <string name="pv_bytes">Bayt</string>
@@ -373,7 +373,7 @@
     <string name="q_fieldWho">Adres</string>
     <string name="q_hac">HAC puanı</string>
     <string name="q_lpShare">LP payı</string>
-    <string name="q_stake">Toplam stake</string>
+    <string name="q_stake">Toplam tutulan</string>
     <string name="q_title">Salt-okunur sorgular</string>
     <string name="qb_coll">Teminatımı sorgula</string>
     <string name="qb_debt">Borcumu sorgula</string>
@@ -385,7 +385,7 @@
     <string name="qb_poolDs">Hacds havuzunu sorgula</string>
     <string name="qb_poolHac">Hac havuzunu sorgula</string>
     <string name="qb_price">Fiyatı sorgula</string>
-    <string name="qb_stake">Stake toplamını sorgula</string>
+    <string name="qb_stake">Toplam tutulanı sorgula</string>
     <string name="qr_hint">Mobil sıcak cüzdanla tara; büyük işlemler parçalara ayrılır, hepsini tara.</string>
     <string name="qr_next">Sonraki</string>
     <string name="qr_part">Parça %1$s/%1$s</string>
@@ -486,11 +486,12 @@ Kimsenin izlemediğinden emin olun. Devam?</string>
     <string name="x_buildFail">Oluşturma hatası: %1$s</string>
     <string name="x_hacdP2P">HACD eşler arası transfer</string>
     <string name="x_poolEmptyIsq">Havuz boş: ilk yatırımda iki tarafı siz belirleyin; pay ≈ isqrt(hac × ds)</string>
-    <string name="x_poolRatio">Havuz oranı: %1$s HAC ↔ %2$s atoms</string>
-    <string name="x_legMismatch">⚠ Bacaklar uyuşmuyor: havuz oranında hac_amt %1$s atoms olmalı (fark %2$s)</string>
+    <string name="x_poolRatio">Havuz oranı: %1$s HAC ↔ %2$s hacds</string>
+    <string name="x_legMismatch">⚠ Bacaklar uyuşmuyor: havuz oranında hac_amt %1$s hacds olmalı (fark %2$s)</string>
     <string name="x_poolEmptyNoVal">Havuz boş; teminat değerlenemiyor</string>
     <string name="x_overBorrow">✘ Borç limiti aşıldı</string>
     <string name="x_canBorrow">✔ Borç alınabilir</string>
+    <string name="x_decimalNote">hacds ondaligi 0dir; en kucuk birim tam olarak 1 hacdstir. Puanlar 1 puan = 100 milyon olarak olceklenir, bu yuzden 1 puanlik bir elmas 100.000.000 hacds basar. Bu tasarim geregidir, hata degildir.</string>
     <string name="x_sandboxNote">Sorgular düğüm sandboxcall kullanır; serileştirme + geri çekilme (D45).</string>
     <string name="x_protoHint">Ana sayfada "Protokol durumu"nu yenileyin veya aşağıdaki düğmeleri kullanın</string>
     <string name="x_coldNote">Soğuk taraf: çevrimdışı oluşturup imzalayın; imzalı hex\'i çevrimiçi cihaza verin.</string>
@@ -600,4 +601,13 @@ Kimsenin izlemediğinden emin olun. Devam?</string>
     <string name="x_qrPrev">Önceki</string>
     <string name="x_qrNext">Sonraki</string>
     <string name="x_qrTotal">Toplam %1$s parça; sıcak tarafta tek tek tarayın; tamamlanınca CRC doğrulanır.</string>
+  <string name="op_sweepHac_t">Hazine tara (sözleşme→hazine, HAC)</string>
+  <string name="op_sweepHac_d">Sözleşmede biriken HAC ücretlerini hazineye aktar (PermitHAC tre:hac düşer).</string>
+  <string name="op_sweepDs_t">Hazine tara (sözleşme→hazine, hacds)</string>
+  <string name="op_sweepDs_d">Sözleşmede biriken hacds ücretlerini hazineye aktar (PermitAsset tre:ds düşer).</string>
+    <!-- Birincil sekmeler (2026-11-11, web ile hizali) -->
+    <string name="tab_swap">Takas</string>
+    <string name="tab_lp">Likidite</string>
+    <string name="tab_fund">Fonlar</string>
+    <string name="tab_tools">Araclar</string>
 </resources>
