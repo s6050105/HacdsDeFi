@@ -21,8 +21,8 @@ function applyI18nStatic() {
 
 // ===================== 状态 =====================
 const S = {
-  cfg: { node: 'http://43.251.101.101:8082',
-         indexer: 'http://43.251.101.101:8124',
+  cfg: { node: 'https://api.hacds.com',
+         indexer: 'https://indexer.hacds.com',
          contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH' },
   keyPath: null,
   addr: null,
@@ -228,12 +228,14 @@ function renderAssets(d) {
     val: String(a.amount), sub: (a.decimal != null ? 'decimal ' + a.decimal : ''),
   }));
   const all = cells.concat(otherCells);
+  // ⚠ c.name / c.sub 含节点返回的资产名与 serial 文本，是外部数据，必须转义
+  //   （2026-11-12 审计 C-H3：同文件其他位置都用了 esc()，这里是遗漏）。
   host.innerHTML = all.map(c =>
     '<div class="asset">' + assetIcon(c.icon) +
       '<div class="a-body">' +
-        '<div class="a-name">' + c.name + '</div>' +
-        '<div class="a-val">' + c.val + '</div>' +
-        (c.sub ? '<div class="a-sub">' + c.sub + '</div>' : '') +
+        '<div class="a-name">' + esc(c.name) + '</div>' +
+        '<div class="a-val">' + esc(c.val) + '</div>' +
+        (c.sub ? '<div class="a-sub">' + esc(c.sub) + '</div>' : '') +
       '</div></div>').join('');
   // 备注行：其它资产计数 + 加载 HACD 详情按钮
   const btn = '<button class="ghost" id="btnLoadHacd">' + t('ov.loadHacd') + '</button>';
@@ -1513,8 +1515,9 @@ function renderLiqPanel(host) {
     box.innerHTML = '<table class="wtable"><tr>' +
       ['liq.addr','liq.health','liq.debt','liq.coll','liq.state','liq.actions']
         .map(k => '<th>' + t(k) + '</th>').join('') + '</tr>' +
+      // ⚠ it.address 来自索引器（外部数据），必须转义（2026-11-12 审计 C-H3）
       list.map(it => '<tr>' +
-        '<td style="font-family:Consolas,monospace;font-size:11px">' + it.address + '</td>' +
+        '<td style="font-family:Consolas,monospace;font-size:11px">' + esc(it.address) + '</td>' +
         '<td>' + liqHealthText(it) + '</td>' +
         '<td>' + hacOf(it.debt) + '</td>' +
         '<td>' + rawHacds(it.coll, true) + '</td>' +
@@ -2444,7 +2447,13 @@ function schedulePostBroadcastRefresh() {
 }
 
 // ===================== 顶部动作 =====================
-$('#saveNet').onclick = async () => { readCfgFromUI(); await window.api.saveCfg(S.cfg); log(t('net.saved'), 'ok'); };
+$('#saveNet').onclick = async () => {
+  readCfgFromUI();
+  // 主进程会校验端点格式（审计 C-H4），失败要告诉用户，不能假装成功
+  const r = await window.api.saveCfg(S.cfg);
+  if (r && r.ok === false) log(t('net.saveFail') + '：' + (r.error || ''), 'err');
+  else log(t('net.saved'), 'ok');
+};
 $('#pingNet').onclick = async () => {
   readCfgFromUI();
   const h = await window.api.httpGet({ url: `${S.cfg.node}/query/block/height/latest` });
@@ -2479,7 +2488,7 @@ async function setAccount(addr, unlocked) {
   renderPanels();
 }
 
-function modal({ title, fields, okLabel, warn, extraHtml }) {
+function modal({ title, fields, okLabel, warn, extraHtml, onMount }) {
   return new Promise((resolve) => {
     $('#mTitle').textContent = title;
     const body = $('#mBody'); body.innerHTML = '';
@@ -2497,6 +2506,9 @@ function modal({ title, fields, okLabel, warn, extraHtml }) {
     if (warn) { const d = document.createElement('div'); d.className='warnbox'; d.textContent = warn; body.appendChild(d); }
     if (extraHtml) { const d = document.createElement('div'); d.innerHTML = extraHtml; body.appendChild(d); }
     $('#modal').hidden = false;
+    // onMount：元素已进 DOM 后回调，供调用方绑定额外的交互
+    //（私钥打码/显示就是靠它，见 walletExportKey）
+    if (typeof onMount === 'function') { try { onMount(); } catch (e) { console.warn(e); } }
     const close = (val) => { $('#modal').hidden = true; resolve(val); };
     $('#mOk').textContent = okLabel || t('btn.ok2');
     $('#mOk').onclick = () => {
@@ -2559,10 +2571,35 @@ $('#btnExportKey').onclick = async () => {
   if (!ok) return;
   const r = await window.api.walletExportKey();
   if (!r.ok) return logErr(t('w.exportFail'), r);
+  // ⚠ 私钥确实要进渲染层 —— 导出功能本身就是"把它显示给用户"，
+  //   这一点无法消除。能做的是**收窄暴露面**（2026-11-12 审计 C-M4）：
+  //     ① 默认打码，必须点一下才显示（防旁观/录屏）；
+  //     ② 弹窗关闭即销毁，不留在 DOM 里；
+  //     ③ 不写进日志、不进剪贴板自动化（复制由用户主动点）。
+  //   原来直接把 0x… 明文塞进 innerHTML，弹窗关掉后仍留在 DOM 树中。
+  const masked = '•'.repeat(64);
   await modal({ title:t('w.exportTitle'), okLabel:t('w.beforeLock'),
     fields:[{name:'__addr',label:t('w.addrField'),default:r.address,readonly:true}],
     warn:t('w.exportWarn'),
-    extraHtml:`<div class="secret">0x${r.keyHex}</div>` });
+    extraHtml:`<div class="secret" id="keySecret" data-shown="0">${masked}</div>
+      <button class="ghost" id="keyReveal" style="margin-top:8px">${t('w.revealKey')}</button>`,
+    onMount:() => {
+      const el = document.getElementById('keySecret');
+      const btn = document.getElementById('keyReveal');
+      if (!el || !btn) return;
+      btn.onclick = () => {
+        const shown = el.dataset.shown === '1';
+        el.textContent = shown ? masked : '0x' + r.keyHex;
+        el.dataset.shown = shown ? '0' : '1';
+        btn.textContent = shown ? t('w.revealKey') : t('w.hideKey');
+        if (shown) r.keyHex = '';        // 重新打码时清掉内存里的副本
+      };
+      // 弹窗销毁时确保 DOM 里不留明文
+      const obs = new MutationObserver(() => {
+        if (!document.body.contains(el)) { el.textContent = ''; r.keyHex = ''; obs.disconnect(); }
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+    } });
 };
 // 点击顶部钱包地址 → 直接弹出可切换地址列表（热切换，无需先进「钱包管理」）
 // 复用 #mBody 的 data-act="open" 委托：选中即输密码解锁目标地址。
@@ -2824,9 +2861,12 @@ function showHacdModal(i) {
   try { svg = window.CreateDiamondImageTagSVG(i.visual_gene, 240); } catch (e) {}
   // 「标签：值」连写，不用 space-between —— 后者会把两者推到两端，
   // 中间一条长空白，读起来像两段无关的文字（用户反馈过）。
+  //
+  // ⚠ k / v 都可能是外部数据（钻石名、所属地址、铭文内容），必须转义
+  //   （2026-11-12 审计 C-H3）。extra 是内部拼的 class 属性，不走 esc。
   const row = (k, v, extra) => v == null || v === ''
     ? ''
-    : `<div class="det-row"><span class="k">${k}</span><span class="v"${extra || ''}>${v}</span></div>`;
+    : `<div class="det-row"><span class="k">${esc(k)}</span><span class="v"${extra || ''}>${esc(v)}</span></div>`;
   body.innerHTML =
     '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">' +
       '<div style="flex:0 0 240px">' + svg + '</div>' +
