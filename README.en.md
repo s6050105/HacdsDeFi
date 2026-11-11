@@ -6,7 +6,7 @@ hacds is a DeFi protocol on the Hacash mainnet: one HVM contract, an off-chain i
 
 > **Current version: #3000 (pending deployment, under public audit)**
 > The previous #2000 is retired: oracle shut down, all user assets redeemed, contract abandoned.
-> Legacy source is kept under the git tag [`v2000-legacy`](../../releases/tag/v2000-legacy), for reference only.
+> Legacy source is kept under the git tag [`v2000-legacy`](../../tree/v2000-legacy), for reference only.
 
 ## 🚫 About the installers in Releases
 
