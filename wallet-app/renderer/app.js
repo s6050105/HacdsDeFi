@@ -1427,6 +1427,20 @@ function buildCallParams(op, v) {
       const z = hacInputToZhu(v[f.name]);
       return `${z == null ? '0' : z}:${f.type}`;
     }
+    // ⚠ 审计 C-H3 复核：address 类型来自索引器（外部数据），含 `,` 或 `:`
+    //   会切开参数列表、注入额外参数位（`a,b:address` 会被当成两个参数）。
+    //   这里强制 base58 字符集与长度。
+    //
+    //   ⚠ 非法时**抛异常中止**，不能返回空串：返回空串会拼出
+    //     `,,100000000:u128` 这种畸形参数串，合约侧报一个看不懂的
+    //     CallArgvTypeFail，用户以为是钱包坏了。抛出来才能干净地拦住。
+    if (f.type === 'address') {
+      const a = String(v[f.name] == null ? '' : v[f.name]).trim();
+      if (!/^[1-9A-HJ-NP-Za-km-z]{26,36}$/.test(a)) {
+        throw new Error(t('f.badAddress') + '：' + (a ? a.slice(0, 24) : '(空)'));
+      }
+      return `${a}:${f.type}`;
+    }
     return `${v[f.name]}:${f.type}`;
   }).join(',') || '-';
 }
@@ -1522,10 +1536,12 @@ function renderLiqPanel(host) {
         '<td>' + hacOf(it.debt) + '</td>' +
         '<td>' + rawHacds(it.coll, true) + '</td>' +
         '<td>' + liqStateTag(it) + '</td>' +
+        // ⚠ data-a 是属性值，同样要转义 —— esc() 会转义双引号，可防止
+        //   `"` 逃逸出属性注入新属性（审计 C-H3 复核补漏）。
         '<td>' + (it.liquidatable
-            ? '<button class="primary liqGo" data-a="' + it.address + '">' + t('liq.liquidate') + '</button>'
+            ? '<button class="primary liqGo" data-a="' + esc(it.address) + '">' + t('liq.liquidate') + '</button>'
             : '') +
-          ' <button class="ghost liqDel" data-a="' + it.address + '">' + t('liq.del') + '</button></td>' +
+          ' <button class="ghost liqDel" data-a="' + esc(it.address) + '">' + t('liq.del') + '</button></td>' +
         '</tr>').join('') + '</table>';
     box.querySelectorAll('.liqGo').forEach(b => b.onclick = () => {
       const addr = b.dataset.a;

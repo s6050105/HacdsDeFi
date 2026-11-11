@@ -106,8 +106,12 @@ EXCLUDES=(
   # 密钥与签名
   ".jks" ".keystore" ".key" ".pem"
 
-  # 部署产物（与源码不同步会误导审计）
-  ".deploy.json" ".contractmap.json"
+  # 部署产物：**只排除根目录那份**（历史遗留、17,259 B 超限、与源码不同源）。
+  # _build_v30/ 下的产物是白名单里明确要同步的 —— 审计方需要能核对
+  # 「这份源码编译出的就是这个字节码」，产物缺失反而无法验证。
+  # ⚠ 用路径前缀而不是后缀匹配，否则白名单里的 _build_v30/*.deploy.json 会被吃掉。
+  "/hacds_exchange/HacdsDeFi3000.deploy.json"
+  "/hacds_exchange/HacdsDeFi3000.contractmap.json"
 
   # 备份 / 临时 / 调试残留
   "/_archive_" "/tmp_" "/_trash_" "/_bench/" "/_dist_stale_"
