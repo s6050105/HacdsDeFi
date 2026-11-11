@@ -167,6 +167,58 @@
     };
   }
 
+  /**
+   * 构建纯转账动作的交易体（不经过合约函数）。
+   *
+   * 为什么单独一个函数：TX.build() 用于合约调用，POST 的是 {fn, params, main}；
+   * 转账走的是原生 action（hac-to / asset-from-to 等），后端用 mode:"transfer" 分流。
+   *
+   * ⚠ 安全约束（后端已强制）：`from` 必须是合约地址。
+   *   前端这里也做一次检查，给出可读错误而不是等服务端拒绝。
+   *
+   * @param {string} sub   子形式：hac-to | hac-from-to | asset-to | asset-from-to | hacd-to | hacd-from-to
+   * @param {object} req   { main, to, from?, hac?, serial?, atoms?, names?, fee? }
+   * @returns {Promise<{txbody, fee, sub}>}
+   */
+  async function transfer(sub, req) {
+    req = req || {};
+    if (!req.main) throw new Error(t('tx.needMain'));
+    if (!req.to) throw new Error(t('tx.needTo'));
+
+    const body = { mode: 'transfer', sub, main: req.main, to: req.to };
+    if (req.from) body.from = req.from;
+    if (req.hac != null) body.hac = String(req.hac);
+    if (req.serial != null) body.serial = String(req.serial);
+    if (req.atoms != null) body.atoms = String(req.atoms);
+    if (req.names != null) body.names = req.names;
+    if (req.fee) body.fee = req.fee;
+
+    const r = await fetch(base() + '/api/build', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(x => x.json());
+
+    if (r.error) {
+      const map = {
+        build_service_unconfigured: t('tx.buildUnconfigured'),
+        bad_sub: t('tx.badSub'),
+        bad_to: t('tx.badTo'),
+        bad_from: t('tx.badFrom'),
+        from_must_be_contract: t('tx.fromMustBeContract'),
+        bad_hac_amount: t('tx.badHacAmt'),
+        bad_serial: t('tx.badSerial'),
+        bad_atoms: t('tx.badAtoms'),
+        bad_hacd_names: t('tx.badHacdNames'),
+        rate_limited: t('tx.rateLimited'),
+        build_failed: t('tx.buildFailed') + (r.detail || ''),
+      };
+      throw new Error(map[r.error] || (r.detail ? r.error + ': ' + r.detail : r.error));
+    }
+    if (!r.txbody) throw new Error(t('tx.emptyTxbody'));
+    return r;
+  }
+
   async function redeemHacd(main, name) {
     return {
       ok: false,
@@ -212,8 +264,12 @@
   /** 显示值 → atoms（decimal=0：原值即个数，不接受小数） */
   function displayToAtoms(s) {
     if (!s) return '0';
-    const str = String(s).trim();
-    // decimal=0 只接受非负整数；带小数点的输入直接判非法（不静默截断）
+    let str = String(s).trim();
+    // decimal=0 只接受非负整数。
+    // 但尾随的 `.000…` 要放行 —— 自动配平/报价可能写出 "33183372.00000000"，
+    // 这等价于整数，拒绝它只会让用户看到莫名其妙的构建失败。
+    // 真正的 0.5 这类小数仍然判非法，不静默截断。
+    if (/^\d+\.0+$/.test(str)) str = str.replace(/\.0+$/, '');
     if (!/^\d+$/.test(str)) return null;
     return BigInt(str).toString();
   }
@@ -222,6 +278,7 @@
     build, deadline, DEADLINE_WINDOW,
     swapHacToDs, swapDsToHac, addLiquidity, removeLiquidity,
     borrow, repay, addCollateral, harvest, mintHacd, redeemHacd,
+    transfer,
     hacToZhu, zhuToHac, atomsToDisplay, displayToAtoms,
   };
 })();

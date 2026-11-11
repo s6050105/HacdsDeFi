@@ -1,63 +1,82 @@
 # HacdsDeFi RPC Documentation
 
-2026-10-21　For developers
+2026-11-11　Contract #3000　For developers
 
-> ⚠️ **This document describes the retired #2000 version. Do not use it as the current implementation reference.**
+> This document describes the Hacash mainnet contract `HacdsDeFi3000.fitsh`
+> (address `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`, asset serial 3000, decimal 0).
 >
-> #3000 removes the **oracle, certificates, and the admin**: HACD scoring is now computed
-> on-chain from the diamond gene, with no certificate stream and no `init_admin` / `set_paused` /
-> `set_oracle`. Asset parameters are now serial 3000 / decimal 0, and the contract address is
-> `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`.
->
-> **For the current implementation, refer to:**
-> - [README](../README.en.md)
-> - [Economic design (final)](../hacds_exchange/HacdsDeFi3000-经济设计-定稿.md)
-> - [Deployment parameters](../hacds_exchange/发行参数-正式.md)
-> - [Final audit report](../安全审计/上线前安全审计报告-2026-10-27-终审.md)
->
-> The #3000 edition of this document will ship with the official release after the contract is deployed.
-
-
-## 0. Services at a glance
-
-hacds involves three HTTP services. They are independent and can be deployed separately.
-
-| Service | Default address | Protocol | Purpose |
-|---|---|---|---|
-| Full node | `43.251.101.101:8082` | HTTP/JSON | Chain data, sandbox read-only calls, transaction verify/broadcast |
-| Oracle | `43.251.101.101:8123` | HTTP/JSON | Signs diamond scoring certificates |
-| Indexer | `43.251.101.101:8124` | HTTP/JSON | Borrower ledger (who can be liquidated) |
-
-The wallet does not scan the chain locally. All chain data comes through these three services.
-
-```
-full node :8082 ──GET──► indexer :8124 ──GET /watchlist──► client
-      ▲                                                       │
-      └──────────────── oracle :8123 (signs certs) ◄──────────┘
-```
-
-**Response convention**: every endpoint returns JSON with a top-level `ret` field. `ret: 0` means success; non-zero means failure (usually with an `err` field).
-**Note**: failures also return **HTTP 200**. You must check `ret` in the body — the status code alone will not tell you.
+> **This document contains no #2000-era interfaces.** The oracle, scoring
+> certificates, and admin functions **no longer exist** in the new contract —
+> not because permissions were revoked, but because those functions were never
+> written into it.
 
 ---
 
-## 1. Full node API
+## 0. Services at a Glance
 
-### 1.1 Block height
+hacds involves four HTTP services. The first two read the chain; the other two
+are conveniences.
+
+| Service | Address | Protocol | Purpose |
+|---|---|---|---|
+| Full node RPC | `node.hacds.com` | HTTP/JSON | Chain data, sandbox read-only calls, verify/broadcast |
+| API proxy | `api.hacds.com` | HTTP/JSON | Forwards to the node, adds CORS + HTTPS |
+| Indexer | `indexer.hacds.com` | HTTP/JSON | Borrower ledger (who is liquidatable) |
+| Build service | `build.hacds.com` | HTTP/JSON | Turns human input into an unsigned transaction |
+
+```
+                 ┌──────────────┐
+  client ──GET──►│ Full node RPC│◄── indexer (scans chain, builds ledger)
+    │            └──────────────┘
+    │                    ▲
+    └──POST──► build svc ┘   (builds but never signs)
+```
+
+**Why an API proxy**: the node does not return CORS headers, so browsers are
+blocked from calling it directly. `api.hacds.com` is a Cloudflare Worker that only
+forwards and adds headers — semantics are unchanged. The origin ports are not
+80/443, so Cloudflare reaches the origin through a Tunnel.
+
+**Response convention**: every endpoint returns JSON with a top-level `ret`.
+`ret: 0` means success; non-zero means failure (usually with `err`).
+
+> ⚠ **Failures also return HTTP 200.** You must check `ret` in the body, not the
+> status code.
+
+**Why nodes are subdomains, not `IP:port`**: Cloudflare Workers can only reach
+ports 80 and 443. Any `IP:8082` style address is rejected before a connection is
+attempted (`error code: 1003`). Everything external therefore goes through
+`*.hacds.com` subdomains backed by a Tunnel.
+
+---
+
+## 1. Full Node API
+
+### 1.1 Query block height
 
 ```
 GET /query/block/height/latest
 ```
 
 ```json
-{"ret":0,"height":792580}
+{"ret":0,"height":798812}
+```
+
+VM status (enabled, current height):
+
+```
+GET /api/vm/status
+```
+
+```json
+{"ret":0,"vm":"enabled","height":798812}
 ```
 
 ---
 
-### 1.2 Average fee
+### 1.2 Query average fee
 
-For fee estimation.
+Used to estimate transaction fees.
 
 ```
 GET /query/fee/average
@@ -67,95 +86,62 @@ GET /query/fee/average
 {"ret":0,"purity":"6024000000","purity_unit":232}
 ```
 
-`purity` = `fee / billing_size (bytes)`. Node admission requires `purity ≥ min_purity` (currently `6024000000`).
+`purity` = `fee / billing_size (bytes)`. Node admission requires
+`purity ≥ min_purity`.
 
 ---
 
-### 1.3 Balance (HAC / diamonds / assets)
+### 1.3 Query balances (HAC / diamonds / assets)
 
 ```
 GET /query/balance?address={address}&assets=true&asset_meta=true&diamonds=true
 ```
 
-All three switches are optional:
+All three flags are optional:
 
-| Parameter | Effect |
+| Flag | Effect |
 |---|---|
-| `assets=true` | Returns the `assets` array (on-chain assets) |
-| `asset_meta=true` | Adds `name` / `ticket` / `supply` / `decimal` to each asset |
-| `diamonds=true` | Returns `diamonds` (a concatenated name string, 6 characters per diamond) |
-
-**Measured response** (address `15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q`):
+| `assets=true` | Include the asset list (hacds lives here) |
+| `asset_meta=true` | Include asset name / supply metadata |
+| `diamonds=true` | Include the HACD diamond list |
 
 ```json
 {
   "ret": 0,
   "list": [{
-    "hacash": "217001914996:237",
-    "diamond": 7,
-    "satoshi": 0,
-    "diamonds": "ZUKKXZTTBAAUAYEWKKIXAYYUYTXNNBEUETIVYBYHYX",
-    "assets": [{
-      "serial": "2000",
-      "amount": "4000000000",
-      "decimal": 8,
-      "name": "hacds",
-      "ticket": "HACDS",
-      "supply": "5963298700000000"
-    }]
+    "address": "1P2tsn...",
+    "hacash": "1234567:248",
+    "diamond": 3,
+    "assets": [{"serial": 3000, "amount": "100000000"}]
   }]
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `hacash` | HAC balance, formatted `value:unit` (`237` means 1:237 precision) |
-| `diamond` | Number of diamonds |
-| `diamonds` | Concatenated diamond names, **6 characters each** |
-| `satoshi` | SAT balance |
-| `assets[].serial` | Asset serial. **hacds = `2000`** |
-| `assets[].amount` | Balance. A string, to avoid JS precision loss |
-| `assets[].decimal` | Decimal places. hacds is `8` |
-| `assets[].supply` | Total supply |
-
-**⚠ `amount` is in atoms, not a count.** `4000000000` is 40 hacds. See section 4.
+**Amounts use the `<value>:<unit>` form**: `5:249` means 50 HAC
+(5 × 10^(249−248)), not 5.0038. See §6.3 for the conversion.
 
 ---
 
-### 1.4 Diamond details
+### 1.4 Query diamond details
 
 ```
-GET /query/diamond?name={6-character diamond name}
+GET /query/diamond?name={6-char diamond name}
 ```
 
-```json
-{
-  "ret": 0,
-  "name": "KWTVSH",
-  "belong": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-  "inscriptions": ["hacds"],
-  "number": 85662,
-  "miner": "1GSL5G6LyuKgg325DxPtfPouaTeTHaZbGh",
-  "born": {"height": 522125, "hash": "00000000..."},
-  "life_gene": "05e7b8f313761bc8d55ddfe6945b3ba1aedbb4065288bceb5901d24c3cb2a9aa",
-  "visual_gene": "aab018d628cb912cc290"
-}
-```
-
-`belong` is the current owner. If it equals the contract address, the diamond has been deposited.
-`visual_gene` is the input for the artwork and the score.
+Returns the diamond's number, visual gene, owner, and more. Scoring needs
+`number` and `visual_gene`, both found here.
 
 ---
 
-### 1.5 Sandbox read-only call (**the main way to read contract state**)
+### 1.5 Sandbox read-only call (**the primary way to read contract state**)
 
 ```
 GET /query/contract/sandboxcall?contract={contract}&function={function}&params={params}&caller={caller}
 ```
 
-This executes read-only: it does not write state, does not create a transaction, and costs no fee. But for calls that read contract data, **pass the contract address itself as `caller`** — otherwise some functions fail because the caller has no balance (see the note below).
+Read-only execution: no state is written, no transaction is sent, no fee is paid.
 
-**Measured response**:
+**Observed response**:
 
 ```json
 {"ret":0,"use_gas":377,"gas_use":{"compute":132,"resource":209,"storage":36},"ret_val":120200677111}
@@ -163,74 +149,167 @@ This executes read-only: it does not write state, does not create a transaction,
 
 | Field | Meaning |
 |---|---|
-| `ret` | 0 = the call succeeded |
-| `ret_val` | The function's return value (u128, string or number) |
-| `use_gas` / `gas_use` | Consumption for this call, for estimation |
+| `ret` | 0 = call succeeded |
+| `ret_val` | Function return value |
+| `use_gas` / `gas_use` | Gas consumed, for estimation |
 
-**⚠ Note 1: omitting `caller` fails.** Measured without it:
+> ⚠ **Before deployment this returns `NotFindContract`.** That is expected:
+> the contract is deployed at height 800,000. It becomes callable afterwards.
+
+#### 1.5.1 Two pitfalls you must know
+
+**Pitfall 1: omitting `caller` fails.**
 
 ```json
-{"ret":1,"err":"[revert] address \"1111111111111111111114oLvT2\" balance 0:0 is insufficient, at least 559555:242"}
+{"ret":1,"err":"[revert] address \"1111...\" balance 0:0 is insufficient, at least 559555:242"}
 ```
 
-The default caller has zero balance and cannot cover the gas pre-charge. **Pass `caller={contract address}` and it works.**
+The default caller has zero balance and cannot prepay gas. **Pass `caller={contract address}`** — a contract calling itself needs no balance.
 
-**⚠ Note 2: per-IP concurrency is capped at 2.** The node limits concurrent sandbox calls, and requests over the cap are **rejected outright** (no queueing):
+**Pitfall 2: sandbox concurrency per IP is 2.** Excess requests are **rejected outright**, not queued:
 
 ```json
 {"ret":1,"err":"sandbox_per_ip_concurrency_exceeded"}
 ```
 
-Clients must **serialize and retry on failure**. Do not fire a dozen at once with `Promise.all`.
+Clients must **serialize with backoff**. Do not fire a dozen with `Promise.all`.
 
-#### Read-only contract functions
+#### 1.5.2 Parameter format
 
-Parameters are formatted `value:type`, comma-separated for multiple.
+`params` is `value:type` separated by commas. `:` must be URL-encoded as `%3A`.
 
-| Function | Parameters | Returns | Notes |
+| Type | Example |
+|---|---|
+| `u128` | `100000000:u128` |
+| `address` | `1P2tsn...:address` |
+| `bytes` | `WTYUIA:bytes` |
+
+#### 1.5.3 Complete read-only function list
+
+**AMM and liquidity**
+
+| Function | Params | Returns | Notes |
 |---|---|---|---|
-| `amm_reserves` | — | u128 | HAC in the pool (**zhu**) |
-| `amm_reserve_ds` | — | u128 | hacds in the pool (**atoms**) |
+| `amm_reserves` | — | u128 | Pool HAC (**zhu**) |
+| `amm_reserve_ds` | — | u128 | Pool hacds (**count**) |
 | `pool_price` | — | u128 | Pool price = `amm:hac × 1e8 / amm:ds` |
 | `lp_total` | — | u128 | Total LP shares |
-| `lp_share_of` | `{addr}:address` | u128 | LP shares of an address |
-| `lp_pending_hac` | `{addr}:address` | u128 | Pending LP reward (HAC, zhu) |
-| `lp_pending_ds` | `{addr}:address` | u128 | Pending LP reward (hacds, atoms) |
-| `total_staked` | `{kind}:u128` | u128 | Total staked. kind `0`=HAC, `1`=hacds |
-| `treasury_pending` | `{kind}:u128` | u128 | Treasury pending. kind `0`=HAC, `1`=hacds |
-| `balance_hac` | `{addr}:address` | u128 | In-contract HAC points (zhu) |
-| `balance_ds` | `{addr}:address` | u128 | Pending hacds quota, `due` (atoms) |
-| `loan_status` | `{addr}:address` | u128 | Borrower status, see below |
-| `loan_debt_of` | `{addr}:address` | u128 | Debt (zhu) |
-| `loan_coll_of` | `{addr}:address` | u128 | Collateral (atoms) |
-| `quote_score` | `{name}:bytes,{vg}:bytes,{num}:u128` | u128 | Score for a name + gene + number |
+| `lp_share_of` | `who:address` | u128 | An address's LP shares |
+| `lp_pending_hac` | `who:address` | u128 | Pending LP reward (HAC, zhu) |
+| `lp_pending_ds` | `who:address` | u128 | Pending LP reward (hacds, count) |
+| `total_staked` | `kind:u128` | u128 | kind `0`=HAC, `1`=hacds |
 
-**`loan_status` return semantics** (important — do not read it as a health percentage):
+**Lending**
 
-| Value | Meaning |
+| Function | Params | Returns | Notes |
+|---|---|---|---|
+| `loan_debt_of` | `who:address` | u128 | Principal (zhu), **excluding** unsettled interest |
+| `loan_debt_now` | `who:address` | u128 | Debt including interest (zhu) |
+| `loan_coll_of` | `who:address` | u128 | Locked collateral (hacds count) |
+| `loan_health` | `who:address` | u128 | **Health as basis points**, see below |
+| `loan_status` | `who:address` | u128 | Collateral ratio ×100, see below |
+| `total_debt` | — | u128 | Global debt (zhu) |
+| `providers_total` | — | u128 | Total lendable funds |
+| `utilization` | — | u128 | Current utilization (bps) |
+| `borrow_coll_ratio` | — | u128 | Borrow line percentage (`200`) |
+| `liq_coll_ratio` | — | u128 | Liquidation line percentage (`160`) |
+| `borrow_paused` | — | u128 | Non-zero = new borrowing paused |
+| `ref_paused` | — | u128 | Non-zero = price deviation circuit breaker active |
+| `lendable_amm` | — | u128 | Lendable portion of AMM (30%) |
+| `net_claims` | — | u128 | Total claims network-wide |
+| `reserve_hac` | — | u128 | Bad debt reserve |
+| `deficit_hac` | — | u128 | Deficit |
+
+**How to read health correctly**
+
+| `loan_health` returns | Meaning |
 |---|---|
-| `0` | No loan, no collateral |
-| `999` | Has collateral but no debt (safe) |
-| anything else | `coll_hac × 100 / debt`, i.e. **collateral ratio ×100** |
+| `1000000` | No debt (sentinel the contract returns; treat as very healthy) |
+| `> 10000` | Safe |
+| `= 10000` | Exactly at the liquidation line |
+| `< 10000` | **Liquidatable** |
+| `< 9000` | Deep water; full liquidation allowed |
 
-**Liquidation predicate**: liquidatable when `debt > 0 && 0 < status < 200`.
+**Important**: this value is computed with `coll_to_hac_liq()`, i.e. the
+**conservative price `min(spot, smoothed reference)`**, the same source as
+`loan_liquidate`. So you will never see "interface says safe, chain says
+liquidatable". Do not compute health yourself from `loan_status`; use this.
 
-**Measured samples**:
+`loan_status` is the legacy view (`coll_hac × 100 / debt`, spot price), kept for
+compatibility:
+
+| Return | Meaning |
+|---|---|
+| `0` | No debt and no collateral |
+| `999` | Collateral but no debt |
+| other | Collateral ratio ×100 |
+
+**HACD pool**
+
+| Function | Params | Returns | Notes |
+|---|---|---|---|
+| `hacd_score_total` | — | u128 | Total HACD score in pool (already ×`SCORE_SCALE`) |
+| `hacd_count` | — | u128 | Number of HACDs in pool |
+| `hacd_avg_score` | — | u128 | Average score (already ×`SCORE_SCALE`) |
+| `hacd_coverage` | — | u128 | Coverage (bps, 10000 = 100%) |
+| `quote_redeem` | `sc:u128` | tuple | Redemption quote, see below |
+| `quote_score` | `name:bytes,vg:bytes,num:u128` | u128 | Score by name + gene + number |
+
+**`quote_redeem` returns**: `tuple(charge, fee, premium_bps, ok)`
+
+| Element | Meaning |
+|---|---|
+| `charge` | Total deduction (principal + fee) |
+| `fee` | The fee portion |
+| `premium_bps` | Cherry-pick premium (bps) |
+| `ok` | `1` = redeemable; `0` = the real transaction would return `61` |
+
+**Price and factors**
+
+| Function | Params | Returns | Notes |
+|---|---|---|---|
+| `ref_price_of` | — | u128 | Smoothed reference price |
+| `ref_price_zhu_per_ds` | — | u128 | Reference price (zhu per hacds) |
+| `ref_height` | — | u128 | Block height of the last reference update |
+| `hcut` | — | u128 | HAC socialization factor (1e12 scale, only decreases) |
+| `lcut` | — | u128 | LP reward socialization factor |
+
+**Accounts and treasury**
+
+| Function | Params | Returns | Notes |
+|---|---|---|---|
+| `balance_hac` | `who:address` | u128 | Effective HAC balance (zhu, already multiplied by hcut) |
+| `balance_hac_nominal` | `who:address` | u128 | Nominal share (zhu) |
+| `balance_ds` | `who:address` | u128 | Pending hacds quota (due) |
+| `bad_of` | `who:address` | u128 | Bad debt attributed to an address |
+| `treasury_pending` | `kind:u128` | u128 | Treasury pending sweep. `0`=HAC, `1`=hacds |
+| `treasury_ds` | — | u128 | Accumulated treasury hacds |
+| `tot_hac` | — | u128 | Total HAC (effective) |
+| `tot_hac_nominal` | — | u128 | Total HAC (nominal) |
+| `lpr_hac_effective` | — | u128 | Effective LP reward pool |
+
+**Operations**
+
+| Function | Params | Returns | Notes |
+|---|---|---|---|
+| `self_check` | — | u128 | Internal consistency check, `0` = pass |
+| `rent_key_group_count` | — | u128 | Number of key groups (fixed `7`) |
+| `rent_key_len_at` | `idx:u128` | u128 | Key length of group idx |
+| `rent_keys_group` | `klen:u128` | bytes | All keys of that length (feed directly to `rent_keys`) |
+
+#### 1.5.4 Observed sample
 
 ```
-GET /query/contract/sandboxcall?contract=VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-    &function=amm_reserves&caller=VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-→ {"ret":0,"use_gas":377,"gas_use":{"compute":132,"resource":209,"storage":36},"ret_val":120200677111}
-
-GET ...&function=loan_status&params=15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q%3Aaddress&caller={contract}
-→ {"ret":0,"use_gas":830,"gas_use":{"compute":363,"resource":323,"storage":144},"ret_val":0}
+GET {node}/query/contract/sandboxcall?contract=T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH
+    &function=loan_health&params=1P2tsn...%3Aaddress&caller=T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH
+→ {"ret":0,"use_gas":830,"gas_use":{"compute":363,"resource":323,"storage":144},"ret_val":1000000}
 ```
 
-> `:` must be URL-encoded as `%3A`.
+`ret_val: 1000000` = that address has no debt.
 
 ---
 
-### 1.6 Block intro
+### 1.6 Query block summary
 
 The indexer uses this to walk blocks looking for borrowers.
 
@@ -238,183 +317,68 @@ The indexer uses this to walk blocks looking for borrowers.
 GET /query/block/intro?height={height}&tx_hash_list=true
 ```
 
-```json
-{
-  "ret": 0,
-  "hash": "0000000000279d55a83105ce01311cd50b06fb5efcb1175e3891a9b46fcf27b1",
-  "version": 1,
-  "height": 792575,
-  "timestamp": 1792537829,
-  "nonce": 17,
-  "difficulty": "...",
-  "miner": "...",
-  "reward": "...",
-  "tx_hash_list": ["b6488be2b07be8745ac5827e00928ebc840a803d6a132cd9eb573812221e55ce"]
-}
-```
-
-`tx_hash_list` is only returned when `tx_hash_list=true` is passed.
-
 ---
 
-### 1.7 Transaction lookup
+### 1.7 Query transaction
 
 ```
-GET /query/transaction?hash={tx hash}&action=true
-```
-
-Without `action=true`, only the summary comes back:
-
-```json
-{
-  "ret": 0,
-  "hash": "b6488be2...",
-  "hash_with_fee": "cf947b86...",
-  "type": 2,
-  "timestamp": 1792537576,
-  "fee": "245:247",
-  "fee_got": "245:246",
-  "main_address": "1NsStAq1xt7cuqvEAobcS8T6gqcyS2gnMB",
-  "action": 1,
-  "block": {"height": 792575, "timestamp": 1792537829},
-  "confirm": 5
-}
-```
-
-With `action=true`, a structured action array is added:
-
-```json
-"actions": [{
-  "kind": 4,
-  "d": {
-    "diamond": "IKEMYN",
-    "number": 138592,
-    "prev_hash": "0x0000...",
-    "nonce": "0x00000001a90d5c45",
-    "address": "1EaqdAi9FLCQwLYPLWVtoRM1fZwGezXLTi",
-    "custom_message": "0xb0114b5f..."
-  }
-}]
-```
-
-**Contract calls are `kind = 44`**, and their bytecode contains the function selector:
-
-```
-09 14 01 <sig4: 4 bytes> ee
-```
-
-`sig4 = sha3_256(function name)[0:4]`. This is how the indexer identifies which contract function a transaction called.
-
-**Note**: the transaction must be confirmed (`confirm ≥ 1`) for this endpoint to find it; unconfirmed ones are not visible.
-
----
-
-### 1.8 Verify a transaction (with human-readable description)
-
-```
-POST /util/transaction/check?description=true
-Content-Type: application/octet-stream
-Body: the transaction's raw bytes (not a hex string)
-```
-
-**Signed or unsigned both work.** With `description=true` it returns plain-language descriptions.
-
-**Measured response**:
-
-```json
-{
-  "ret": 0,
-  "hash": "37637b89...",
-  "hash_with_fee": "14f0c5e3...",
-  "type": 3,
-  "timestamp": 1792469415,
-  "fee": "1:248",
-  "fee_got": "1:248",
-  "main_address": "15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q",
-  "action": 1,
-  "gas_max": 99,
-  "description": "Main account 15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q pay 1:248 HAC tx fee",
-  "actions": [{
-    "action": {
-      "kind": 16,
-      "metadata": {
-        "serial": 2000,
-        "supply": 5963298700000000,
-        "decimal": 8,
-        "issuer": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-        "ticket": "0x4841434453",
-        "name": "0x6861636473"
-      },
-      "protocol_cost": "8:248"
-    },
-    "description": "Register Asset #2000 \"HACDS\" (name \"hacds\", supply 5963298700000000 atoms, 8 decimals, issuer VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1); pay 8 HAC protocol fee"
-  }]
-}
-```
-
-Failures also return HTTP 200:
-
-```json
-{"ret":1,"err":"transaction body invalid"}
+GET /query/transaction?hash={tx hash}
 ```
 
 ---
 
-### 1.9 Broadcast a transaction
+### 1.8 Verify transaction (with human-readable description)
+
+```
+POST /util/transaction/check
+Content-Type: application/json
+
+{"tx": "040000... (hex)"}
+```
+
+On success it returns the parsed result and a readable action description:
+
+```json
+{"ret":0,"describe":"[CallContract] T1A8... -> swap_hac_to_ds(...)"}
+```
+
+**This endpoint does not sign or broadcast; it only verifies.** Wallets use it as
+a final gate before broadcasting.
+
+---
+
+### 1.9 Broadcast transaction
 
 ```
 POST /submit/transaction
-Content-Type: application/octet-stream
-Body: the signed transaction's raw bytes
-```
+Content-Type: application/json
 
-Success:
+{"tx": "040000... (hex)"}
+```
 
 ```json
-{"ret": 0, "hash": "tx hash"}
+{"ret":0}
 ```
 
-Failure:
-
-```json
-{"ret": 1, "err": "transaction parse failed"}
-```
-
-**⚠ `ret:0` only means it reached the mempool, not that it is on chain.** Hacash targets **300-second** blocks, so it takes effect only at the next block.
-To confirm, poll `/query/transaction?hash=...` and watch the `confirm` field, or watch the balance via `/query/balance`.
+> ⚠ `ret: 0` means **it reached the mempool only**, not that it is confirmed.
+> Target block time is 300 seconds; poll `/query/transaction` on that cadence.
 
 ---
 
-### 1.10 Contract storage fee parameters
-
-Used when deploying a contract or estimating the cost of new keys.
+### 1.10 Contract storage cost parameters
 
 ```
-GET /query/contract/storage_fee
+GET /query/contract/storage_cost?contract={contract}
 ```
 
-```json
-{
-  "ret": 0,
-  "enabled": true,
-  "rule_version": 1,
-  "head_height": 792581,
-  "target_capacity_blocks": 1000,
-  "capacity": 1000000,
-  "rate": 1000,
-  "remaining": 1000000,
-  "p_min": 10,
-  "p_max": 10000,
-  "periods": 10,
-  "k_max": 16384
-}
-```
-
-`periods` is the current discount period count. If it is not at full price, regenerate the deployment action with it.
+Used to estimate renewal cost.
 
 ---
 
-## 2. Oracle API
+## 2. Indexer API
+
+The indexer scans the chain and maintains a ledger of "who has debt, who is
+liquidatable". **Wallets do not scan the chain themselves.**
 
 ### 2.1 Health check
 
@@ -423,75 +387,99 @@ GET /health
 ```
 
 ```json
-{"ok": true, "oracle": "1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu"}
+{"ok": true, "service": "hacds-indexer", "head": 798812, "watched": 0}
 ```
 
-`oracle` is the oracle account address. **This address is fixed in the contract** — certificates signed by any other address are not accepted.
-
----
-
-### 2.2 Request a scoring certificate
-
-Required to deposit or redeem diamonds.
+### 2.2 Ledger snapshot (**the only endpoint most clients need**)
 
 ```
-GET /cert?name={6-character diamond name}
+GET /snapshot
 ```
 
-**Measured response**:
+Returns a health snapshot of every watched address:
 
 ```json
 {
-  "name": "KWTVSH",
-  "number": 85662,
-  "visual_gene": "aab018d628cb912cc290",
-  "life_gene": "05e7b8f313761bc8d55ddfe6945b3ba1aedbb4065288bceb5901d24c3cb2a9aa",
-  "score": 20,
-  "hacds_amount": 2000000000,
-  "details": {
-    "shapes": "Common diamond",
-    "styles_or_color": "Double mix",
-    "nameliteral": "Common diamond",
-    "numberliteral": "Common diamond",
-    "score": 20
-  },
-  "cert_message_hex": "4b5754565348aab018d628cb912cc2900000000000014e9e0000001401",
-  "cert_sha3_256": "0fca486f6d7c934006efb7ab926a12928bfda49d09ced3440c27ac2c39a88921",
-  "sign_hex": "023d7424448df611baf27f5188d1e48450082e94bb4d207b1612e22d299bd372d1aff139d57bd79446670c3ef77bab7471a33ada1df5f72adc90e13d316d7bcffc4ce07221ae7730e4b84b51f63208d133c508e8426b71fa4aa1d61f91a3563679",
-  "oracle_address": "1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu",
-  "version": 1
+  "head": 798812,
+  "updated": 1762900000,
+  "items": [
+    {"addr": "1P2tsn...", "debt": "100000000", "coll": "300000000",
+     "health": 16000, "ratio": 160, "liq": true}
+  ]
 }
 ```
 
 | Field | Meaning |
 |---|---|
-| `score` | Diamond score. **1 point = 1 hacds** |
-| `hacds_amount` | hacds granted, in **atoms** (`2000000000` = 20) |
-| `cert_message_hex` | Certificate message body (29 bytes), goes into the transaction's Message/Blob |
-| `sign_hex` | The oracle's signature over that message (97 bytes) |
-| `oracle_address` | The signing account |
+| `debt` | `loan_debt_now` (including interest) |
+| `coll` | Collateral hacds count |
+| `health` | Basis points, same scale as `loan_health` |
+| `ratio` | Collateral ratio percentage |
+| `liq` | `true` = currently liquidatable |
 
-**Certificate length = 126 bytes** (29-byte message + 97-byte signature). N diamonds in one transaction means `N × 126` bytes of certificates.
+### 2.3 Snapshot only (no sync)
 
-Errors:
-
-```json
-{"error": "query name must be 6 chars"}   // HTTP 400
-{"error": "..."}                          // HTTP 502, usually the node is unreachable
+```
+GET /snapshot?cached=1
 ```
 
-**⚠ The diamond name must be exactly 6 characters.** Case-insensitive (the server upper-cases it).
+### 2.4 Force sync
+
+```
+POST /sync
+```
+
+Scans up to the latest block immediately. For operations; not normally needed.
+
+### 2.5 Watch list maintenance
+
+```
+POST /watch/add?addr={address}
+POST /watch/remove?addr={address}
+```
+
+The indexer discovers borrowers automatically; these fill gaps manually.
+
+### 2.6 Issuance coverage monitoring
+
+```
+GET /backing
+```
+
+Compares "total due the contract records" against "hacds actually issued
+on-chain", to detect anomalies.
+
+### 2.7 Rent batches
+
+```
+GET /rent_batches
+```
+
+Returns key batches grouped by length that can be fed directly to `rent_keys`.
+The keeper uses this.
+
+### 2.8 Deployment
+
+```bash
+python3 hacds_indexer.py --node http://127.0.0.1:8082 \
+    --contract T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH --port 8124
+```
 
 ---
 
-## 3. Indexer API
+## 3. Build Service
 
-The indexer only consumes the full node read-only. It **never submits transactions, needs no private key, and needs no balance.**
+This service translates "human-readable parameters" into "an unsigned
+transaction". **It holds no private key; the transaction it builds must be signed by the client.**
 
-It solves one problem: **the contract cannot enumerate borrowers**. Loan records are stored under keys built from the address (`loan:debt:<address>`); the contract has no list, writes no log, and the node cannot enumerate contract KV by prefix. So the only way is to walk blocks and dig the addresses that ever called a lending function out of history.
+Source: `hacds_exchange/indexer/hacds_build_server.py`
 
-> **Deployment status**: currently `43.251.101.101:8124` returns `502` — the service is not running.
-> The response shapes below are taken from the source (`hacds_indexer.py`); they are what you get once it runs.
+### 3.0 Why it exists
+
+Constructing a Hacash transaction requires precise fee / gas / action encoding,
+plus the wire format for diamond name lists. Having every client reimplement that
+guarantees the three clients will behave differently. Centralizing construction
+means the client only signs — **what gets signed changes, who signs does not.**
 
 ### 3.1 Health check
 
@@ -500,423 +488,421 @@ GET /health
 ```
 
 ```json
-{"ok": true, "service": "hacds-indexer", "head": 792580, "watched": 12}
+{"ok": true, "service": "hacds-build", "version": "2026-11-11.2",
+ "txbuild_ok": true, "contract": "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"}
 ```
 
-### 3.2 Ledger snapshot (**the only endpoint a client needs**)
+`version` matters: Python does not hot-reload, so a changed script requires a
+process restart. If behavior and `version` disagree, check that the process was
+restarted.
+
+### 3.2 Build a contract call
 
 ```
-GET /watchlist
-```
+POST /api/build
+Content-Type: application/json
 
-```json
 {
-  "ret": 0,
-  "head": 792580,
-  "node": "http://43.251.101.101:8082",
-  "contract": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-  "watched": 12,
-  "withDebt": 3,
-  "liquidatable": 1,
-  "snapshot": [{
-    "address": "1Abc...",
-    "health": 150,
-    "healthPct": 1.5,
-    "debt": 12345,
-    "coll": 67890,
-    "liquidatable": true,
-    "noLoan": false,
-    "first": 792000,
-    "last": 792575,
-    "calls": 4,
-    "fns": {"loan_borrow": 2, "loan_add_collateral": 2},
-    "manual": false,
-    "note": null
-  }]
+  "mode": "call",
+  "main": "1P2tsn...",
+  "fn": "swap_hac_to_ds",
+  "params": "100000000:u128,0:u128,0:u128",
+  "fee": "0:248",
+  "gasMax": 99
 }
 ```
 
-| Field | Meaning |
+| Field | Required | Notes |
+|---|---|---|
+| `mode` | No | `call` (default) or `transfer` |
+| `main` | ✅ | Originating address (pays the fee) |
+| `fn` | ✅ | Contract function name, whitelist in §3.4 |
+| `params` | No | `value:type` comma-separated, default `-` |
+| `fee` | No | Form `0:248` |
+| `gasMax` | No | Integer `1–99`, default `99` |
+
+Response:
+
+```json
+{"ok": true, "unsigned_tx": "040000...", "fn": "swap_hac_to_ds",
+ "fee": "0:248", "gas_max": 99}
+```
+
+### 3.3 Build a transfer
+
+```
+POST /api/build
+{
+  "mode": "transfer",
+  "main": "1P2tsn...",
+  "sub": "hacd-from-to",
+  "fee": "0:248"
+}
+```
+
+`sub` is a `hacds_txbuild transfer` subcommand; extra arguments follow the
+subcommand. **`from` is locked to the contract address** — a safety constraint
+preventing this service from constructing "transfer from an arbitrary address"
+transactions.
+
+### 3.4 Function whitelist
+
+```
+swap_hac_to_ds · swap_ds_to_hac
+add_liquidity · remove_liquidity · lp_harvest
+loan_add_collateral · loan_borrow · loan_repay · loan_liquidate
+rent_keys · topup_keys
+```
+
+Functions outside the whitelist are rejected. **It is a whitelist, not a blacklist** — new functions must be added explicitly.
+
+### 3.5 Limits
+
+| Limit | Value | Why |
+|---|---|---|
+| Requests per IP per minute | 30 | Abuse prevention |
+| Request body | 8 KB | Params capped at 1024 bytes, at most 16 items |
+| Diamond name list | At most 200 | Matches `MAX_DEPOSIT_COUNT` |
+| `gasMax` | 1–99 | Valid range for the contract and engine |
+
+### 3.6 Error codes
+
+| `error` | Meaning |
 |---|---|
-| `head` | Height scanned to |
-| `watched` | Number of addresses in the ledger |
-| `withDebt` | How many have debt |
-| `liquidatable` | How many are liquidatable |
-| `snapshot[].health` | Raw `loan_status` (`0` / `999` / ratio ×100) |
-| `snapshot[].healthPct` | Converted to a multiple (`1.5` = 150%). `null` when `0` or `999` |
-| `snapshot[].liquidatable` | Already judged server-side by `debt > 0 && 0 < health < 200` |
-| `snapshot[].first/last` | First / most recent block height it appeared in a lending call |
-| `snapshot[].fns` | Call counts per function |
-| `snapshot[].manual` | Whether it was added by hand |
-
-**Clients do not need to compute liquidatability themselves** — use `liquidatable` directly.
-
-### 3.3 Snapshot only
-
-```
-GET /snapshot
-```
-
-```json
-{"ret": 0, "list": [ /* same snapshot array as above */ ]}
-```
-
-### 3.4 Sync now
-
-```
-GET /sync
-```
-
-Triggers one scan and returns the result.
-
-### 3.5 Maintaining the ledger by hand
-
-For early days when there is no history to scan, or to add addresses you want watched.
-
-```
-GET /watch/add?address={address}&note={note}
-GET /watch/remove?address={address}
-```
-
-`/watch/add` returns the updated address list:
-
-```json
-{"ret": 0, "list": ["1Abc...", "1Def..."]}
-```
-
-`/watch/remove`:
-
-```json
-{"ret": 0, "removed": true}
-```
-
-Missing `address` returns HTTP 400:
-
-```json
-{"ret": 1, "err": "address required"}
-```
-
-**⚠ The ledger must be single-source.** If you run more than one indexer instance, `/watch/add` and `/watch/remove` must go to the same one, or the ledgers diverge.
-
-### 3.6 Deployment
-
-```bash
-python3 hacds_indexer.py --port 8124 --node http://<node>:8082
-```
-
-- Zero third-party dependencies, Python 3 standard library
-- `--workers` for concurrent scanning (default 4; measured 2.6 → 6.6 blocks/s)
-- Incremental: records `lastScanned`, then only scans new blocks
-- Ledger written atomically (`tmp` + `os.replace`)
-- systemd unit at `hacds_exchange/indexer/hacds_indexer.service`
+| `bad_json` | Body is not valid JSON |
+| `bad_length` | Body empty or over 8 KB |
+| `bad_main` | `main` is not a valid address |
+| `bad_fee` | `fee` is not in `value:mantissa` form |
+| `bad_gasMax` | `gasMax` is not an integer 1–99 |
+| `fn_not_allowed` | Function not in whitelist |
+| `bad_params` | Parameter string malformed |
+| `rate_limited` | Over 30 requests per minute |
+| `build_timeout` | Engine timeout (30 seconds) |
+| `engine_missing` | `hacds_txbuild` not found on the server |
 
 ---
 
-## 4. Exchange listing integration (**dedicated chapter**)
+## 4. Exchange Listing Integration
 
-This section is for exchanges, wallets and market-data services integrating hacds.
+### 4.0 One thing to remember: amount is a plain count
 
-### 4.0 Remember one thing first: amount is in atoms
+hacds has **decimal 0**. The `amount` returned on-chain is the count itself with
+**no conversion**.
 
-hacds is a `decimal = 8` asset. The `amount` on chain and in the interfaces is the **smallest unit, atoms**, not a count.
-
-```
-1 hacds = 100000000 atoms (1e8)
-total supply = 5963298700000000 atoms = 59,632,987 hacds
+```json
+{"serial": 3000, "amount": "100000000"}   →  100,000,000 hacds
 ```
 
-**Getting this wrong means being off by a factor of one hundred million.**
+The previous edition was decimal 8 and required dividing by 1e8. **Do not divide in this edition.**
 
 ### 4.1 Asset identity (for listing registration)
 
-| Item | Value |
+| Field | Value |
 |---|---|
-| serial | **2000** |
+| serial | `3000` |
 | ticket | `HACDS` |
 | name | `hacds` |
-| decimal | **8** |
-| total supply | `5963298700000000` atoms |
-| issuer | `VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1` |
-| issuer address | `15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q` |
+| decimal | `0` |
+| supply | `5963298700000000` |
+| issuer | `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH` |
 
-**⚠ There is another asset on chain whose ticket is also `HACDS` (serial `1028`, name "HACD Fragments", unrelated to us).**
-The protocol does not check ticket or name uniqueness — it only checks whether the serial is taken.
+⚠ There is also an asset with serial `1028` whose ticket is HACDS (name "HACD
+Fragments", someone else's). **Match on serial, not on ticket.**
 
-**Match on `serial = 2000`. Do not match on ticket.**
+### 4.2 Detecting deposits
 
-### 4.2 Deposit detection
-
-**Do not match on serial alone — check serial=2000 *and* the issuer.**
-
-Poll for blocks or subscribe, then parse the asset actions in each transaction:
+Scan blocks for `TransferAssetFromTo` actions where `serial == 3000` and
+`to == your deposit address`.
 
 ```
-GET /query/block/intro?height={height}&tx_hash_list=true
-  → tx_hash_list
-GET /query/transaction?hash={hash}&action=true
-  → actions[], filter for asset transfers
+GET /query/block/intro?height={H}&tx_hash_list=true
+  → iterate tx_hash_list, GET /query/transaction?hash={h} for each
+  → look at the asset transfer actions
 ```
 
-Asset transfer action `kind`:
-
-| kind | Action | Meaning |
-|---|---|---|
-| 17 | `TransferAssetTo` | Transfer to the contract / a simple target |
-| 19 | `TransferAssetFromTo` | Transfer from A to B |
-
-Read `serial` / `amount` and the from/to addresses from the action's `d` field. **`serial == 2000` is hacds**, and it is advisable to also check that `issuer` is the contract address.
-
-**Amount to credit**:
-
-```
-hacds count the user sees = amount / 1e8
-```
-
-For example, receiving `amount = 4000000000` credits **40 hacds**.
-
-**⚠ Use big integers.** `5963298700000000` is 66% above JS `Number.MAX_SAFE_INTEGER` (`9007199254740991`). The `amount` in JSON is a string — **do not parse it into a double first**. Use `BigInt` in JS, `big.Int` in Go, `BigInteger` in Java, `BigInteger` in Kotlin (`Long` is not enough).
+**Suggested confirmations**: 3 blocks (about 15 minutes). Target block time is
+300 seconds but varies.
 
 ### 4.3 Constructing withdrawals
 
-**hacds is a standard fungible asset, so a withdrawal is an ordinary asset transfer** (`kind = 19`, `TransferAssetFromTo`).
+A withdrawal is a standard asset transfer:
 
-Parameters:
+```bash
+hacds_txbuild transfer {main} {ts} asset-from-to {from} {to} hacds {amount}
+```
 
-| Parameter | Value |
-|---|---|
-| `serial` | `2000` |
-| `amount` | atoms to withdraw (= count × 1e8) |
-| `from` | exchange hot wallet address |
-| `to` | user address |
-
-**Note**: `from` must be the transaction's initiating account, or otherwise authorised; the exchange has to manage its hot wallet key and sign locally.
-
-Two ways to build it:
-
-1. Build the Type-3 transaction yourself with **Hacash's official tooling**
-2. **Refer to this repo's Rust engine** `hacds_txbuild` (the `transfer asset-from-to` submode); the source already handles Type-3 wire format, fee iteration and signing
-
-> We do not provide a remote signing endpoint. **The node's `/util/transaction/sign` requires sending your private key over HTTP** — never use it under any circumstances.
+Or through the build service (`mode=transfer`, `sub=asset-from-to`).
 
 ### 4.4 Broadcast and confirmation
 
-```
-POST /submit/transaction        # binary body, not hex
-```
-
-```json
-{"ret": 0, "hash": "..."}
+```bash
+POST {node}/submit/transaction
+{"tx": "...hex..."}
 ```
 
-**Confirmation flow**:
-
-1. `ret:0` → it is in the mempool, **not yet confirmed**
-2. Poll `GET /query/transaction?hash={hash}`
-3. Watch the `confirm` field; `≥ 1` means it is on chain
-4. Or simply check the balance change via `GET /query/balance`
-
-**Block target is 300 seconds.** Design your deposit/withdrawal risk confirmations around that rhythm. Measured on chain today: roughly one block every 5 minutes.
+`ret:0` only means it reached the mempool. Poll `/query/transaction?hash=` by
+block height; it is confirmed once `block_height` appears.
 
 ### 4.5 Fees and gas
 
-- **Fee**: charged by transaction byte size. Get `purity` from `GET /query/fee/average`; `fee = purity × billing_size`.
-  Raising the fee slightly increases the byte size (the fee encoding gets longer), so **iterate**: build → read the actual byte size → rebuild if short. `fee.js` in this repo is that iteration; it usually converges in 1–3 rounds.
-- **gas**: the `gas_max` byte, default `99` which is the protocol cap `111,911`. Exchange transfer transactions do not touch the contract, so gas consumption is very low.
+| Item | Notes |
+|---|---|
+| fee format | `value:mantissa`, e.g. `0:248` (minimal), `2:247` (0.02 HAC) |
+| fee formula | `fee = purity × billing_size` |
+| `gasMax` | `1–99`, default 99. **Do not go below 99 for contract calls** |
 
 ### 4.6 Three hard limits you must know
 
-**① VM gas has three independent buckets, unrelated to `gas_max`**
+**① A transaction is at most 16,384 bytes.** This is a compile-time constant.
+A 200-diamond deposit approaches the cap.
 
-| Bucket | Cap |
+**② Sandbox concurrency per IP = 2.** Excess is rejected, not queued. Exchange
+backends must serialize.
+
+**③ Three gas buckets**: compute 18,009 / resource 6,100 / storage 111,911.
+Exceeding one reports `OutOfGas(31): <bucket> N > M`. **Raising `gasMax` does not help** — that is the total budget; the per-bucket limit is a hard constraint.
+
+> #3000 could raise "1 diamond per transaction" to "200 diamonds per transaction"
+> precisely because scoring moved into an RV64IM kernel: 200 diamonds cost only
+> 3,587 of `compute`, one bucket. The old FitSH version cost 3,270 of `resource`
+> for a single diamond, so two exceeded 6,100.
+
+### 4.7 Data needed for market making / quoting
+
+```
+GET {node}/query/contract/sandboxcall?contract={contract}&function=amm_reserves&caller={contract}
+GET {node}/query/contract/sandboxcall?contract={contract}&function=amm_reserve_ds&caller={contract}
+```
+
+Spot price (zhu per hacds) = `amm_reserves × 1e8 / amm_reserve_ds`.
+
+Fetching in bulk is easier:
+
+| Function | Returns at once |
 |---|---|
-| compute | 18,009 |
-| resource | 6,100 |
-| storage | 111,911 |
-
-When exceeded, **raising `gas_max` does nothing**. The error looks like:
-
-```
-OutOfGas(31): resource gas limit exceeded: used 6101 > limit 6100
-```
-
-**② At most one HACD per contract deposit transaction**
-
-Verifying each diamond's certificate requires on-chain score recomputation, about 3,000 resource; two diamonds come to 6,101 > 6,100.
-If the exchange offers "diamonds for hacds", it **must split into one diamond per transaction**. Merging with an atomic transaction does not help either (they share one gas budget).
-
-**③ Sandbox calls are capped at 2 concurrent per IP**
-
-Do not parallelise contract-state reads; requests over the cap are rejected outright (no queueing):
-
-```json
-{"ret":1,"err":"sandbox_per_ip_concurrency_exceeded"}
-```
-
-### 4.7 Data needed for market making / quotes
-
-| What you need | Endpoint |
-|---|---|
-| HAC in the pool | `sandboxcall` → `amm_reserves` (zhu; ÷1e8 = HAC) |
-| hacds in the pool | `sandboxcall` → `amm_reserve_ds` (atoms) |
-| Spot price | `sandboxcall` → `pool_price` = `amm:hac × 1e8 / amm:ds`, i.e. **HAC per hacds** |
-| Total supply | `supply` of serial 2000 from `/query/balance?address={contract}&assets=true` |
-| Liquidatable positions | indexer `GET /watchlist` |
-
-**Quote conversion**:
-
-```
-pool price in HAC per hacds = pool_price / 1e8
-e.g. pool_price = 301355749 → 3.01355749 HAC/hacds
-```
+| `ref_price_zhu_per_ds` | Smoothed reference price |
+| `pool_price` | Pool price (×1e8) |
+| `total_debt` / `utilization` | Lending utilization |
+| `hacd_count` / `hacd_avg_score` | Pool size |
 
 ### 4.8 Reconciliation
 
-An on-chain identity you can check at any time:
+The on-chain identity:
 
 ```
-user holdings + contract holdings = total supply
+sum of user due + AMM pool + treasury accumulation + LP reward pool
+    == total hacds issued on-chain
 ```
 
-All three numbers are retrievable:
+Plus:
 
-```bash
-# total supply
-GET /query/balance?address={contract}&assets=true     → supply
-# contract holdings
-GET /query/balance?address={contract}&assets=true     → amount
-# user holdings
-GET /query/balance?address={user}&assets=true         → amount
+```
+sum of effective HAC balances × hcut == sum of nominal shares
 ```
 
-**Measured sample** (2026-10-21):
+The indexer's `GET /backing` checks this on every sync. A mismatch means a bug.
 
-| Item | atoms |
-|---|---|
-| total supply | `5963298700000000` |
-| contract holdings | `5963294700000000` |
-| user holdings | `4000000000` |
-| contract + user | `5963298700000000` ✓ |
+### 4.9 Listing checklist
 
-### 4.9 Listing integration checklist
-
-- [ ] Match the asset by **serial 2000**, and also verify the issuer
-- [ ] Keep `amount` in big integers throughout; never through a double
-- [ ] Divide by `1e8` when displaying a count to users
-- [ ] Detect deposits by parsing asset actions for `kind 17/19`
-- [ ] Build withdrawals as `TransferAssetFromTo(2000, amount, hotWallet, user)`
-- [ ] Broadcast with a binary body to `POST /submit/transaction`
-- [ ] Confirm on `confirm ≥ 1`, allowing for the 5-minute block delay
-- [ ] Estimate fees iteratively (`purity × size`)
-- [ ] Serialize sandbox reads (per-IP concurrency ≤ 2)
-- [ ] If diamonds are involved, **one per transaction**
-- [ ] Reconcile with the identity "user + contract = total supply"
+- [ ] Register with serial `3000`, decimal `0` (**not 8**)
+- [ ] Deposits recognize serial 3000 only; ignore the same-ticket #1028
+- [ ] Withdrawals use `asset-from-to` with `serial` either `hacds` or `3000`
+- [ ] Confirmations ≥ 3
+- [ ] Backend serializes sandbox calls (concurrency limit 2)
+- [ ] Large withdrawals check whether the transaction hits the 16,384-byte cap
+- [ ] Reconcile with `/backing` and the on-chain identity
 
 ---
 
-## 5. Error handling
+## 5. Error Handling
 
 ### 5.1 Contract return codes
 
-When a sandbox call returns a non-zero `ret_val`, it is the contract function's internal `return N`. Common mappings:
+A non-zero `ret_val` from a sandbox call is a `return N` inside the contract.
 
-| Function | Code | Meaning |
-|---|---|---|
-| generic | 1 | Contract paused (`cfg:paused = 1`) |
-| `swap_hac_to_ds` | 11 | Insufficient HAC points |
-| `add_liquidity` | 2 | One side is 0 |
-| `add_liquidity` | 23 | Pool non-empty but shares zeroed (rescale guard) |
-| `add_liquidity` | 24 | Computed shares are 0 (ratio too small) |
-| `add_liquidity` | 26 | First deposit: one side exceeds the `1e18` cap |
-| `remove_liquidity` | 25 | Insufficient LP shares |
-| `loan_borrow` | 40 | Exceeds borrow limit (`(debt+hac)×2 > coll_hac`) |
-| `loan_repay` | 41 | Debt is 0 |
-| `loan_liquidate` | 42 | The address has no debt |
-| `loan_liquidate` | 43 | Not past the liquidation line (cannot liquidate) |
-| `Set*` (admin) | 1 | Not the admin |
-| `Set*` (admin) | 2 | Parameter out of range |
-| `PermitAsset` | 11 | Insufficient pending hacds |
-| `PermitHACD` | 12 | Insufficient hacds for redemption and auto top-up failed |
+**General**
 
-The full table is in `wallet-app/contract-errors.js`.
+| Code | Meaning |
+|---|---|
+| `2` | Malformed parameter (e.g. HACD name list wire format) |
+| `48` | Count out of range (0 diamonds / over 200 / redemption not exactly 1) |
+| `5` | Score is 0 |
+| `53` | Would exceed total supply |
+| `54` | Coverage insufficient (never triggers under 100% issuance) |
+| `59` | Expired (`deadline`) |
+| `61` | No HACD pool record / insufficient score (redemption) |
+
+**AMM**
+
+| Code | Meaning |
+|---|---|
+| `2` | One side is zero |
+| `23` | Pool non-empty but shares round to zero (anti-rescale) |
+| `24` | Computed shares are zero (ratio too small) |
+| `25` | Insufficient LP shares |
+| `26` | First deposit exceeds the `1e18` per-side cap |
+| `56` | Slippage protection triggered (`min_out` / `min_share` not met) |
+
+**Lending**
+
+| Code | Meaning |
+|---|---|
+| `40` | Exceeds borrow limit (`(debt+hac) × 200% > coll_hac`) |
+| `41` | Debt is zero (repay) |
+| `50` | Global utilization over 50% |
+| `51` | Borrowing paused (utilization full or price circuit breaker) |
+| `52` | Exceeds single-borrower cap (20%) |
+
+**Liquidation**
+
+| Code | Meaning |
+|---|---|
+| `42` | That address has no debt |
+| `43` | Not yet liquidatable |
+| `44` | Below the minimum liquidation amount (1 HAC) |
+| `45` | Collateral out below `min_coll_out` |
+| `46` | Deep-water liquidation requires full repayment (`repay < deep_pay`) |
+| `47` | Reference price uninitialized; liquidation refused |
+
+**Admin functions do not exist**
+
+`set_fee` / `set_loan_rate` / `set_liquidate_bonus` / `set_paused` / `set_oracle`
+are **not implemented** in #3000. Calling them returns:
+
+```
+CallNotExist(51)
+```
+
+That is not a permission failure — **the function does not exist.** Stop writing
+those calls.
 
 ### 5.2 Node / sandbox errors
 
-Matched by string. The common categories:
+Match by string; the common classes:
 
 | Raw message | Meaning | Handling |
 |---|---|---|
-| `invalid address argument` / `InvalidChecksum` | Address format or checksum wrong | Re-fetch the full address |
-| `balance ... is insufficient` | Caller cannot cover the gas pre-charge | Pass `caller={contract address}` on sandbox calls |
-| `sandbox_per_ip_concurrency_exceeded` | Concurrency over the cap | Serialize and retry |
-| `resource gas limit exceeded` | resource bucket exceeded | Split the transaction; **raising gas_max does not help** |
-| `compute gas limit exceeded` | compute bucket exceeded | Split the transaction |
-| `storage gas limit exceeded` | storage bucket exceeded | Fewer new keys, or a shorter rental period |
-| `OutOfGas` | Out of gas | Raise gas_max |
-| `CallNotExist` | No such function in the contract | Check the function name |
-| `NotFindContract` | Contract not found | Check the contract address |
-| `state changed` | Chain state changed meanwhile | Retry |
-| `transaction parse failed` | Transaction body failed to parse | hex / bytes are incomplete |
-| `ECONNREFUSED` / `timeout` | Service unreachable | Check whether the service is running |
+| `NotFindContract` | No contract code at that address | Normal before deployment; check the address after |
+| `invalid address argument` / `InvalidChecksum` | Bad address format or checksum | Re-fetch the full address |
+| `balance ... is insufficient` | Caller cannot prepay gas | Pass `caller={contract address}` |
+| `sandbox_per_ip_concurrency_exceeded` | Concurrency exceeded | Serialize + backoff |
+| `resource gas limit exceeded` | Resource bucket exceeded | Split transactions; **raising gas_max does not help** |
+| `compute gas limit exceeded` | Compute bucket exceeded | Split transactions |
+| `storage gas limit exceeded` | Storage bucket exceeded | Fewer new keys or shorter rent |
+| `OutOfGas(31)` | A bucket ran out | Read the bucket name in parentheses, split |
+| `Arithmetic(90)` | Arithmetic under/overflow | Check inputs; this is a contract bug, please report |
+| `CallNotExist` | Contract has no such function | Check the name (admin functions removed) |
+| `state changed` | On-chain state changed mid-flight | Retry |
+| `transaction parse failed` | Transaction body unparseable | Incomplete hex / bytes |
+| `StorageNotActive` | Storage key expired | Call `rent_keys` to renew |
+| `ECONNREFUSED` / `timeout` | Service unreachable | Check whether it is running |
 
-**Key point**: most of these come back as **HTTP 200 + `{"ret":1,"err":"..."}`**. Checking only the HTTP status will miss them.
+**Rule of thumb**: most of these are **HTTP 200 + `{"ret":1,"err":"..."}`**.
+Checking only the status code will miss them.
 
 ---
 
-## 6. Quick reference
+## 6. Quick Reference
 
-### Endpoints
+### 6.1 Endpoint summary
 
 ```
-# full node :8082
+# Full node
 GET  /query/block/height/latest
 GET  /query/fee/average
-GET  /query/balance?address=&assets=true&asset_meta=true&diamonds=true
-GET  /query/diamond?name=
-GET  /query/contract/sandboxcall?contract=&function=&params=&caller=
-GET  /query/block/intro?height=&tx_hash_list=true
-GET  /query/transaction?hash=&action=true
-GET  /query/contract/storage_fee
-POST /util/transaction/check?description=true     # binary body
-POST /submit/transaction                          # binary body
+GET  /query/balance?address={A}&assets=true&diamonds=true
+GET  /query/diamond?name={N}
+GET  /query/contract/sandboxcall?contract={C}&function={F}&params={P}&caller={C}
+GET  /query/block/intro?height={H}&tx_hash_list=true
+GET  /query/transaction?hash={H}
+POST /util/transaction/check        {"tx": "hex"}
+POST /submit/transaction            {"tx": "hex"}
 
-# oracle :8123
+# Indexer
 GET  /health
-GET  /cert?name=
-
-# indexer :8124
-GET  /health
-GET  /watchlist        # the only one a client needs
 GET  /snapshot
-GET  /sync
-GET  /watch/add?address=&note=
-GET  /watch/remove?address=
+POST /sync
+GET  /backing
+GET  /rent_batches
+
+# Build service
+GET  /health
+POST /api/build
 ```
 
-### Constants
+### 6.2 Constants
+
+| Constant | Value |
+|---|---|
+| Contract address | `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH` |
+| Contract nonce | `2` |
+| Treasury | `1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK` |
+| hacds serial | `3000` |
+| hacds decimal | `0` |
+| hacds total supply | `5963298700000000` |
+| `SCORE_SCALE` | `100000000` (1e8) |
+| `MAX_DEPOSIT_COUNT` | `200` |
+| `FEE_BPS` | `50` (0.5%) |
+| `BORROW_RATIO_BPS` | `20000` (200%) |
+| `LIQ_COLL_RATIO_BPS` | `16000` (160%) |
+| `CLOSE_FACTOR_BPS` | `5000` (50%) |
+| `DEEP_TRIGGER_BPS` | `10500` (105%) |
+| `LIQ_BONUS_BPS` | `500` (5%) |
+| `U_MAX_BPS` | `5000` |
+| `LENDABLE_AMM_BPS` | `3000` |
+| VM buckets | compute 18,009 / resource 6,100 / storage 111,911 |
+| Transaction limit | 16,384 bytes |
+| gasMax range | 1–99 |
+
+### 6.3 Unit conversion
+
+**HAC** (on-chain zhu):
 
 ```
-hacds serial         2000
-hacds decimal        8
-hacds total supply   5963298700000000 atoms
-1 hacds              100000000 atoms
-contract             VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-treasury             1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK
-oracle account       1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu
-SCORE_SCALE          1e8 (1 point = 1 hacds)
-COLL_RATIO           2 (50% collateral ratio, liquidation line 200)
-AMM fee              0.5% (LP 50% / staking 30% / treasury 20%)
-lending rate / liq bonus  5% APR / 2%
-certificate length   126 bytes (message 29 + signature 97)
-VM bucket caps       compute 18,009 / resource 6,100 / storage 111,911
-block target         300 seconds
-sandbox concurrency  per IP 2
+HAC = zhu / 1e8
+"5:249" = 5 × 10^(249−248) = 50 HAC
+"1:248" = 1 HAC
 ```
 
-### Unit conversion
+**hacds** (decimal 0):
 
 ```
-atoms → hacds count : amount / 1e8
-hacds count → atoms : count × 1e8
-zhu   → HAC         : zhu / 1e8
-pool price (HAC/hacds) : pool_price / 1e8
+hacds count == the on-chain integer, no conversion
 ```
+
+⚠ **Do not divide hacds by 1e8.** That was the previous edition (decimal 8).
+
+### 6.4 A minimal working state-reader
+
+```javascript
+const NODE = 'https://api.hacds.com';
+const CONTRACT = 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH';
+
+async function call(fn, params = '') {
+  const q = new URLSearchParams({
+    contract: CONTRACT,
+    function: fn,
+    params,
+    caller: CONTRACT,       // omitting this fails on insufficient balance
+  });
+  const r = await fetch(`${NODE}/query/contract/sandboxcall?${q}`);
+  const j = await r.json();
+  if (j.ret !== 0) throw new Error(j.err || 'call failed');
+  return j.ret_val;
+}
+
+// Pool reserves on both sides
+const hacZhu = await call('amm_reserves');
+const ds     = await call('amm_reserve_ds');
+
+// Spot price (zhu per hacds)
+const spot = Number(hacZhu) * 1e8 / Number(ds);
+```
+
+**Concurrency note**: each IP has only 2 concurrency slots. Queue bulk reads; do
+not use `Promise.all`.
+
+---
+
+*This document corresponds to the finalized version of `HacdsDeFi3000.fitsh`,
+dated 2026-11-11.*

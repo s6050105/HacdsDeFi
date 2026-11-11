@@ -22,6 +22,11 @@
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
 
+  //: 单笔存入的硬上限：合约 PayableHACD 走 rv64im 内核 score_sum，一次最多 200 颗。
+  //: 必须与 HacdsDeFi3000.fitsh 的 MAX_DEPOSIT_COUNT 一致。
+  //: ⚠ 放在文件顶部：updateMintSelection 等函数在渲染时就会用到它。
+  const MINT_MAX = 200;
+
   /**
    * i18n 取值。
    * app.js 里大量日志/提示是运行时拼出来的，不走 data-i18n，
@@ -125,8 +130,36 @@
     $('#btnCollateral').addEventListener('click', doCollateral);
 
     // HACD
-    $('#btnLoadPool').addEventListener('click', loadPool);
     $('#btnLoadMine').addEventListener('click', loadMyHacd);
+
+    /* ---------- 资金：HAC / hacds 与合约的充提 ---------- */
+    const on = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', fn); };
+
+    on('#btnFundHacIn', () => runFund('hac-in'));
+    on('#btnFundHacOut', () => runFund('hac-out'));
+    on('#btnFundDsIn', () => runFund('ds-in'));
+    on('#btnFundDsOut', () => runFund('ds-out'));
+
+    const goHacd = $('#fundGoHacd');
+    if (goHacd) goHacd.addEventListener('click', e => {
+      e.preventDefault();
+      const b = document.querySelector('[data-tab="hacd"]');
+      if (b) b.click();
+    });
+
+    /* ---------- 转账 ---------- */
+    on('#btnXferHac', () => runXfer('hac'));
+    on('#btnXferDs', () => runXfer('ds'));
+    on('#btnXferHacd', () => runXfer('hacd'));
+    on('#btnXferOther', () => runXfer('other'));
+
+    /* ---------- 工具：续租 ---------- */
+    on('#btnRentLoad', loadRentBatches);
+    on('#btnRentDo', doRent);
+
+    renderQueryGrid();
+
+    $('#btnLoadPool').addEventListener('click', loadPool);
     $('#btnSelAll').addEventListener('click', () => {
       S.mintPicked = (S.myHacd || []).slice();
       renderMyHacd();
@@ -328,7 +361,15 @@
     impact.textContent = imp.toFixed(3) + '%';
     impact.style.color = imp > 5 ? 'var(--red)' : imp > 1 ? 'var(--amber)' : 'var(--text)';
     minEl.textContent = got.toFixed(6);
-    $('#swapMinOut').value = (got * 0.995).toFixed(8);
+
+    // 滑点保护默认值必须与**输入方向**同量纲，且不带小数：
+    //   HAC → hacds：min_out 是 hacds（decimal 0），displayToAtoms 只收纯整数
+    //   hacds → HAC：min_out 是 zhu，hacToZhu 可以吃小数
+    // 旧代码对两个方向都写 .toFixed(8)，在 decimal=0 下会产出
+    // "33183372.00000000" 这类字符串 → displayToAtoms 返回 null → 构建失败。
+    $('#swapMinOut').value = S.swapDir === 0
+      ? String(Math.floor(got * 0.995))
+      : (got * 0.995).toFixed(8);
   }
 
   async function doSwap() {
@@ -364,11 +405,21 @@
   function syncLiqRatio() {
     const p = S.proto || {};
     if (!p.ammHac || !p.ammDs) return;
-    const hac = Number(p.ammHac), ds = Number(p.ammDs);
-    const h = Number($('#liqHac').value || 0);
-    if (h > 0) {
-      $('#liqDs').value = (h * ds / hac).toFixed(8);
-    }
+    const hz = TX.hacToZhu($('#liqHac').value.trim());   // HAC → zhu（BigInt 字符串）
+    if (hz == null) return;
+    let a, b, c;
+    try {
+      a = BigInt(hz); b = BigInt(p.ammDs); c = BigInt(p.ammHac);
+    } catch (e) { return; }
+    if (c === 0n || a === 0n) return;
+    // ⚠ 两处都不能用 Number：
+    //   ① hacds 是 decimal=0，必须写**纯整数**。旧代码 `.toFixed(8)` 产出
+    //      "33183372.00000000"，而提交时 displayToAtoms 只收 /^\d+$/ → 返回 null → 构建失败。
+    //   ② h × ammDs 会轻易超过 Number.MAX_SAFE_INTEGER（ammDs 上限 5.9e15，
+    //      乘个 2 就到 1.2e16），Number 乘法会丢低位，算出的 hacds 数量不准，
+    //      轻则配比偏差、重则 add_liquidity 因比例越界回退。
+    //   下取整是有意的：偏差方向永远是"少做"，多出来的余额留在钱包里。
+    $('#liqDs').value = (a * b / c).toString();
   }
 
   async function doAddLiq() {
@@ -481,47 +532,95 @@
 
   /* ---------- HACD ---------- */
 
-  /* ---------- 存入：HACD → hacds（支持多选，自动拆成多笔） ---------- */
+  /* ---------- 存入：HACD → hacds（多选，一次交易最多 200 颗） ---------- */
 
   // 已勾选的钻石名
   S.mintPicked = [];
 
   // 载入用户自己持有的 HACD
+  //
+  // ⚠ 光有名字画不出钻石图、也算不了分（评分需要 visual_gene + number）。
+  //   所以拿到名字列表后必须再查一次详情。
   async function loadMyHacd() {
     try {
       const ov = await API.balance(S.addr);
       S.overview = ov;
-      const list = ov.diamonds || [];
-      S.myHacd = list;
+      const names = ov.diamonds || [];
+      if (!names.length) {
+        S.myHacd = [];
+        renderMyHacd();
+        log(t('log.loadedHacd', 0), 'ok');
+        return;
+      }
+      log(t('log.loadingHacdDetail', { n: names.length }));
+      const details = await API.diamondDetails(names);
+      // 详情可能缺项（节点查不到某颗），用名字兜底保证列表完整
+      const byName = new Map((details || []).map(d => [d.name, d]));
+      S.myHacd = names.map(n => byName.get(n) || { name: n, number: 0, visual_gene: '' });
       renderMyHacd();
-      log(t('log.loadedHacd', list.length), 'ok');
+      log(t('log.loadedHacd', names.length), 'ok');
     } catch (e) {
       log(t('log.loadFail') + errMsg(e), 'err');
     }
   }
 
+  /**
+   * 渲染「我的钻石」列表。
+   *
+   * 2026-11-11：从纯文字按钮改为带 SVG 的卡片，并加筛选/排序
+   * （移植自 PC 钱包 wallet-app/renderer/app.js 的 renderHacdPanel）。
+   *
+   * 评分用 DiamondScore 本地算，不请求网络 —— 与合约的 5 维算法一致。
+   */
+  // HACD 网格的来源：'mine' = 我的钻石，'pool' = 合约池
+  S.hacdSrc = S.hacdSrc || 'mine';
+
   function renderMyHacd() {
     const grid = $('#myHacdGrid');
+    const filter = $('#hacdFilter');
     const list = S.myHacd || [];
 
     if (!list.length) {
+      if (filter) filter.innerHTML = '';
       grid.innerHTML = '<div class="dim" style="font-size:13px;grid-column:1/-1">'
         + window.I18N.t('app.noHacd') + '</div>';
       updateMintSelection();
       return;
     }
 
-    grid.innerHTML = list.map(n => {
-      const on = S.mintPicked.includes(n);
-      return '<div class="pick-item' + (on ? ' on' : '') + '" data-name="' + n + '">' + n + '</div>';
-    }).join('');
+    // 常规为名字数组；若已是对象数组（含 visual_gene/number）直接用
+    const items = list.map(x => typeof x === 'string'
+      ? window.HacdUI.enrich({ name: x, number: 0, visual_gene: '' })
+      : window.HacdUI.enrich(x));
 
-    grid.querySelectorAll('.pick-item').forEach(el => {
-      el.addEventListener('click', () => {
+    // 筛选栏
+    if (filter) {
+      filter.innerHTML = window.HacdUI.buildFilterBar(items, renderMyHacd);
+      window.HacdUI.wireFilterBar(filter, renderMyHacd);
+    }
+
+    const shown = window.HacdUI.applyFilter(items);
+    grid.innerHTML = shown.map(i =>
+      window.HacdUI.cardHtml(i, S.mintPicked.includes(i.name))).join('');
+    if (!shown.length) {
+      grid.innerHTML = '<div class="dim" style="font-size:13px;grid-column:1/-1">没有符合筛选条件的钻石</div>';
+    }
+
+    // 点击分派（方案 B，与 PC 钱包一致）：
+    //   右上角圆点 → 只切换勾选
+    //   其它区域   → 只弹详情，不改勾选
+    grid.querySelectorAll('.hacd-card').forEach(el => {
+      el.addEventListener('click', ev => {
         const n = el.dataset.name;
-        const i = S.mintPicked.indexOf(n);
-        if (i >= 0) S.mintPicked.splice(i, 1); else S.mintPicked.push(n);
-        renderMyHacd();
+        const item = items.find(x => x.name === n);
+
+        if (ev.target.closest('[data-check]')) {
+          const k = S.mintPicked.indexOf(n);
+          if (k >= 0) S.mintPicked.splice(k, 1); else S.mintPicked.push(n);
+          renderMyHacd();
+          return;
+        }
+        if (item) window.HacdUI.showDetail(item);
       });
     });
     updateMintSelection();
@@ -531,26 +630,38 @@
   async function updateMintSelection() {
     const n = S.mintPicked.length;
     $('#mintCount').textContent = n;
+    // 超过 200 颗时明确标红，别等点了按钮才报错
+    const over = n > MINT_MAX;
     $('#mintSelCount').textContent = n
-      ? window.I18N.t('app.selCount').replace('{n}', n)
+      ? window.I18N.t(over ? 'app.selOver' : 'app.selCount')
+          .replace('{n}', n).replace('{max}', MINT_MAX)
       : window.I18N.t('app.selNone');
-    $('#mintSelCount').className = 'tag' + (n ? ' blue' : '');
+    $('#mintSelCount').className = 'tag' + (over ? ' red' : n ? ' blue' : '');
 
     if (!n) { $('#mintTotalEst').textContent = '—'; return; }
 
     // 估算总分：逐个查评分后累加
     $('#mintTotalEst').textContent = '…';
     try {
-      const details = await Promise.all(S.mintPicked.map(fetchDiamondDetail));
-      let total = 0, ok = true;
+      // 上限 200，且并发别一次打满 —— 分 8 个一批，避免瞬间 200 个请求
+      const picked = S.mintPicked.slice(0, MINT_MAX);
+      const details = [];
+      for (let i = 0; i < picked.length; i += 8) {
+        details.push(...await Promise.all(picked.slice(i, i + 8).map(fetchDiamondDetail)));
+      }
+      // ⚠ 分数 ≠ hacds 数量（2026-11-12 审计 C-H2）。
+      //   合约按 `score × SCORE_SCALE(1e8)` 铸币：3.55 分 → 3.55 亿个 hacds。
+      //   原来把分数之和直接标成 "hacds"，显示 "3 hacds"，实际铸 3e8 —— 差 1e8 倍。
+      //   这里把分数与铸币量**分开显示**，避免用户拿错数量去判断。
+      let scoreSum = 0, ok = true;
       for (const d of details) {
         if (!d) { ok = false; continue; }
         const sc = d.score != null ? Number(d.score) : 0;
-        total += sc;
+        scoreSum += sc;
       }
-      $('#mintTotalEst').textContent = ok
-        ? total + ' hacds'
-        : total + ' hacds ' + t('app.partialUnknown');
+      const minted = Math.floor(scoreSum * 100000000);   // SCORE_SCALE = 1e8
+      const txt = scoreSum.toFixed(2) + ' 分 → ' + minted.toLocaleString('en-US') + ' hacds';
+      $('#mintTotalEst').textContent = ok ? txt : txt + ' ' + t('app.partialUnknown');
     } catch (e) {
       $('#mintTotalEst').textContent = '—';
     }
@@ -571,53 +682,54 @@
   }
 
   /**
-   * 批量存入。
-   * 合约硬限制：PayableHACD 的 count != 1 直接返回 48（VM resource 单笔只够一颗）。
-   * 所以必须在客户端拆成 N 笔独立交易，逐个广播。
+   * 存入（HACD → hacds）。
+   *
+   * 2026-11-11：合约升到 v1.3.0 的 calc 内核后，`PayableHACD` 一次最多收 200 颗，
+   * 所以不再拆成 N 笔 —— **一次交易打包全部选中的名字**，只签一次。
+   *
+   * 实现方式：纯转账 `hacd-to` 打到合约地址，链上触发 PayableHACD 钩子记账。
+   * 不是合约调用（合约没有 mint 这个 external 函数）。
    */
   async function doMint() {
     if (!S.addr || S.busy) return;
-    const names = S.mintPicked.slice();
+    let names = S.mintPicked.slice();
     if (!names.length) return log(window.I18N.t('app.pickFirst'), 'warn');
+
+    // 合约硬上限 200 颗；超出的留在已选里，提示用户分批
+    if (names.length > MINT_MAX) {
+      const rest = names.length - MINT_MAX;
+      names = names.slice(0, MINT_MAX);
+      log(t('log.mintOverflow', MINT_MAX, rest), 'warn');
+    }
 
     S.busy = true;
     const btn = $('#btnMint');
     btn.disabled = true;
+    btn.textContent = t('app.minting', names.length, names.length);
 
-    let ok = 0, fail = 0;
-    log(t('log.mintStart', names.length));
-
-    for (let i = 0; i < names.length; i++) {
-      const name = names[i];
-      btn.textContent = window.I18N.t('app.minting').replace('{i}', i + 1).replace('{n}', names.length);
-      try {
-        const res = await TX.mintHacd(S.addr, name);
-        // E-1：mintHacd 在官网是「明确不支持」的桩，返回 {ok:false, error, unsupported}。
-        // 原实现不检查 ok 就直接 sendTx(res)，而 res.txbody 是 undefined →
-        // 钱包抛出一个与「不支持」毫无关系的错误。这里必须自己接住。
-        if (res && res.ok === false) {
-          log(res.error || t('err.unsupported'), 'warn');
-          break;   // 功能级不可用，逐颗重试无意义
-        }
-        await sendTx(res, '[' + (i + 1) + '/' + names.length + '] ' + t('act.mint') + ' ' + name,
-                     { msglayout: W.HACD_CERT_LAYOUT() });
-        ok++;
-        // 从已选列表移除成功的那颗
-        const k = S.mintPicked.indexOf(name);
+    try {
+      log(t('log.mintStart', names.length));
+      const res = await TX.transfer('hacd-to', {
+        main: S.addr,
+        to: CFG.contract,
+        names: names.join(','),
+      });
+      await sendTx(res, t('act.mint') + ' ×' + names.length);
+      // 成功的从已选移除
+      names.forEach(n => {
+        const k = S.mintPicked.indexOf(n);
         if (k >= 0) S.mintPicked.splice(k, 1);
-      } catch (e) {
-        fail++;
-        log('[' + (i + 1) + '/' + names.length + '] ' + name + ' ' + t('log.failed') + errMsg(e), 'err');
-      }
+      });
+      log(t('log.mintDone', names.length), 'ok');
       renderMyHacd();
+      setTimeout(() => { loadMyHacd(); refreshAll(); }, 4000);
+    } catch (e) {
+      log(t('log.failed') + errMsg(e), 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = window.I18N.t('app.mintBtn');
+      S.busy = false;
     }
-
-    btn.disabled = false;
-    btn.textContent = window.I18N.t('app.mintBtn');
-    log(t('log.mintDone', ok, fail), fail ? 'warn' : 'ok');
-    S.busy = false;
-
-    setTimeout(() => { loadMyHacd(); refreshAll(); }, 4000);
   }
 
   /* ---------- 赎回：hacds → HACD ---------- */
@@ -632,19 +744,31 @@
     el.textContent = '≈ 20 hacds';
   }
 
+  /**
+   * 渲染合约池里的钻石（右侧赎回卡）。
+   *
+   * 与左侧「我的钻石」用同一套卡片（带 SVG + 分数），
+   * 点击 = 填入赎回名字 + 弹窗看详情。
+   */
   function renderPool() {
-    const grid = $('#poolGrid');
-    const list = S.pool || [];
+    const grid = $('#poolHacdGrid');
+    const list = S.poolDetail || [];
+    if (!grid) return;
     if (!list.length) {
       grid.innerHTML = '<div class="dim" style="font-size:13px;grid-column:1/-1">'
         + window.I18N.t('app.poolEmpty') + '</div>';
       return;
     }
-    grid.innerHTML = list
-      .map(n => '<div class="pool-item" data-name="' + n + '">' + n + '</div>').join('');
-    grid.querySelectorAll('.pool-item').forEach(el => {
+    const items = list.map(x => typeof x === 'string'
+      ? window.HacdUI.enrich({ name: x, number: 0, visual_gene: '' })
+      : window.HacdUI.enrich(x));
+    grid.innerHTML = items.map(i => window.HacdUI.cardHtml(i, false, false)).join('');
+    grid.querySelectorAll('.hacd-card').forEach(el => {
       el.addEventListener('click', () => {
-        $('#redeemName').value = el.dataset.name;
+        const n = el.dataset.name;
+        $('#redeemName').value = n;
+        const item = items.find(x => x.name === n);
+        if (item) window.HacdUI.showDetail(item);
       });
     });
   }
@@ -652,9 +776,20 @@
   async function loadPool() {
     try {
       log(t('log.loadingPool'));
-      S.pool = await API.poolHacd();
+      const names = await API.poolHacd();
+      S.pool = names;
+      if (!names.length) {
+        S.poolDetail = [];
+        renderPool();
+        log(t('log.poolCount', 0), 'ok');
+        return;
+      }
+      // 与「我的钻石」一样：光有名字画不出图，必须补详情
+      const details = await API.diamondDetails(names);
+      const byName = new Map((details || []).map(d => [d.name, d]));
+      S.poolDetail = names.map(n => byName.get(n) || { name: n, number: 0, visual_gene: '' });
       renderPool();
-      log(t('log.poolCount', S.pool.length), 'ok');
+      log(t('log.poolCount', names.length), 'ok');
     } catch (e) {
       log(t('log.loadFail') + errMsg(e), 'err');
     }
@@ -703,4 +838,196 @@
       throw e;
     }
   }
+
+  /* ===================== 资金页 ===================== */
+
+  /**
+   * 四种充提。都通过 TX.transfer 走原生动作：
+   *   hac-in   → hac-to         （我 → 合约，触发 PayableHAC）
+   *   hac-out  → hac-from-to    （合约 → 我，触发 PermitHAC）
+   *   ds-in    → asset-to       （我 → 合约，触发 PayableAsset）
+   *   ds-out   → asset-from-to  （合约 → 我，触发 PermitAsset）
+   */
+  async function runFund(kind) {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    if (S.busy) return;
+
+    const cfg = {
+      'hac-in':  { input: '#fundHacIn',  sub: 'hac-to',        label: t('fund.doHacIn'),  unit: 'hac' },
+      'hac-out': { input: '#fundHacOut', sub: 'hac-from-to',   label: t('fund.doHacOut'), unit: 'hac' },
+      'ds-in':   { input: '#fundDsIn',   sub: 'asset-to',      label: t('fund.doDsIn'),   unit: 'atoms' },
+      'ds-out':  { input: '#fundDsOut',  sub: 'asset-from-to', label: t('fund.doDsOut'),  unit: 'atoms' },
+    }[kind];
+    if (!cfg) return;
+
+    const raw = ($(cfg.input) && $(cfg.input).value || '').trim();
+    if (!raw || Number(raw) <= 0) return log(t('fund.needAmt'), 'warn');
+
+    S.busy = true;
+    try {
+      log(t('fund.building'));
+      const req = { main: S.addr, to: kind.endsWith('-in') ? CFG.contract : S.addr };
+      // from-to 形态需要显式 from = 合约
+      if (cfg.sub.endsWith('from-to')) req.from = CFG.contract;
+      if (cfg.unit === 'hac') req.hac = raw;
+      else { req.serial = 'hacds'; req.atoms = String(Math.floor(Number(raw))); }
+
+      const res = await TX.transfer(cfg.sub, req);
+      await sendTx(res, cfg.label);
+    } catch (e) {
+      log(t('fund.fail') + errMsg(e), 'err');
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ===================== 转账页 ===================== */
+
+  /**
+   * 三种转账。
+   *   hac  → hac-to       （我 → 他人，不碰合约）
+   *   ds   → asset-from-to（我 → 他人，from = 我自己）
+   *   hacd → hacd-to      （我 → 他人）
+   */
+  async function runXfer(kind) {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    if (S.busy) return;
+
+    let sub, req, label;
+    if (kind === 'hac') {
+      const to = ($('#xferHacTo') && $('#xferHacTo').value || '').trim();
+      const amt = ($('#xferHacAmt') && $('#xferHacAmt').value || '').trim();
+      if (!to) return log(t('xfer.needAddr'), 'warn');
+      if (!amt || Number(amt) <= 0) return log(t('fund.needAmt'), 'warn');
+      sub = 'hac-to'; req = { main: S.addr, to, hac: amt }; label = t('xfer.doHac');
+
+    } else if (kind === 'ds') {
+      const to = ($('#xferDsTo') && $('#xferDsTo').value || '').trim();
+      const amt = ($('#xferDsAmt') && $('#xferDsAmt').value || '').trim();
+      if (!to) return log(t('xfer.needAddr'), 'warn');
+      if (!amt || Number(amt) <= 0) return log(t('fund.needAmt'), 'warn');
+      // 我 → 他人：用 asset-to（发送方隐含为交易主地址），不需要 from
+      sub = 'asset-to';
+      req = { main: S.addr, to, serial: 'hacds', atoms: String(Math.floor(Number(amt))) };
+      label = t('xfer.doDs');
+
+    } else if (kind === 'other') {
+      // 其它资产转账：serial 是纯数字（UI 别处显示为 #2000，这里容错剥离 #）
+      const serial = ($('#xferOtherSerial') && $('#xferOtherSerial').value || '').trim().replace(/^#/, '');
+      const atoms = ($('#xferOtherAtoms') && $('#xferOtherAtoms').value || '').trim();
+      const to = ($('#xferOtherTo') && $('#xferOtherTo').value || '').trim();
+      if (!to) return log(t('xfer.needAddr'), 'warn');
+      if (!atoms || Number(atoms) <= 0) return log(t('fund.needAmt'), 'warn');
+      if (!/^\d+$/.test(serial)) return log(t('xfer.needSerial'), 'warn');
+      sub = 'asset-to';
+      req = { main: S.addr, to, serial, atoms: String(Math.floor(Number(atoms))) };
+      label = t('xfer.doOther');
+
+    } else {
+      const names = ($('#xferHacdNames') && $('#xferHacdNames').value || '')
+        .split(/[\s,]+/).map(x => x.trim().toUpperCase()).filter(Boolean);
+      const to = ($('#xferHacdTo') && $('#xferHacdTo').value || '').trim();
+      if (!names.length) return log(t('xfer.needNames'), 'warn');
+      if (!to) return log(t('xfer.needAddr'), 'warn');
+      sub = 'hacd-to';
+      req = { main: S.addr, to, names: names.join(',') };
+      label = t('xfer.doHacd');
+    }
+
+    S.busy = true;
+    try {
+      log(t('xfer.building'));
+      const res = await TX.transfer(sub, req);
+      await sendTx(res, label);
+    } catch (e) {
+      log(t('xfer.fail') + errMsg(e), 'err');
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ===================== 工具页 ===================== */
+
+  /** 18 个常用只读视图，点一下把结果打到底部日志 */
+  function renderQueryGrid() {
+    const grid = $('#queryGrid');
+    if (!grid || grid.dataset.built === '1') return;
+    grid.dataset.built = '1';
+
+    const items = [
+      ['pool_price', '池价'], ['amm_reserves', '池 HAC'], ['amm_reserve_ds', '池 hacds'],
+      ['lp_total', 'LP 总量'], ['utilization', '利用率'], ['total_debt', '总债务'],
+      ['providers_total', 'HAC 提供者'], ['net_claims', '净债权'], ['reserve_hac', '储备'],
+      ['deficit_hac', '赤字'], ['hacd_count', 'HACD 颗数'], ['hacd_score_total', 'HACD 总分'],
+      ['hacd_avg_score', 'HACD 均分'], ['hacd_coverage', 'HACD 覆盖率'],
+      ['hcut', 'hcut'], ['lcut', 'lcut'], ['borrow_paused', '借款暂停'], ['ref_price_of', '参考价'],
+    ];
+    grid.innerHTML = items.map(([fn, label]) =>
+      `<button class="btn btn-ghost" data-q="${fn}" style="font-size:12px">${label}</button>`).join('');
+
+    grid.querySelectorAll('[data-q]').forEach(b => {
+      b.onclick = async () => {
+        const fn = b.dataset.q;
+        try {
+          const v = await API.callView(fn);
+          b.title = String(v);
+          log(`${fn} = ${v}`, 'ok');
+        } catch (e) {
+          log(fn + errMsg(e), 'err');
+        }
+      };
+    });
+  }
+
+  /** 从索引器取续租批次 */
+  let _rentBatches = [];
+  async function loadRentBatches() {
+    const hint = $('#rentHint');
+    if (!hint) return;
+    // ⚠ 索引器地址在 CFG（window.HACDS_CONFIG）里，不在 S 里。
+    //   原来写 S.cfg.indexer —— S 没有 cfg 字段，点「续租」必抛 TypeError（审计 C-M6）。
+    if (!CFG.indexer) { hint.textContent = t('tools.rentNoIdx'); return; }
+    hint.textContent = t('tools.rentLoading');
+    try {
+      const r = await fetch(CFG.indexer.replace(/\/$/, '') + '/rent_batches?max=10')
+        .then(x => x.json());
+      _rentBatches = r.batches || [];
+      const list = $('#rentList');
+      if (!_rentBatches.length) {
+        list.innerHTML = `<div class="dim" style="font-size:13px">${t('tools.rentEmpty')}</div>`;
+        hint.textContent = '';
+        $('#btnRentDo').disabled = true;
+        return;
+      }
+      list.innerHTML = _rentBatches.map((b, i) =>
+        `<div class="info-row"><span>#${i + 1}</span><span class="mono">klen=${b.klen} · ${b.count} ${t('tools.rentKeys')}</span></div>`).join('');
+      hint.textContent = t('tools.rentReady', { n: _rentBatches.length });
+      $('#btnRentDo').disabled = false;
+    } catch (e) {
+      hint.textContent = t('tools.rentFail') + (e.message || e);
+    }
+  }
+
+  /** 逐批构建续租交易（合约单笔上限 10 键） */
+  async function doRent() {
+    if (!S.addr) return log(t('acct.locked'), 'err');
+    if (!_rentBatches.length) return;
+    const b = _rentBatches[0];
+    try {
+      log(t('tools.rentBuilding'));
+      const params = `${b.blob}:bytes,${b.klen}:u128,300:u128`;
+      const res = await TX.build('rent_keys', [{ v: b.blob, t: 'bytes' }, { v: b.klen, t: 'u128' }, { v: 300, t: 'u128' }], S.addr, {});
+      await sendTx(res, t('tools.rentDo'));
+      _rentBatches.shift();
+      if (!_rentBatches.length) {
+        $('#btnRentDo').disabled = true;
+        $('#rentHint').textContent = t('tools.rentDone');
+      } else {
+        $('#rentHint').textContent = t('tools.rentRemain', { n: _rentBatches.length });
+      }
+    } catch (e) {
+      log(t('tools.rentFail') + errMsg(e), 'err');
+    }
+  }
+
 })();

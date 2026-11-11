@@ -1,0 +1,98 @@
+/* ==========================================================================
+   HacdsDeFi 共享设计变量（design tokens）
+   --------------------------------------------------------------------------
+   ⚠ 本文件在两处各存一份**完全相同**的副本：
+       hacds.com/assets/css/design-tokens.css      （网页端）
+       wallet-app/renderer/design-tokens.css       （PC 钱包）
+
+   为什么不放一个共享目录：网页端走 HTTP、PC 钱包走 file://，
+   跨项目相对路径在打包后不可靠。两份副本 + 同步脚本更稳。
+
+   改这个文件时**两边都要改**，然后用 `diff` 确认一致：
+       diff hacds.com/assets/css/design-tokens.css  wallet-app/renderer/design-tokens.css
+
+   变量名以网页端现有的 --bg/--card/--border/--text 为准，
+   PC 钱包原有的 --panel/--line/--fg/--muted 在文件末尾做别名保留，
+   所以两个项目的老代码都不必一次性改完。
+   ========================================================================== */
+
+:root {
+  /* ---- 背景层次 ---- */
+  --bg:          #0A0E14;   /* 页面底色 */
+  --bg-elev:     #0F141B;   /* 抬升面（侧栏、顶栏） */
+  --card:        #141A22;   /* 卡片 */
+  --card-hover:  #1A222C;   /* 卡片悬停 */
+  --border:      #1F2933;   /* 常规边框 */
+  --border-lit:  #2D3A47;   /* 强调边框 */
+
+  /* ---- 文字 ---- */
+  --text:        #E6EDF3;
+  --text-dim:    #8B949E;
+  --text-faint:  #5A6673;
+
+  /* ---- 主色 ---- */
+  --blue:        #4A9EFF;
+  --blue-dim:    #2B6CB0;
+  --blue-glow:   rgba(74, 158, 255, 0.12);
+
+  /* ---- 语义色 ---- */
+  --green:       #3DD68C;   /* 成功 */
+  --amber:       #F5A524;   /* 警告 */
+  --red:         #F04438;   /* 错误 */
+  --gold:        #F7AF34;   /* HACD / 钻石强调 */
+
+  /* ---- 排印 ---- */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+
+  /* ---- 字号 ---- */
+  --fs-xs:   11px;
+  --fs-sm:   12.5px;
+  --fs-base: 14px;
+  --fs-md:   15px;
+  --fs-lg:   17px;
+  --fs-xl:   22px;
+  --fs-2xl:  28px;
+
+  /* ---- 间距（4 的倍数）---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 28px;
+  --sp-8: 32px;
+  --sp-9: 36px;
+  --sp-10: 40px;
+
+  /* ---- 圆角 ---- */
+  --radius-sm: 8px;
+  --radius:    12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  /* ---- 阴影 ---- */
+  --shadow:    0 1px 3px rgba(0,0,0,.28);
+  --shadow-lg: 0 8px 28px rgba(0,0,0,.45);
+
+  /* ---- 常用尺寸 ---- */
+  --topbar-h:  56px;
+  --maxw:      1180px;
+
+  /* ==========================================================================
+     别名区 —— 兼容 PC 钱包原有变量名
+     新代码请用上面的规范名；老代码可以继续用这些，视觉已经统一。
+     ========================================================================== */
+  --panel:      var(--card);
+  --panel2:     var(--card-hover);
+  --line:       var(--border);
+  --fg:         var(--text);
+  --muted:      var(--text-dim);
+  --accent:     var(--blue);
+  --ok:         var(--green);
+  --warn:       var(--amber);
+  --err:        var(--red);
+}

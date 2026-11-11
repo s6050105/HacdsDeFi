@@ -53,6 +53,40 @@ export default {
     h.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
     h.set('Cross-Origin-Opener-Policy', 'same-origin');
 
+    // ⑤ CSP（2026-11-12 审计 M-3）
+    //
+    // 这是**需要用户签名交易的站点**，XSS 的代价是直接丢币，所以要立 CSP。
+    //
+    // 逐条说明为什么是这些值：
+    //   script-src 'self' 'unsafe-inline'
+    //     'unsafe-inline' 是被迫的：whitepaper / user-guide / rpc 三个内页
+    //     用 <script> 内联声明 window.HACDS_DOC（文档路径表），
+    //     外置成文件只会多一次请求、并不更安全。
+    //     没有 'unsafe-eval' —— 全站不使用 eval / new Function。
+    //   style-src 'self' 'unsafe-inline'
+    //     页面里大量 style="..." 属性（布局微调），去掉会破坏版式。
+    //   connect-src
+    //     https://api.hacds.com  读节点 / 索引器
+    //     http://127.0.0.1:8082  仅本地开发直连（生产不会有请求发到它，
+    //                            但本地跑同一份 HTML 时需要放行）
+    //   img-src data:
+    //     HACD 钻石图案是 diamondsvgimg.js 生成的 data: URI SVG。
+    //   frame-ancestors 'none' + X-Frame-Options
+    //     双保险，防点击劫持（老浏览器认 XFO，新的认 CSP）。
+    h.set('Content-Security-Policy', [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "font-src 'self' data:",
+      "connect-src 'self' https://api.hacds.com http://127.0.0.1:8082",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+      "upgrade-insecure-requests",
+    ].join('; '));
+
     return out;
   },
 };

@@ -10,7 +10,8 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://hacds.com">
 <link rel="icon" href="/assets/img/hacds_icon_32.png">
-<link rel="stylesheet" href="/assets/css/main.css?v=1792799346">
+<link rel="stylesheet" href="/assets/css/design-tokens.css?v=1794373175">
+<link rel="stylesheet" href="/assets/css/main.css?v=1794373175">
 </head>
 <body>
 
@@ -326,10 +327,107 @@
     </div>
 
     <div class="mt-6" style="display:flex;gap:12px;flex-wrap:wrap">
+      <a href="/app/" class="btn btn-primary" data-i18n="nav.app"></a>
       <a href="https://chromewebstore.google.com/detail/moneynex/aokodfkpgklodahhlcnneehpbojjaabf"
-         target="_blank" rel="noopener" class="btn btn-primary" data-i18n="start.download"></a>
-      <a href="/app/" class="btn btn-ghost" data-i18n="nav.app"></a>
+         target="_blank" rel="noopener" class="btn btn-ghost" data-i18n="start.download"></a>
     </div>
+  </div>
+</section>
+
+<!-- ==================== 下载 ==================== -->
+<section class="section" id="download">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-i18n="dl.eyebrow"></div>
+      <h2 class="sec-title" data-i18n="dl.title"></h2>
+      <p class="sec-desc" data-i18n="dl.desc"></p>
+    </div>
+
+    <!-- 客户端 -->
+    <h3 class="dl-group" data-i18n="dl.groupClients"></h3>
+    <div class="dl-grid">
+      <div class="dl-card">
+        <div class="dl-icon">🖥</div>
+        <div class="dl-name" data-i18n="dl.pc.name"></div>
+        <div class="dl-meta" data-i18n="dl.pc.meta"></div>
+        <p class="dl-note" data-i18n="dl.pc.note"></p>
+        <div class="dl-actions">
+          <a href="https://github.com/s6050105/HacdsDeFi/releases/latest"
+             target="_blank" rel="noopener" class="btn btn-primary btn-sm" data-i18n="dl.getIt"></a>
+          <a href="/docs/user-guide/" class="btn btn-ghost btn-sm" data-i18n="dl.guide"></a>
+        </div>
+      </div>
+
+      <div class="dl-card">
+        <div class="dl-icon">📱</div>
+        <div class="dl-name" data-i18n="dl.android.name"></div>
+        <div class="dl-meta" data-i18n="dl.android.meta"></div>
+        <p class="dl-note" data-i18n="dl.android.note"></p>
+        <div class="dl-actions">
+          <a href="https://github.com/s6050105/HacdsDeFi/releases/latest"
+             target="_blank" rel="noopener" class="btn btn-primary btn-sm" data-i18n="dl.getIt"></a>
+          <a href="/docs/user-guide/" class="btn btn-ghost btn-sm" data-i18n="dl.guide"></a>
+        </div>
+      </div>
+
+      <div class="dl-card">
+        <div class="dl-icon">🌐</div>
+        <div class="dl-name" data-i18n="dl.web.name"></div>
+        <div class="dl-meta" data-i18n="dl.web.meta"></div>
+        <p class="dl-note" data-i18n="dl.web.note"></p>
+        <div class="dl-actions">
+          <a href="/app/" class="btn btn-primary btn-sm" data-i18n="dl.open"></a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文档 -->
+    <h3 class="dl-group" style="margin-top:36px" data-i18n="dl.groupDocs"></h3>
+    <div class="dl-grid">
+      <div class="dl-card doc">
+        <div class="dl-icon">📘</div>
+        <div class="dl-name" data-i18n="dl.wp.name"></div>
+        <div class="dl-meta" data-i18n="dl.wp.meta"></div>
+        <p class="dl-note" data-i18n="dl.wp.note"></p>
+        <div class="dl-actions">
+          <a href="/whitepaper/" class="btn btn-primary btn-sm" data-i18n="dl.view"></a>
+          <a href="/whitepaper/HacdsDeFi-白皮书.pdf" class="btn btn-ghost btn-sm" download data-i18n="dl.pdfZh"></a>
+          <a href="/whitepaper/HacdsDeFi-Whitepaper.en.pdf" class="btn btn-ghost btn-sm" download>PDF EN</a>
+          <a href="/whitepaper/HacdsDeFi-Whitepaper.tr.pdf" class="btn btn-ghost btn-sm" download>PDF TR</a>
+        </div>
+      </div>
+
+      <div class="dl-card doc">
+        <div class="dl-icon">📗</div>
+        <div class="dl-name" data-i18n="dl.ug.name"></div>
+        <div class="dl-meta" data-i18n="dl.ug.meta"></div>
+        <p class="dl-note" data-i18n="dl.ug.note"></p>
+        <div class="dl-actions">
+          <a href="/docs/user-guide/" class="btn btn-primary btn-sm" data-i18n="dl.view"></a>
+          <a href="/whitepaper/HacdsDeFi-操作说明书.pdf" class="btn btn-ghost btn-sm" download data-i18n="dl.pdfZh"></a>
+          <a href="/whitepaper/HacdsDeFi-User-Guide.en.pdf" class="btn btn-ghost btn-sm" download>PDF EN</a>
+          <a href="/whitepaper/HacdsDeFi-User-Guide.tr.pdf" class="btn btn-ghost btn-sm" download>PDF TR</a>
+        </div>
+      </div>
+
+      <div class="dl-card doc">
+        <div class="dl-icon">📙</div>
+        <div class="dl-name" data-i18n="dl.rpc.name"></div>
+        <div class="dl-meta" data-i18n="dl.rpc.meta"></div>
+        <p class="dl-note" data-i18n="dl.rpc.note"></p>
+        <div class="dl-actions">
+          <a href="/docs/rpc/" class="btn btn-primary btn-sm" data-i18n="dl.view"></a>
+          <a href="/whitepaper/HacdsDeFi-RPC文档.pdf" class="btn btn-ghost btn-sm" download data-i18n="dl.pdfZh"></a>
+          <a href="/whitepaper/HacdsDeFi-RPC-Doc.en.pdf" class="btn btn-ghost btn-sm" download>PDF EN</a>
+          <a href="/whitepaper/HacdsDeFi-RPC-Doc.tr.pdf" class="btn btn-ghost btn-sm" download>PDF TR</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="dl-foot">
+      <span data-i18n="dl.foot"></span>
+      <a href="https://github.com/s6050105/HacdsDeFi/releases" target="_blank" rel="noopener">GitHub Releases</a>
+    </p>
   </div>
 </section>
 
@@ -372,9 +470,9 @@
   </div>
 </footer>
 
-<script src="/assets/js/config.js?v=1792799346"></script>
-<script src="/assets/js/i18n.js?v=1792799346"></script>
-<script src="/assets/js/api.js?v=1792799346"></script>
-<script src="/assets/js/home.js?v=1792799346"></script>
+<script src="/assets/js/config.js?v=1794373175"></script>
+<script src="/assets/js/i18n.js?v=1794373175"></script>
+<script src="/assets/js/api.js?v=1794373175"></script>
+<script src="/assets/js/home.js?v=1794373175"></script>
 </body>
 </html>

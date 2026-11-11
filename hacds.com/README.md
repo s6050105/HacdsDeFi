@@ -56,8 +56,8 @@ Worker 负责补上 HTTPS 和 CORS 头：
 
 | 变量 | 示例值 | 说明 |
 |---|---|---|
-| `NODE_ORIGIN` | `http://43.251.101.101:8082` | Hacash 节点 |
-| `INDEXER_ORIGIN` | `http://43.251.101.101:8124` | 索引器 |
+| `NODE_ORIGIN` | `http://<SERVER_IP>:8082` | Hacash 节点 |
+| `INDEXER_ORIGIN` | `http://<SERVER_IP>:8124` | 索引器 |
 | `BUILD_ORIGIN` | 同 NODE_ORIGIN | 交易构建服务（可选） |
 | `ALLOWED_ORIGINS` | `https://hacds.com,https://www.hacds.com` | CORS 白名单 |
 

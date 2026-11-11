@@ -1,18 +1,20 @@
-:root{
-  --bg:#0f1420; --panel:#161d2c; --panel2:#1d2638; --line:#2a3550;
-  --fg:#e6ecf5; --muted:#8b98b3; --accent:#4f9dff; --ok:#3ddc97; --warn:#ffc857; --err:#ff6b6b;
-  --gold:#f7af34;
-}
+/* 设计变量已抽到 design-tokens.css（与 hacds.com 共用同一份）。
+   本文件不再定义 :root，避免覆盖共用变量。 */
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{
+  /* 内容四周留白，让内部卡片/顶栏的圆角显出来。
+     Windows 10 的窗口边框是直角且无法改（真圆角需要 frame:false + 自绘标题栏，
+     会丢掉 Aero Snap、可能出现拖影），所以用「内部留白」营造柔和观感。 */
   background:var(--bg); color:var(--fg);
   font:13px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
   display:flex; flex-direction:column; height:100vh; overflow:hidden;
+  padding:6px; gap:0;
 }
 .top{
   display:flex; align-items:center; gap:16px; padding:10px 14px;
-  background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap;
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:var(--radius) var(--radius) 0 0; flex-wrap:wrap;
 }
 .brand{font-weight:600; font-size:14px}
 .brand .ver{color:var(--muted); font-weight:400; margin-left:6px}
@@ -21,14 +23,14 @@ body{
 .net label{color:var(--muted); display:flex; align-items:center; gap:5px}
 input,select{
   background:var(--panel2); border:1px solid var(--line); color:var(--fg);
-  border-radius:6px; padding:5px 8px; font:inherit; outline:none;
+  border-radius:var(--radius-sm); padding:5px 8px; font:inherit; outline:none;
 }
 input:focus,select:focus{border-color:var(--accent)}
 #node,#oracle{width:170px} #contract{width:300px}
 
 button{
   background:var(--panel2); border:1px solid var(--line); color:var(--fg);
-  border-radius:6px; padding:6px 12px; cursor:pointer; font:inherit;
+  border-radius:var(--radius-sm); padding:6px 12px; cursor:pointer; font:inherit;
 }
 button:hover{border-color:var(--accent)}
 button.primary{background:var(--accent); border-color:var(--accent); color:#04203f; font-weight:600}
@@ -46,19 +48,19 @@ button:disabled{opacity:.5; cursor:not-allowed}
 .chip{font-size:14px}
 .addr{font-family:Consolas,monospace; color:var(--ok)}
 .admin-badge{background:var(--gold); color:#3a2600; font-weight:700; font-size:11px;
-  padding:2px 7px; border-radius:10px}
+  padding:2px 7px; border-radius:var(--radius)}
 .muted{color:var(--muted)} .sep{color:var(--muted)}
 
 /* 首区：资产总览 + 协议状态 */
 .overview{display:flex; gap:12px; padding:12px 14px 0; flex-wrap:wrap}
 .overview[hidden]{display:none}
-.ov-card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+.ov-card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
   padding:12px 14px; flex:1; min-width:360px}
 .ov-card[hidden]{display:none}
 .ov-title{color:var(--muted); font-size:12px; margin-bottom:10px; letter-spacing:.5px}
 .asset-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px}
 .asset{display:flex; align-items:center; gap:9px; background:var(--panel2);
-  border:1px solid var(--line); border-radius:8px; padding:9px 11px}
+  border:1px solid var(--line); border-radius:var(--radius); padding:9px 11px}
 .asset img,.asset svg{width:26px; height:26px; flex:none}
 .asset .a-body{min-width:0}
 .asset .a-name{color:var(--muted); font-size:11px}
@@ -67,7 +69,7 @@ button:disabled{opacity:.5; cursor:not-allowed}
 .ov-note{color:var(--muted); font-size:11px; margin-top:8px}
 .proto-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px}
 .proto-row{display:flex; justify-content:space-between; gap:8px; padding:5px 9px;
-  background:var(--panel2); border-radius:6px; font-size:12px}
+  background:var(--panel2); border-radius:var(--radius-sm); font-size:12px}
 .proto-row .k{color:var(--muted)}
 .proto-row .v{font-family:Consolas,monospace}
 
@@ -77,7 +79,7 @@ button:disabled{opacity:.5; cursor:not-allowed}
 
 main{flex:1; overflow:auto; padding:14px}
 main[hidden]{display:none}
-.card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+.card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
   padding:16px; max-width:880px; margin-bottom:14px}
 .card h3{margin:0 0 4px; font-size:14px}
 .card p.desc{margin:0 0 14px; color:var(--muted)}
@@ -89,7 +91,7 @@ main[hidden]{display:none}
 .adv{margin-top:10px; border-top:1px dashed var(--line); padding-top:10px}
 .adv summary{cursor:pointer; color:var(--muted)}
 .readout{margin-top:12px; background:var(--panel2); border:1px solid var(--line);
-  border-radius:8px; padding:10px; font-family:Consolas,monospace; white-space:pre-wrap;
+  border-radius:var(--radius); padding:10px; font-family:Consolas,monospace; white-space:pre-wrap;
   max-height:240px; overflow:auto; font-size:12px}
 .qval{font-size:15px; color:var(--ok); font-family:Consolas,monospace}
 .qerr{color:var(--err)} .qhint{color:var(--warn); font-size:11px}
@@ -102,7 +104,7 @@ main[hidden]{display:none}
 .hacd-filter select,.hacd-filter input{font-size:12px; padding:4px 7px}
 .hacd-grid{flex:1; overflow:auto; display:grid;
   grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:10px; align-content:start}
-.hacd-card{background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+.hacd-card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius);
   padding:7px; text-align:center; cursor:pointer; transition:border-color .12s; position:relative}
 .hacd-card:hover{border-color:var(--accent)}
 .hacd-card.on{border-color:var(--gold)}
@@ -110,13 +112,13 @@ main[hidden]{display:none}
 .hacd-card.picked.on{border-color:var(--gold); box-shadow:0 0 0 1px var(--ok) inset}
 .hacd-card .hc-badge{position:absolute; top:3px; right:5px; z-index:2;
   background:var(--ok); color:#04281a; font-weight:700; font-size:11px; line-height:1;
-  border-radius:8px; padding:3px 5px}
-.hacd-card svg{width:100%; height:auto; display:block; border-radius:5px}
+  border-radius:var(--radius); padding:3px 5px}
+.hacd-card svg{width:100%; height:auto; display:block; border-radius:var(--radius-sm)}
 .hacd-card .hc-name{font-family:Consolas,monospace; font-size:11px; margin-top:4px}
 .hacd-card .hc-score{color:var(--gold); font-size:11px}
 .hacd-right{width:360px; flex:none; background:var(--panel); border:1px solid var(--line);
-  border-radius:10px; padding:14px; overflow:auto}
-.hacd-right svg{width:100%; height:auto; border-radius:8px}
+  border-radius:var(--radius); padding:14px; overflow:auto}
+.hacd-right svg{width:100%; height:auto; border-radius:var(--radius)}
 .hacd-right .det{margin-top:10px; font-size:12px}
 .hacd-right .det div{display:flex; justify-content:space-between; gap:8px; padding:3px 0;
   border-bottom:1px solid var(--line)}
@@ -128,15 +130,15 @@ main[hidden]{display:none}
 .modal{position:fixed; inset:0; background:rgba(4,8,16,.72); display:flex;
   align-items:center; justify-content:center; z-index:50}
 .modal[hidden]{display:none}
-.modal-box{background:var(--panel); border:1px solid var(--line); border-radius:12px;
+.modal-box{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg);
   width:520px; max-width:94vw; max-height:88vh; overflow:auto; padding:18px;
   box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .modal-box h3{margin:0 0 12px}
 .modal-box .grid{margin-bottom:6px}
 .modal-box .warnbox{background:#3a2a12; border:1px solid #6b4d1a; color:var(--warn);
-  border-radius:8px; padding:8px 10px; margin-top:10px; font-size:12px}
+  border-radius:var(--radius); padding:8px 10px; margin-top:10px; font-size:12px}
 .modal-box .secret{font-family:Consolas,monospace; background:var(--panel2);
-  border:1px solid var(--line); border-radius:8px; padding:10px; word-break:break-all;
+  border:1px solid var(--line); border-radius:var(--radius); padding:10px; word-break:break-all;
   user-select:all; margin-top:8px}
 .modal-foot{display:flex; justify-content:flex-end; gap:10px; margin-top:16px}
 .wtable{width:100%; border-collapse:collapse; font-size:12px; margin-top:8px}
@@ -147,7 +149,7 @@ main[hidden]{display:none}
 
 /* 预览 */
 .preview{margin:0 14px 10px; background:var(--panel); border:1px solid var(--accent);
-  border-radius:10px; padding:12px}
+  border-radius:var(--radius); padding:12px}
 .preview[hidden]{display:none}
 .pv-head{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 .pv-head b{flex:1}
@@ -157,10 +159,11 @@ main[hidden]{display:none}
 .feenote{font-size:12px; color:var(--muted); margin:-2px 0 8px; line-height:1.6}
 .feenote b{color:var(--fg)} .feenote .up{color:var(--warn)}
 #pvHex{width:100%; height:110px; background:var(--panel2); border:1px solid var(--line);
-  color:var(--fg); border-radius:8px; padding:8px; font-family:Consolas,monospace;
+  color:var(--fg); border-radius:var(--radius); padding:8px; font-family:Consolas,monospace;
   font-size:11px; resize:vertical}
 
-.logwrap{border-top:1px solid var(--line); background:var(--panel)}
+.logwrap{border:1px solid var(--line); border-top:none;
+  border-radius:0 0 var(--radius) var(--radius); background:var(--panel)}
 .logwrap[hidden]{display:none}
 .loghead{display:flex; justify-content:space-between; align-items:center;
   padding:6px 14px; color:var(--muted); border-bottom:1px solid var(--line)}
@@ -196,7 +199,7 @@ main{padding:10px 12px}
 
 /* 标题旁的小胶囊标签（借贷状态卡的「50% 抵押率」） */
 .ov-tag{background:var(--panel2); border:1px solid var(--line); color:var(--muted);
-  border-radius:10px; padding:1px 7px; font-size:10.5px; letter-spacing:0}
+  border-radius:var(--radius); padding:1px 7px; font-size:10.5px; letter-spacing:0}
 
 /* 折叠控件 */
 .ov-toggle{background:none; border:none; color:var(--muted); cursor:pointer;
@@ -240,7 +243,7 @@ main{padding:10px 12px}
 #liqProg{color:var(--accent)}
 
 /* 批量操作方向横幅（防呆，D54） */
-.dirbanner{padding:8px 10px; border-radius:7px; font-weight:600; font-size:12.5px;
+.dirbanner{padding:8px 10px; border-radius:var(--radius-sm); font-weight:600; font-size:12.5px;
   margin-bottom:8px; line-height:1.5}
 .dirbanner.dir-in{background:#2a1f10; border:1px solid #8a5a1a; color:var(--gold)}
 .dirbanner.dir-out{background:#10261f; border:1px solid #1f6b4d; color:var(--ok)}
@@ -248,3 +251,145 @@ main{padding:10px 12px}
 /* 顶部地址可点击（切换钱包，D58） */
 .addr.clickable{cursor:pointer; border-bottom:1px dashed transparent}
 .addr.clickable:hover{border-bottom-color:var(--ok); color:#8ff0c8}
+
+/* ==========================================================================
+   以下组件样式从 hacds.com/assets/css/app.css 移植（2026-11-11）
+   目的：两端界面视觉与交互统一。类名保持一致，便于对照维护。
+   变量来自 design-tokens.css。
+   ========================================================================== */
+
+/* ---------- 卡片标题 ---------- */
+.card-hd{font-size:var(--fs-md);font-weight:650;margin-bottom:var(--sp-4);letter-spacing:-.01em}
+
+/* ---------- 信息行（右侧行情/仓位栏）---------- */
+.info-rows{display:flex;flex-direction:column}
+.info-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:var(--sp-3) 0;border-bottom:1px solid var(--border);
+  font-size:var(--fs-base);color:var(--text-dim);
+}
+.info-row:last-child{border-bottom:none}
+.info-row .mono{color:var(--text);font-weight:600}
+
+/* ---------- 双栏布局 ---------- */
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--sp-4)}
+@media (max-width:820px){.grid-2{grid-template-columns:1fr}}
+
+/* ---------- 兑换框 ---------- */
+.swap-box{
+  background:var(--bg-elev);border:1px solid var(--border);
+  border-radius:var(--radius-lg);padding:var(--sp-4);position:relative;
+}
+.swap-side{padding:var(--sp-2) 0}
+.swap-label{font-size:12px;color:var(--text-faint);margin-bottom:6px}
+.swap-row{display:flex;align-items:center;gap:var(--sp-3)}
+.swap-input{
+  flex:1;min-width:0;background:none;border:none;color:var(--text);
+  font-size:24px;font-weight:600;padding:0;
+}
+.swap-input:focus{outline:none}
+.swap-input::placeholder{color:var(--text-faint)}
+.swap-token{
+  padding:6px 12px;background:var(--card);border:1px solid var(--border);
+  border-radius:var(--radius);font-size:13px;font-weight:650;white-space:nowrap;
+}
+.swap-arrow{
+  display:flex;margin:var(--sp-2) auto;
+  width:32px;height:32px;border-radius:var(--radius);
+  background:var(--card);border:1px solid var(--border);
+  color:var(--text-dim);align-items:center;justify-content:center;
+  transition:all .15s;cursor:pointer;
+  /* ⚠ 覆盖全局 button{padding:6px 12px}，否则 32px 的方块被撑宽，
+     内嵌的 18px 箭头会被挤小，看起来比网页端小一圈 */
+  padding:0;
+}
+.swap-arrow svg{width:18px;height:18px;flex:none;display:block}
+.swap-arrow:hover{color:var(--blue);border-color:var(--blue);transform:rotate(180deg)}
+.swap-meta{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:13px;color:var(--text-dim);padding:var(--sp-2) 0;
+}
+
+/* ---------- 协议状态条 ---------- */
+.proto-strip{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:1px;background:var(--border);border:1px solid var(--border);
+  border-radius:var(--radius);overflow:hidden;margin-bottom:var(--sp-4);
+}
+.proto-item{
+  background:var(--bg-elev);padding:var(--sp-3) var(--sp-4);
+  display:flex;flex-direction:column;gap:3px;
+}
+.proto-item .pk{font-size:var(--fs-xs);color:var(--text-faint);white-space:nowrap}
+.proto-item .pv{font-size:var(--fs-base);color:var(--text);font-weight:600}
+
+/* ---------- 表单字段 ---------- */
+.field-label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px;font-weight:500}
+.field-input{
+  width:100%;padding:11px 14px;
+  background:var(--bg-elev);border:1px solid var(--border);
+  border-radius:var(--radius);color:var(--text);font-size:var(--fs-md);
+  transition:border-color .15s;
+}
+.field-input:focus{outline:none;border-color:var(--blue)}
+.field-input::placeholder{color:var(--text-faint)}
+.meta-input{
+  background:var(--bg-elev);border:1px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text);padding:6px 10px;font-size:13px;
+}
+
+/* ---------- 按钮统一 ---------- */
+.btn-primary{
+  background:var(--blue);color:#fff;border:none;border-radius:var(--radius);
+  padding:12px 18px;font-size:var(--fs-base);font-weight:600;cursor:pointer;
+  transition:filter .15s;
+}
+.btn-primary:hover:not(:disabled){filter:brightness(1.1)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-ghost{
+  background:var(--card);color:var(--text);border:1px solid var(--border);
+  border-radius:var(--radius);padding:11px 18px;font-size:var(--fs-base);
+  font-weight:500;cursor:pointer;transition:all .15s;
+}
+.btn-ghost:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.btn-ghost:disabled{opacity:.5;cursor:not-allowed}
+
+/* ==========================================================================
+   详情弹窗的行：标签与值连写（不推到两端）
+   ========================================================================== */
+.hacd-modal-det .det-row,
+.modal-box .det-row {
+  display: flex; align-items: baseline;
+  gap: 0; padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.65;
+}
+.modal-box .det-row:last-child { border-bottom: none; }
+.modal-box .det-row .k { color: var(--muted); flex: none; white-space: nowrap; }
+/* 冒号随语言：中文用全角，其它用半角 */
+.modal-box .det-row .k::after { content: ': '; }
+html[lang="zh-CN"] .modal-box .det-row .k::after { content: '：'; }
+.modal-box .det-row .v {
+  font-family: Consolas, monospace; color: var(--text);
+  word-break: break-all; flex: 1; min-width: 0;
+}
+
+/* ==========================================================================
+   钻石卡片右上角的勾选圆点（方案 B）
+   · 点它 = 只切换勾选，不弹详情
+   · 点卡片其它区域 = 只弹详情，不改勾选
+   ========================================================================== */
+.hacd-card .hc-check {
+  position: absolute; top: 4px; right: 4px; z-index: 3;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--panel); border: 1.5px solid var(--line);
+  cursor: pointer; transition: all .12s;
+  display: flex; align-items: center; justify-content: center;
+}
+.hacd-card .hc-check:hover { border-color: var(--ok); }
+.hacd-card .hc-check.on {
+  background: var(--ok); border-color: var(--ok);
+}
+.hacd-card .hc-check.on::after {
+  content: '✓'; color: #04281a; font-size: 12px; font-weight: 700; line-height: 1;
+}

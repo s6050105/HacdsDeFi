@@ -7,8 +7,12 @@ window.HACDS_CONFIG = {
   // Worker 会转发到真实的 node / indexer 后端，并补上 CORS + HTTPS。
   apiBase: 'https://api.hacds.com',
 
+  // 索引器（借款人台账 / 续租批次）。工具页的「续租」直接打它。
+  indexer: 'https://indexer.hacds.com',
+
   // 本地直连时的回退（仅用于开发调试；生产环境不用）
   localNode: 'http://127.0.0.1:8082',
+  localIndexer: 'http://127.0.0.1:8124',
   useLocal: location.hostname === 'localhost' || location.hostname === '127.0.0.1',
 
   // 合约地址：#3000 部署后替换

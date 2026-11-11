@@ -85,7 +85,14 @@ WHITELIST=(
   # 审计报告与底稿（公开审计输入）
   "安全审计/上线前安全审计报告-2026-10-25.md"
   "安全审计/上线前安全审计报告-2026-10-27-终审.md"
+  "安全审计/上线前安全审计报告-2026-11-12.md"
   "安全审计/工作底稿"
+  # 编译产物：审计方要能核对"这份源码编译出这个字节码"
+  "hacds_exchange/_build_v30/HacdsDeFi3000.deploy.json"
+  "hacds_exchange/_build_v30/HacdsDeFi3000.contractmap.json"
+  "hacds_exchange/score_sum_opt.hcf1"
+  "hacds_exchange/build-v3000.sh"
+  "hacds_exchange/_test"
 )
 
 # ---------------------------------------------------------------------------
@@ -105,6 +112,8 @@ EXCLUDES=(
   # 备份 / 临时 / 调试残留
   "/_archive_" "/tmp_" "/_trash_" "/_bench/" "/_dist_stale_"
   "/tmp/"                     # android-app/tmp、wallet-app/tmp
+  "/_pdf/"                    # 白皮书/_pdf：PDF 渲染中间产物（html + 副本），
+                              # 正式 PDF 已在 白皮书/ 根下，不必重复公开
   "/.build/"                  # hacds.com/deploy-site/.build（构建产物）
   "/.wrangler/"               # wrangler 本地缓存/临时 worker
   "/local.properties"         # 本机 SDK 路径
@@ -113,6 +122,14 @@ EXCLUDES=(
   "/_fix" "/_unify" "/_patch" # 一次性改名/补丁脚本
   "/md2html.py"               # 白皮书一次性转换脚本
   "/hacds_oracle.py"          # #3000 已删预言机，随包携带会误导
+
+  # 2026-11-12 审计：运维脚本含基础设施细节（隧道令牌已移除，但仍不应公开）
+  "/install-services.ps1"
+
+  # 2026-11-12 审计：安装包不进源码树（Release 另行发布）。
+  # ⚠ 不能全局排除 ".exe" —— wallet-app/bin/hacds_txbuild.exe 是**必须随包**
+  #   的交易引擎。安装包都在 */dist/ 下（已在上面按目录排除），这里只补漏。
+  ".apk" ".aab" ".blockmap" "/builder-debug.yml"
 
   ".DS_Store" ".pyc" ".log"
 )

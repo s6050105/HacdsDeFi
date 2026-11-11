@@ -27,6 +27,8 @@ import com.hacds.defi.ui.Op
 import com.hacds.defi.ui.OpKind
 import com.hacds.defi.ui.Ops
 import java.math.BigInteger
+import com.hacds.defi.ui.components.AssetRow
+import com.hacds.defi.ui.screens.formatHac
 import com.hacds.defi.ui.components.KV
 import com.hacds.defi.ui.components.MonoText
 import com.hacds.defi.ui.components.Notice
@@ -50,6 +52,11 @@ fun OpTabScreen(vm: AppViewModel, tab: String, ops: List<Op> = Ops.MAIN) {
         item {
             PreviewCard(vm, last)
         }
+        // 资金页顶部放资产概览 —— 原「首页」的内容按网页端做法并入业务页。
+        // 网页端的资金页直接显示「合约内余额」，这里对应链上 + 合约两侧。
+        if (tab == "fund") {
+            item { FundOverview(vm) }
+        }
         val group = ops.filter { it.tab == tab }
         if (group.isEmpty()) item { Notice(tr("x_noop")) }
         items(group.size) { i ->
@@ -60,6 +67,30 @@ fun OpTabScreen(vm: AppViewModel, tab: String, ops: List<Op> = Ops.MAIN) {
             item {
                 Section(tr("x_batchResult")) { batchLog.forEach { MonoText(it, maxLines = 1) } }
             }
+        }
+    }
+}
+
+/**
+ * 资金页顶部资产概览。
+ *
+ * 原「首页」被合并后，钱包余额、HAC 积分、due 配额这些信息在这里呈现：
+ * 用户来资金页就是为了充提，先看余额最自然。
+ */
+@Composable
+private fun FundOverview(vm: AppViewModel) {
+    val a by vm.assets.collectAsState()
+    Section(tr("ov.assets")) {
+        val st = a
+        if (st == null) {
+            Text(tr("ov.loading"), style = MaterialTheme.typography.bodySmall)
+        } else {
+            AssetRow("HAC", tr("ov_hac"), formatHac(st.hac))
+            AssetRow("HACD", tr("ov_hacd"), tr("x_nDiamonds", st.diamondCount))
+            // decimal=0：1 最小单位 = 1 hacds；分数按 1 分 = 1e8 定标
+            AssetRow("HACDS", tr("ov_due"), st.due ?: "—")
+            AssetRow("HACDS", tr("ov_onchain"), st.hacdsOnchain)
+            AssetRow("HAC", tr("ov_hacPoints"), st.hacPoints ?: "—")
         }
     }
 }
@@ -211,8 +242,18 @@ fun QuoteHint(vm: AppViewModel, op: Op, values: Map<String, String>) {
 }
 
 /**
- * D62：加流动性两侧联动。改一侧 → 按池内比例自动配平另一侧；不匹配时告警。
- * 注意取整容差（下取整必然差 1 个单位，不算不匹配）。
+ * D62：加流动性两侧联动。**双向**配平：改任意一侧，另一侧按池内比例自动算出。
+ *
+ * 为什么必须双向：用户手里的 hacds 常常是"整数个、不好凑"，
+ * 他更自然的操作是先填 hacds 再倒推要配多少 HAC。只支持单向会逼他手算。
+ *
+ * 方向判定看"哪个字段是用户最后改的"：
+ *   - hac_amt 变化 → 重算 ds_amt
+ *   - ds_amt  变化 → 重算 hac_amt
+ * 两者都改用 remember 记住上一次的值来比较，避免互相触发死循环。
+ *
+ * 取整：两侧都**下取整**。多做的那一侧会留一点余额，不会被吞。
+ * 容差 1 个单位不算不匹配 —— 下取整必然差 1，那是算法误差不是用户填错。
  */
 @Composable
 fun LiquidityHint(vm: AppViewModel, values: Map<String, String>, onSet: (String, String) -> Unit) {
@@ -225,20 +266,56 @@ fun LiquidityHint(vm: AppViewModel, values: Map<String, String>, onSet: (String,
         return
     }
     Notice(tr("x_poolRatio", com.hacds.defi.ui.screens.formatHac(ph.toString()), pd.toString()))
-    // ratio = pd / ph（atoms per zhu）；改 hac 侧 → ds = hacZhu × pd / ph
+
+    // ratio = pd / ph（atoms per zhu）
     val hacStr = values["hac_amt"] ?: ""
     val dsStr = values["ds_amt"] ?: ""
     val hacZ = com.hacds.defi.ui.hacInputToZhu(hacStr)?.toBigIntegerOrNull()
-    val dsA = dsStr.toBigIntegerOrNull()
-    if (hacZ != null && hacZ.signum() > 0) {
-        val expectDs = hacZ.multiply(pd).divide(ph)
-        if (dsA == null || dsA.signum() == 0) {
-            onSet("ds_amt", expectDs.toString())
-        } else {
-            val diff = (dsA - expectDs).abs()
-            if (diff > java.math.BigInteger.ONE) {
-                Notice(tr("x_legMismatch", expectDs.toString(), diff.toString()), error = true)
+    val dsA = dsStr.trim().toBigIntegerOrNull()
+
+    // 记住上一次两边的值，用来判断"用户刚改了哪一侧"。
+    // 用字符串而不是数值：用户敲 "1" → "10" 的过程中前者也能解析成 1，
+    // 只比数值会漏掉编辑意图。
+    var lastHac by remember { mutableStateOf<String?>(null) }
+    var lastDs by remember { mutableStateOf<String?>(null) }
+    // 防止 onSet 触发重组后再次进入本函数又反过来覆盖用户正在输入的一侧
+    var applying by remember { mutableStateOf(false) }
+
+    LaunchedEffect(hacStr, dsStr) {
+        if (applying) { applying = false; return@LaunchedEffect }
+        if (hacStr == lastHac && dsStr == lastDs) return@LaunchedEffect
+
+        val hacChanged = hacStr != lastHac
+        val dsChanged = dsStr != lastDs
+        lastHac = hacStr
+        lastDs = dsStr
+
+        if (hacChanged && hacZ != null && hacZ.signum() > 0) {
+            // 改 HAC 侧 → ds = hacZhu × pd / ph
+            val expectDs = hacZ.multiply(pd).divide(ph)
+            if (expectDs.signum() > 0 && expectDs.toString() != dsStr.trim()) {
+                applying = true
+                onSet("ds_amt", expectDs.toString())
             }
+        } else if (dsChanged && dsA != null && dsA.signum() > 0) {
+            // 改 hacds 侧 → hacZhu = ds × ph / pd，再转回 HAC 文本
+            val expectZhu = dsA.multiply(ph).divide(pd)
+            if (expectZhu.signum() > 0) {
+                val txt = com.hacds.defi.core.Units.zhuToHacString(expectZhu)
+                if (txt != hacStr.trim()) {
+                    applying = true
+                    onSet("hac_amt", txt)
+                }
+            }
+        }
+    }
+
+    // 比例不匹配告警（只在两侧都填了值且都在当前输入之外被算出来时才有意义）
+    if (hacZ != null && hacZ.signum() > 0 && dsA != null && dsA.signum() > 0) {
+        val expectDs = hacZ.multiply(pd).divide(ph)
+        val diff = (dsA - expectDs).abs()
+        if (diff > java.math.BigInteger.ONE) {
+            Notice(tr("x_legMismatch", expectDs.toString(), diff.toString()), error = true)
         }
     }
 }

@@ -26,9 +26,15 @@ const https = require('https');
 const { fnSelectorHex } = require('./keccak');   // 纯 JS sha3（Electron 的 crypto 不含 sha3-256）
 
 // ---- 借贷相关函数 → selector（sha3_256(name)[0:4]）----
+//
+// ⚠ 2026-11-12：与服务端 hacds_indexer.py 对齐。两处修正：
+//   ① 去掉 loan_status / loan_debt_of / loan_coll_of 三个**只读视图** ——
+//      它们不产生借款行为，却会把调用者写进观察名单（零成本自塞清算台）。
+//   ② matchContractFn 从「任意位置子串命中」改为按真实线格式
+//      `28 14 01 <sig4> ee` 结构匹配（见下）。
 const LOAN_FNS = [
   'loan_borrow', 'loan_repay', 'loan_liquidate',
-  'loan_add_collateral', 'loan_status', 'loan_debt_of', 'loan_coll_of',
+  'loan_add_collateral',
 ];
 // 这些函数在**合约上**被调用 ⇒ 调用者(tx.main)就是借款人
 const fnSelector = (name) => fnSelectorHex(name);
@@ -52,13 +58,25 @@ function httpGetJson(url, timeoutMs = 15000) {
 }
 
 // 解析 kind=44 的 codes，返回命中的函数名（未命中返回 null）
+//
+// 真实线格式：`... 28 14 01 <sig4> ee ...`
+//   28 = CALL 操作码，1401 = 参数区长度前缀，ee = 参数区结束
+// 所以定位 `1401` 之后 4 字节为 selector，并要求其后是 `ee`。
+// ⚠ 不能用「任意位置子串命中」：任何 DApp 的 calldata 恰好含这 4 字节
+//   就会把对方 tx.main 误记为借款人。
 function matchContractFn(codesHex) {
   const hx = String(codesHex || '').replace(/^0x/i, '').replace(/\s+/g, '').toLowerCase();
-  if (!hx) return null;
-  for (const [sig, name] of Object.entries(LOAN_SELECTORS)) {
-    if (hx.includes(sig)) return name;
+  if (!hx || !/^[0-9a-f]+$/.test(hx)) return null;
+  let i = 0;
+  while (true) {
+    const j = hx.indexOf('1401', i);
+    if (j < 0) return null;
+    const sig = hx.slice(j + 4, j + 12);
+    if (sig.length === 8 && hx.slice(j + 12, j + 14) === 'ee' && LOAN_SELECTORS[sig]) {
+      return LOAN_SELECTORS[sig];
+    }
+    i = j + 2;
   }
-  return null;
 }
 
 class HacdsIndexer {

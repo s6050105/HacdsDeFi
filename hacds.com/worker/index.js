@@ -52,14 +52,29 @@ export default {
 
       // 构造转发请求
       const target = origin.replace(/\/$/, '') + path;
+      // 真实客户端 IP 必须带给后端（2026-11-12 审计 C-M5）。
+      //
+      // 为什么：hacds_build_server.py 按来源 IP 做 30 次/分的限流。
+      // Worker 之前刻意不透传 CF-Connecting-IP，后端看到的永远是 Cloudflare
+      // 出口 IP —— 于是**全站共享一个 30 次/分的桶**，任何人几十个请求就能
+      // 把服务对其他所有用户打死（拒绝服务）。
+      //
+      // 用 X-Forwarded-For 而不是透传 CF-Connecting-IP：
+      //   ① 后端不信任"客户端自带"的 XFF，只在 `--trust-proxy` 时才读最右一跳；
+      //   ② CF-* 头是 Cloudflare 私有约定，把它带给后端会让后端误以为
+      //      自己也在 Cloudflare 里，语义混乱。
+      // 只有 Worker 能设置这个头，浏览器伪造的会被这里覆盖。
+      const clientIp = request.headers.get('CF-Connecting-IP') || '';
+      const fwdHeaders = {
+        'Content-Type': request.headers.get('Content-Type') || 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'hacds.com-worker/1.0',
+      };
+      if (clientIp) fwdHeaders['X-Forwarded-For'] = clientIp;
+
       const init = {
         method: request.method,
-        headers: {
-          // 只透传必要头，避免把 Cloudflare 的 CF-* 头带给后端
-          'Content-Type': request.headers.get('Content-Type') || 'application/json',
-          'Accept': 'application/json',
-          'User-Agent': 'hacds.com-worker/1.0',
-        },
+        headers: fwdHeaders,
         // GET/HEAD 不带 body
         body: (request.method === 'GET' || request.method === 'HEAD')
           ? undefined

@@ -79,18 +79,18 @@
     <string name="common_translTitle">翻译</string>
     <string name="common_translateFail">翻译失败：</string>
     <string name="common_translated">已翻译交易体</string>
-    <string name="f_atoms">数量（atoms，最小单位）</string>
-    <string name="f_atomsNum">数量 atoms</string>
-    <string name="f_atomsNum2">数量（atoms）</string>
+    <string name="f_atoms">数量（个，整数）</string>
+    <string name="f_atomsNum">数量（个）</string>
+    <string name="f_atomsNum2">数量（个）</string>
     <string name="f_borrowAmt">借出金额</string>
     <string name="f_borrowUnit">借出金额（HAC）</string>
     <string name="f_borrower">借款人地址</string>
     <string name="f_dsColl">抵押 hacds</string>
-    <string name="f_dsCollAtoms">追加抵押 hacds（atoms，1 hacds = 1e8 atoms）</string>
+    <string name="f_dsCollAtoms">追加抵押 hacds（个）</string>
     <string name="f_dsIn">投入 hacds</string>
-    <string name="f_dsInAtoms">投入 hacds（atoms）</string>
+    <string name="f_dsInAtoms">投入 hacds（个）</string>
     <string name="f_dsSide">hacds 侧</string>
-    <string name="f_dsSideAtoms">hacds 侧（atoms）</string>
+    <string name="f_dsSideAtoms">hacds 侧（个）</string>
     <string name="f_feeAdv">交易手续费（留空 = 自动估算）</string>
     <string name="f_feeAdvHint">默认按节点费率自动算</string>
     <string name="f_gasMax">gas_max 字节（留空自动：HAC/HACD 1，hacds 50，合约 99）</string>
@@ -102,7 +102,7 @@
     <string name="f_hacSideUnit">HAC 侧（HAC）</string>
     <string name="f_hacdNames">钻石名（逗号分隔，如 KWTVSH,VHUSMI）</string>
     <string name="f_minOut">最少得到（滑点保护，0=不限）</string>
-    <string name="f_minOutAtoms">最少得到（atoms，0=不限）</string>
+    <string name="f_minOutAtoms">最少得到（个，0=不限）</string>
     <string name="f_minOutHac">最少得到（HAC，0=不限）</string>
     <string name="f_names">钻石名（逗号分隔）</string>
     <string name="f_namesHint">如 MVUUBA,HYXYHY</string>
@@ -132,7 +132,7 @@
     <string name="hacd_copyNames">复制名称</string>
     <string name="hacd_deposit">存入兑换 hacds</string>
     <string name="hacd_depositBulk">批量存入兑换（%1$s）</string>
-    <string name="hacd_depositWarn">⚠ 单笔存入受合约 resource gas 上限约束：约每颗 ~3,000，上限 6,100 → 单笔最多 1 颗。原子交易合并多个“存入”**不能**绕过（同一笔共享同一 gas 预算）。勾选多颗后请用「批量存入兑换」，会自动拆成单颗多笔依次广播。</string>
+    <string name="hacd_depositWarn">单笔最多存入 200 颗。合约走 rv64im 内核评分，选中的钻石会打包成一笔交易，只需签名一次。超过 200 颗请分两次。</string>
     <string name="hacd_detail">详情</string>
     <string name="hacd_dirIn">方向：把你的 %1$s 颗钻石【转入】合约（记为 due 配额）</string>
     <string name="hacd_dirOut">方向：从合约【取回】你的 %1$s 颗钻石</string>
@@ -195,7 +195,7 @@
     <string name="liq_liquidate">清算</string>
     <string name="liq_needAddr">请先填写地址</string>
     <string name="liq_noSweep">金库暂无可清扫余额</string>
-    <string name="liq_pendingDs">按池比例，另一侧需 hacds %1$s atoms</string>
+    <string name="liq_pendingDs">按池比例，另一侧需 hacds %1$s 个</string>
     <string name="liq_pendingHac">按池比例，另一侧需 HAC %1$s</string>
     <string name="liq_ratio">池内比例 %1$s ↔ %1$s；改一侧自动配平另一侧</string>
     <string name="liq_removed">已移除：</string>
@@ -209,7 +209,7 @@
     <string name="liq_stSafe">安全</string>
     <string name="liq_stUnknown">未知</string>
     <string name="liq_state">状态</string>
-    <string name="liq_suggestDs">按池比例，这一侧应为 hacds %1$s atoms</string>
+    <string name="liq_suggestDs">按池比例，这一侧应为 hacds %1$s 个</string>
     <string name="liq_suggestHac">按池比例，这一侧应为 HAC %1$s</string>
     <string name="liq_sweepDs">清扫 hacds</string>
     <string name="liq_sweepHac">清扫 HAC</string>
@@ -276,7 +276,7 @@
     <string name="off_sign">用当前钱包签名未签名体</string>
     <string name="off_signed">2) 已签名交易 hex</string>
     <string name="off_title">离线签名工作流（冷热分离）</string>
-    <string name="off_trAmt">金额 / atoms</string>
+    <string name="off_trAmt">金额 / 个数</string>
     <string name="off_trTo">收款地址</string>
     <string name="off_trType">转账子类型</string>
     <string name="off_translate">翻译交易体（联网）</string>
@@ -486,8 +486,8 @@
     <string name="x_buildFail">构建失败：%1$s</string>
     <string name="x_hacdP2P">HACD 点对点转账</string>
     <string name="x_poolEmptyIsq">池为空：首次注入两侧自定，份额 ≈ isqrt(hac × ds)</string>
-    <string name="x_poolRatio">池内比例：%1$s HAC ↔ %2$s atoms</string>
-    <string name="x_legMismatch">⚠ 两腿不匹配：按池内比例，hac_amt 应对应 %1$s atoms（差 %2$s）</string>
+    <string name="x_poolRatio">池内比例：%1$s HAC ↔ %2$s 个 hacds</string>
+    <string name="x_legMismatch">⚠ 两腿不匹配：按池内比例，hac_amt 应对应 %1$s 个 hacds（差 %2$s）</string>
     <string name="x_poolEmptyNoVal">池为空，无法折算抵押价值</string>
     <string name="x_overBorrow">✘ 超出可借上限</string>
     <string name="x_canBorrow">✔ 可借</string>
@@ -605,4 +605,9 @@
   <string name="op_sweepHac_d">把合约累积的 HAC 手续费转给金库（合约 PermitHAC 扣 tre:hac）。</string>
   <string name="op_sweepDs_t">清扫金库(合约→金库·hacds)</string>
   <string name="op_sweepDs_d">把合约累积的 hacds 手续费转给金库（合约 PermitAsset 扣 tre:ds）。</string>
+    <!-- 一级页签（2026-11-11 与网页端统一） -->
+    <string name="tab_swap">兑换</string>
+    <string name="tab_lp">流动性</string>
+    <string name="tab_fund">资金</string>
+    <string name="tab_tools">工具</string>
 </resources>

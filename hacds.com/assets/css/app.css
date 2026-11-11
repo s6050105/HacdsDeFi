@@ -206,3 +206,145 @@
 .pick-summary .sep { color: var(--text-faint); margin: 0 6px; }
 
 .btn-xs { padding: 4px 9px; font-size: 11.5px; }
+
+/* ==========================================================================
+   HACD 卡片（2026-11-11 移植自 PC 钱包）
+   网页端原来是纯文字 pick-item，改为带钻石 SVG 的卡片，
+   并支持按形状/样式/分数筛选与排序。
+   ========================================================================== */
+
+.hacd-filter-wrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hacd-filter-bar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  font-size: 12px; color: var(--text-dim);
+}
+.hacd-filter-bar select,
+.hacd-filter-bar input { font-size: 12px; padding: 4px 7px; }
+
+.hacd-card {
+  background: var(--card-hover); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 7px; text-align: center;
+  cursor: pointer; transition: border-color .12s; position: relative;
+}
+.hacd-card:hover { border-color: var(--border-lit); }
+.hacd-card.on { border-color: var(--gold); }
+.hacd-card.picked { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
+.hacd-card.picked.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--green) inset; }
+.hacd-card .hc-badge {
+  position: absolute; top: 3px; right: 5px; z-index: 2;
+  background: var(--green); color: #04281a; font-weight: 700; font-size: 11px;
+  line-height: 1; border-radius: var(--radius); padding: 3px 5px;
+}
+.hacd-card svg { width: 100%; height: auto; display: block; border-radius: var(--radius-sm); }
+.hacd-card .hc-name { font-family: var(--mono); font-size: 11px; margin-top: 4px; }
+.hacd-card .hc-score { color: var(--gold); font-size: 11px; }
+
+/* ==========================================================================
+   HACD 三区布局（2026-11-11 与 PC 钱包统一）
+   --------------------------------------------------------------------------
+   左：钻石网格 + 筛选 + 来源切换
+   中：选中钻石的详情（大图 + 维度）
+   右：操作区（存入 / 赎回）
+
+   PC 钱包 renderer/style.css 里有完全相同的定义，改这里记得两边同步。
+   ========================================================================== */
+
+.hacd-panel {
+  display: flex; gap: var(--sp-3); align-items: flex-start;
+  min-height: 520px;
+}
+.hacd-left {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: var(--sp-3);
+  max-height: 640px;
+}
+.hacd-filter-wrap { margin-bottom: var(--sp-2); }
+.hacd-grid {
+  flex: 1; overflow: auto; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--sp-2); align-content: start;
+  padding-top: var(--sp-2);
+}
+.hacd-right {
+  width: 320px; flex: none;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: var(--sp-3);
+  max-height: 640px; overflow: auto;
+}
+.hacd-right svg { width: 100%; height: auto; border-radius: var(--radius); }
+.hacd-right .det { margin-top: var(--sp-2); font-size: 12px; }
+.hacd-right .det div {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 3px 0; border-bottom: 1px solid var(--border);
+}
+.hacd-right .det .k { color: var(--text-dim); }
+.hacd-right .det .v { font-family: var(--mono); }
+.hacd-ops { width: 320px; flex: none; }
+
+@media (max-width: 1180px) {
+  /* 窄屏：详情与操作区折到下方，避免挤压网格 */
+  .hacd-panel { flex-wrap: wrap; }
+  .hacd-left { flex-basis: 100%; max-height: 420px; }
+  .hacd-right, .hacd-ops { width: calc(50% - var(--sp-2)); }
+}
+@media (max-width: 760px) {
+  .hacd-right, .hacd-ops { width: 100%; }
+}
+
+/* ==========================================================================
+   弹窗（2026-11-11，与 PC 钱包一致）
+   用于 HACD 详情等「点开看、看完关」的内容，不占布局空间。
+   ========================================================================== */
+.modal {
+  position: fixed; inset: 0; background: rgba(4, 8, 16, .72);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.modal[hidden] { display: none; }
+.modal-box {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 520px; max-width: 94vw; max-height: 88vh; overflow: auto;
+  padding: var(--sp-4);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+}
+.modal-box .pv-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: var(--sp-3);
+}
+.modal-box .pv-head b { font-size: var(--fs-md); }
+.modal-box .det div {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 3px 0; border-bottom: 1px solid var(--border);
+}
+.modal-box .det .k { color: var(--text-dim); }
+.modal-box .det .v { font-family: var(--mono); }
+
+/* 详情弹窗的行：标签与值连写 */
+.modal-box .det-row {
+  display: flex; align-items: baseline; padding: 4px 0;
+  border-bottom: 1px solid var(--border); line-height: 1.65;
+}
+.modal-box .det-row:last-child { border-bottom: none; }
+.modal-box .det-row .k { color: var(--text-dim); flex: none; white-space: nowrap; }
+.modal-box .det-row .k::after { content: ': '; }
+html[lang="zh-CN"] .modal-box .det-row .k::after { content: '：'; }
+.modal-box .det-row .v {
+  font-family: var(--mono); color: var(--text);
+  word-break: break-all; flex: 1; min-width: 0;
+}
+
+/* 钻石卡片右上角勾选圆点（方案 B，与 PC 钱包一致） */
+.hacd-card .hc-check {
+  position: absolute; top: 4px; right: 4px; z-index: 3;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--card); border: 1.5px solid var(--border);
+  cursor: pointer; transition: all .12s;
+  display: flex; align-items: center; justify-content: center;
+}
+.hacd-card .hc-check:hover { border-color: var(--green); }
+.hacd-card .hc-check.on { background: var(--green); border-color: var(--green); }
+.hacd-card .hc-check.on::after {
+  content: '✓'; color: #04281a; font-size: 12px; font-weight: 700; line-height: 1;
+}

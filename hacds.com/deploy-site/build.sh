@@ -29,14 +29,32 @@ FILES=(
   app/index.html
   docs/index.html
   whitepaper/index.html
+  docs/user-guide/index.html
+  docs/rpc/index.html
+  # 三份文档 × 三语（md 供在线阅读，pdf 供下载）
   whitepaper/HacdsDeFi-白皮书.md
   whitepaper/HacdsDeFi-白皮书.pdf
   whitepaper/HacdsDeFi-Whitepaper.en.md
   whitepaper/HacdsDeFi-Whitepaper.en.pdf
   whitepaper/HacdsDeFi-Whitepaper.tr.md
+  whitepaper/HacdsDeFi-Whitepaper.tr.pdf
+  whitepaper/HacdsDeFi-操作说明书.md
+  whitepaper/HacdsDeFi-操作说明书.pdf
+  whitepaper/HacdsDeFi-User-Guide.en.md
+  whitepaper/HacdsDeFi-User-Guide.en.pdf
+  whitepaper/HacdsDeFi-User-Guide.tr.md
+  whitepaper/HacdsDeFi-User-Guide.tr.pdf
+  whitepaper/HacdsDeFi-RPC文档.md
+  whitepaper/HacdsDeFi-RPC文档.pdf
+  whitepaper/HacdsDeFi-RPC-Doc.en.md
+  whitepaper/HacdsDeFi-RPC-Doc.en.pdf
+  whitepaper/HacdsDeFi-RPC-Doc.tr.md
+  whitepaper/HacdsDeFi-RPC-Doc.tr.pdf
   assets/css/main.css
   assets/css/app.css
   assets/css/docs.css
+  # 与 PC 钱包共用的设计变量（app/index.html 引用）
+  assets/css/design-tokens.css
   assets/js/api.js
   assets/js/app.js
   assets/js/config.js
@@ -46,7 +64,13 @@ FILES=(
   assets/js/markdown.js
   assets/js/txbuild.js
   assets/js/wallet.js
-  assets/js/whitepaper.js
+  # 通用文档查看器（白皮书 / 使用说明 / RPC 三页共用）
+  assets/js/docview.js
+  # HACD 卡片渲染 / 评分 / 基因解析（app/index.html 引用，缺一个就白屏）
+  assets/js/hacd-ui.js
+  assets/js/diamond-score.js
+  assets/js/diamondgene.js
+  assets/js/diamondsvgimg.js
   assets/img/hac.svg
   assets/img/hacd.svg
   assets/img/hacds_icon_32.png
@@ -71,6 +95,7 @@ cat > "$OUT/public/_headers" <<'EOF'
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
   Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://api.hacds.com http://127.0.0.1:8082; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests
 
 /assets/*
   Cache-Control: public, max-age=3600

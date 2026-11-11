@@ -63,8 +63,8 @@
 └──────────────────────────────┬──────────────────────────────────┘
                                │ HTTPS
                                ▼
-                  全节点 43.251.101.101:8082
-                  预言机 43.251.101.101:8123
+                  全节点 <SERVER_IP>:8082
+                  预言机 <SERVER_IP>:8123
 ```
 
 **引擎为什么仍用 Rust 库**：交易构建/签名复杂（200+ 动作、Type-3 线格式、手续费迭代），重写风险高；共用同一份 Rust 代码 → 与 PC **字节级一致**。Kotlin 重写 secp256k1 + Type-3（BouncyCastle）**正确性难以保证**（low-S、确定性签名、编码细节）。
@@ -312,10 +312,10 @@ Android 侧实现要点：
 **不要在手机上扫链。** 实测扫描吞吐：串行 2.6 块/秒，并发 4 为 6.6 块/秒；回溯 500 块要 15~75 秒，
 且产生数千次 HTTP 请求 —— 对手机的流量与电量都不可接受。
 
-**正确形态**：索引器跑在服务端（`43.251.101.101:8124`），App 只发**一次**请求：
+**正确形态**：索引器跑在服务端（`<SERVER_IP>:8124`），App 只发**一次**请求：
 
 ```
-GET http://43.251.101.101:8124/watchlist
+GET http://<SERVER_IP>:8124/watchlist
 → { ret, head, watched, withDebt, liquidatable, snapshot:[{address,health,debt,coll,liquidatable,noLoan,...}] }
 ```
 
@@ -549,3 +549,88 @@ HACD 点对点是**链上一级转账**（kind 6 `TransferHacdFromTo`），**不
 | CARAT | `assets/tokens/carat.png`（128×128，压自 1254） | hacashdex.com `/assets/carat.png` |
 | HACP | `assets/tokens/hacp.png`（128×128） | hacashdex.com `/assets/hacp.png` |
 | 应用图标 | 用 hacds 640 派生各密度 | — |
+
+---
+
+# 附录：2026-11-11 UI 统一改造
+
+## 背景
+
+网页端与 PC 钱包在 2026-11-11 完成 UI 重组（7 页签 + 双卡布局 + 共享设计变量），
+安卓端本次跟进，目标是**三端视觉与功能分类一致**。
+
+## 变更摘要
+
+| 项 | 改前 | 改后 |
+|---|---|---|
+| 导航结构 | 底部 4 图标：首页 / 交易(8 个二级 chip) / HACD / 设置 | **顶部 7 个横滑页签**：兑换 / 流动性 / 借贷 / HACD / 转账 / 资金 / 工具 |
+| 配色 | 金橙 `#F7AF34` 主色 + 深棕 `#14110C` 底 | **深蓝黑 `#0A0E14` 底 + 主色蓝 `#4A9EFF`**，金色只用于 HACD |
+| 首页概览 | 独立「首页」页签 | 合并进**资金页顶部**（资产总览卡片） |
+| 设置 | 一级页签 | 顶栏右侧齿轮图标 |
+| 管理员操作 | 5 个 `set_*` 操作 | **全部删除**（#3000 合约无管理员，链上函数不存在） |
+| 存入提示 | 「单笔最多 1 颗」 | 「单笔最多 200 颗，打包一笔交易」 |
+
+## 配色对照（与 design-tokens.css 一致）
+
+```kotlin
+Bg        = #0A0E14   // --bg
+BgElev    = #0F141B   // --bg-elev
+Card      = #141A22   // --card
+Border    = #1F2933   // --border
+TextMain  = #E6EDF3   // --text
+TextDim   = #8B949E   // --text-dim
+Blue      = #4A9EFF   // --blue  主色
+Green     = #3DD68C   // --green
+Amber     = #F5A524   // --amber
+Red       = #F04438   // --red
+Gold      = #F7AF34   // --gold  仅 HACD/钻石
+```
+
+⚠ 改配色时三处要同步：
+`hacds.com/assets/css/design-tokens.css`、`wallet-app/renderer/design-tokens.css`、`android-app/.../ui/theme/Theme.kt`
+
+## 功能分组映射
+
+| 一级页签 | 包含操作 | 对应合约函数 |
+|---|---|---|
+| 兑换 swap | swapH2D / swapD2H | `swap_hac_to_ds` / `swap_ds_to_hac` |
+| 流动性 lp | addLiq / rmLiq / harvest | `add_liquidity` / `remove_liquidity` / `lp_harvest` |
+| 借贷 loan | coll / borrow / repay / liq | `loan_*` |
+| HACD hacd | 钻石列表 + redeemHacd | `PermitHACD` 钩子 |
+| 转账 xfer | trH2A / trA2A / trHacd / trOther | 链上转账，不碰合约 |
+| 资金 fund | claim / hacIn / hacOut / trA2C | `PayableHAC` / `PermitHAC` / `PayableAsset` / `PermitAsset` 钩子 |
+| 工具 tools | rent_keys + 只读查询 / 清算 / 离线签名 / 钱包 | `rent_keys`（无许可） |
+
+**分类原则**（与网页端一致）：
+- **转账** = 链上地址 ↔ 链上地址，不碰合约
+- **资金** = 我的地址 ↔ 合约地址，只做充提
+- **业务**（兑换/流动性/借贷/HACD）= 与合约的具体业务交互
+
+## 为什么用顶部页签而不是底部导航
+
+7 个入口放在底部导航栏，手机窄屏（320–430dp）每个只有 45–60dp，
+图标 + 文字会挤成一团。改为顶部横向滚动页签：
+- 点击区更大
+- 文案完整可见
+- 与网页端页签形态一致
+
+## 实测验证
+
+Android 12 模拟器，EMUI 分辨率 1080×1080：
+
+| 页签 | 首屏内容 | 状态 |
+|---|---|---|
+| 0 兑换 | HAC → hacds（含实时报价） | ✅ |
+| 1 流动性 | 加流动性 | ✅ |
+| 2 借贷 | 追加抵押 | ✅ |
+| 3 HACD | 钻石列表 + 筛选（形状/分数/编号/名称） | ✅ |
+| 4 转账 | HAC 转账 | ✅ |
+| 5 资金 | **资产总览** + 领取 hacds + 充 HAC | ✅ |
+| 6 工具 | 只读查询 / 清算 / 离线签名 / 钱包 | ✅ |
+
+## 接口变化
+
+**无变化** —— 合约对外 59 个函数签名与改造前完全一致，
+安卓端 `Ops.kt` 调用的函数都在合约里，无需改接口层。
+
+唯一删除的是 5 个 `set_*` 管理员操作（合约侧已不存在，调用必然失败）。

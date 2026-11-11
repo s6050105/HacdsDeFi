@@ -22,3 +22,8 @@ f6ce12f28f3db950ddd01da4131efc34fbaba63325567ccb3ea868b5f9058e16  wallet-app/ven
 a7e754da55536cf0eb2a4c69eb916cc0c60496a1838e45761806826bddca74da  wallet-app/renderer/vendor/diamondsvgimg.js
 79ec86f82856005b1c887905cfccfcfbec3821ca61c7fd5a952faa5f778f791c  wallet-app/renderer/vendor/qrcode.js
 1bf93215a3ce7736bec4a619c9c9e2552e411239799437cdc12606a9dd188141  wallet-app/renderer/vendor/sha3.js
+
+# 评分内核（2026-11-12 审计 H-6：此前未纳入校验，生产构建默认用预编译内核）
+#   改 score_sum.rs 或替换 hcf1 后必须重跑 _test/diff_test.py 并更新这两行。
+0b02c7dfc88c57edf839280ffd9d4cfc7b332aebc1a3c1262a6b14564c4c9fe8  hacds_exchange/score_sum_opt.hcf1
+2253b693809959c30857a74740e3bbb222ae700dc91945311faa2dbdbbc8c49e  hacds_exchange/score_sum.rs

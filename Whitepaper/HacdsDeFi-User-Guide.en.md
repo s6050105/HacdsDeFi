@@ -1,462 +1,451 @@
 # HacdsDeFi User Guide
 
-2026-10-21　For wallet version 0.1.0 (Windows 64-bit)
+2026-11-11　For PC wallet 0.4.0 / Android 0.2.0
 
-> ⚠️ **This document describes the retired #2000 version. Do not use it as the current implementation reference.**
+> This document corresponds to contract #3000 (address
+> `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`, asset serial 3000).
 >
-> #3000 removes the **oracle, certificates, and the admin**: HACD scoring is now computed
-> on-chain from the diamond gene, with no certificate stream and no `init_admin` / `set_paused` /
-> `set_oracle`. Asset parameters are now serial 3000 / decimal 0, and the contract address is
-> `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`.
->
-> **For the current implementation, refer to:**
-> - [README](../README.en.md)
-> - [Economic design (final)](../hacds_exchange/HacdsDeFi3000-经济设计-定稿.md)
-> - [Deployment parameters](../hacds_exchange/发行参数-正式.md)
-> - [Final audit report](../安全审计/上线前安全审计报告-2026-10-27-终审.md)
->
-> The #3000 edition of this document will ship with the official release after the contract is deployed.
+> **This edition removed the oracle, the scoring certificates, and the admin.**
+> You no longer wait for any service to issue a certificate, and "the admin
+> paused the contract" can never happen — that function does not exist.
 
+---
 
 ## Who this guide is for
 
-Anyone who has the wallet, has opened it for the first time, and does not know where to click.
+For anyone who has this wallet, opens it for the first time, and does not know
+what to click.
 
-It assumes you know nothing about contracts or the HVM, and you do not need to. By the end you should be able to do it yourself: install, create a wallet, swap diamonds for hacds, trade in the pool, borrow against collateral, and send coins to someone else.
+Assume you know nothing about contracts or the HVM, and do not need to. After
+reading, you should be able to do it all yourself: install, create a wallet,
+turn diamonds into hacds, swap in the pool, borrow against collateral, and send
+coins to someone else.
 
-Every place money is involved states the unit clearly. **This is the easiest thing to get wrong — please read section 9.**
+Every place an amount appears, the unit is stated. **This is the easiest place to make a mistake — please read §9.**
 
 ---
 
 ## 1. Three things to prepare
 
-**A Windows PC** (64-bit). The wallet is a desktop application; there is no web version and no mobile version (the Android build is in progress).
+**A computer** (Windows 64-bit) **or an Android phone**.
 
-**One of the two files**: `HacdsDeFi-Setup-0.1.0-x64.exe` is the installer — double-click and install. `HacdsDeFi-0.1.0-x64.exe` is portable — double-click and it runs. Either one.
-
-**A connection to the servers.** The wallet does not store chain data itself; it talks to three services:
-
-| Service | Address | What it does |
+| Platform | File | Notes |
 |---|---|---|
-| Node | `43.251.101.101:8082` | Balances, broadcasting transactions |
-| Oracle | `43.251.101.101:8123` | Issues diamond scoring certificates (needed to swap for hacds) |
-| Indexer | `43.251.101.101:8124` | Ledger for lending liquidation (optional) |
+| PC | `HacdsDeFi-Setup-0.4.0-x64.exe` | Installer, double-click to install |
+| PC | `HacdsDeFi-0.4.0-x64.exe` | Portable, double-click to run |
+| Android | `HacdsDeFi-0.2.0-arm64.apk` | Must allow "install from unknown sources" |
 
-These are already filled in. As long as the network is up, nothing needs changing. If you switch servers, change them at the top.
+Pick one of the two PC builds. Phones must be arm64 (every mainstream device of
+recent years).
 
----
+**Network access to the servers.** The wallet stores no chain data; it connects
+to two services:
 
-## 2. Opening it for the first time
+| Service | Address | Purpose |
+|---|---|---|
+| Node | `node.hacds.com` | Balances, broadcast, read contract state |
+| Indexer | `indexer.hacds.com` | Ledger for liquidations (optional) |
 
-The top row looks like this:
+Both are pre-filled. If the network works, nothing needs changing. To switch,
+edit them at the top.
 
-```
-[Node] [Oracle] [Contract] [Indexer] [Save] [Check]     [−] 100% [+] [⟲]   [Language▾]
-```
-
-**First thing: click "Check".**
-
-Then look at the log area below. Two lines should appear:
-
-- `Node OK, height 79xxxx`
-- `Oracle OK, 1H3sFZ53…`
-
-If both are OK, the network is reachable and you can carry on. If something fails, see section 10.
-
-The `100%` on the right is UI zoom; if the text is small, click `+`. The dropdown at the far right switches language (简体中文 / English / Türkçe).
+> **Only two services now — no oracle.** The old edition had a third service that
+> issued scoring certificates for diamonds. It is gone entirely: the contract now
+> reads diamond genes and scores them itself, with no off-chain step at all.
 
 ---
 
-## 3. Creating a wallet (or importing one)
+## 2. First launch
 
-At this point the middle shows "Wallet locked", with a row of buttons:
+On PC, the top row looks like this:
 
 ```
-Wallet locked   [Create wallet] [Import wallet] [Open wallet file…] [Wallets] [Use external key file]
+[Node] [Indexer] [Contract] [Save] [Test]     [−] 100% [+] [⟲]   [Language▾]
 ```
+
+**First thing: click "Test".**
+
+Then look at the log area below. You should see `Node OK, height 79xxxx`.
+
+If the node is unreachable, check your network first. **An unreachable indexer does not block you** — the liquidation page is just slower (it falls back to
+scanning blocks locally).
+
+---
+
+## 3. Create a wallet (or import one)
 
 ### 3.1 New users: create a wallet
 
-Click "Create wallet" and fill in two things:
+Click "Create wallet" and set a password.
 
-- **Password**: set one. This password protects your wallet file; if you lose it, you cannot open it again.
-- **Label** (optional): for example "Main wallet".
+**At least 8 characters, and it cannot be recovered if lost.** The wallet file is
+encrypted and stored locally; there is no recovery, no support, no back door.
+Write it on paper — do not keep it only on the computer.
 
-Confirm, and the wallet is created. The address appears at the top.
+When done, it shows your address (starts with `1`, about 34 characters) and a
+12-word mnemonic. **Write the mnemonic down and store it offline.** It is the
+only way to restore your wallet.
 
-### 3.2 Existing wallets: three ways to import
+### 3.2 Existing wallets: three import methods
 
-| Your situation | Which button |
+| Method | When to use |
 |---|---|
-| You have a 64-character private key (a hex string) | "Import wallet" |
-| You have a keystore file you saved earlier | "Open wallet file…" |
-| The private key is a file and you do not want to import it | "Use external key file" |
+| Mnemonic | Migrating from another wallet |
+| Keystore file | PC and Android are interchangeable; same format (`hacds-keystore v1`) |
+| Private key | For legacy keys |
 
-Once imported it appears in the account area the same way.
+### 3.3 Managing multiple wallets
 
-### 3.3 Managing several wallets
-
-Click "Wallets" to see every wallet's address, label and balance. You can open, rename and delete them.
-
-**There is a shortcut for switching**: click the green address at the top and a list pops up. Pick one to switch to it (you will be asked for the password). You do not have to go into "Wallets" first.
+Click "Wallet manager" to see every wallet on this machine, switch, rename, or
+delete.
 
 ---
 
 ## 4. What you see after unlocking
 
-The top changes to:
+The top is **seven tabs**, identical to the web version:
 
 ```
-🔓 1You…Addr   [Admin]   [Refresh] [Export key] [Lock / Exit]
+[Swap] [Liquidity] [Lending] [HACD] [Transfer] [Funds] [Tools]
 ```
 
-**"Refresh"**: chain data does not update by itself. Click it whenever you want the latest balances.
+Below that, three persistent cards:
 
-**"Lock / Exit"**: remember to click it when you are done. Locking clears the private key from memory, so someone who picks up the computer cannot move your funds.
+| Card | Content |
+|---|---|
+| Asset overview | HAC, HACD count, hacds balance, quota inside the contract |
+| Protocol status | Pool reserves on both sides, reference price, utilization |
+| Loan status | Your debt, collateral, health |
 
-Below is the row of tabs — everything you can do:
-
-```
-Swap / Deposit | AMM & Liquidity | Lending | Transfers | HACD Gallery | Read-only
-Liquidation | Atomic tx | Offline Sign
-```
-
-The "Admin" tab only appears for the contract admin. Ordinary users do not have it — ignore it.
+All three collapse via the `▾` in their top-right corner.
 
 ---
 
-## 5. Reading the three cards on the home screen
+## 5. Reading the three cards
 
-After unlocking there are three cards at the top. **Understand these three and the rest follows.**
+### 5.1 Asset overview
 
-### 5.1 Assets
-
-| Shown | What it means |
+| Item | Meaning |
 |---|---|
-| **HAC** | How much HAC you hold on chain |
-| **HACD diamonds** | How many diamonds you hold |
-| **Expected hacds** | Roughly how many hacds those diamonds would fetch if swapped |
-| **Pending hacds** | The diamonds are already deposited in the contract; this is what the contract owes you (a booked figure) |
-| **Held hacds** | hacds already claimed and freely transferable |
-| **Contract HAC points** | HAC you deposited into the contract (the balance used for swapping and lending) |
+| HAC | HAC in your wallet, spendable directly |
+| HACD | How many diamonds you hold |
+| hacds (quota) | hacds **inside the contract**, not yet claimed on-chain |
+| hacds (on-chain) | The standard asset already at your own address |
 
-For hacds, just remember this line:
-
-```
-you hold diamonds  →(deposit)→  contract owes you (pending)  →(claim)→  hacds actually in hand
-```
-
-**"Expected" and "Held" are two different things.** Do not mix them up. The first is an estimate; the second is money you can spend.
+**You own the sum of the two hacds figures.**
 
 ### 5.2 Protocol status
 
-How much is in the pool, what share you own, and your lending position. Day to day you mainly look at:
-
-- **Pool HAC / Pool hacds**: the size of the pool, which sets the swap price
-- **Pool price**: how much HAC one hacds is worth right now
-- **My LP / My debt / My collateral**: yours
+| Item | Meaning |
+|---|---|
+| Pool HAC / pool hacds | Reserves on both sides of the AMM pool |
+| Reference price | The smoothed price the contract uses for liquidation valuation |
+| Utilization | Lent out / lendable; above 50% no new borrowing |
 
 ### 5.3 Loan status
 
-**This card exists to save you from trial and error.** It always shows:
+**The health figure is the important one**:
 
-- Your debt, your collateral, and what that collateral is worth in HAC
-- **My max borrow** — how much you can still borrow right now
-- Liquidation state: Safe / Liquidatable / No debt
+| Display | State | What happens |
+|---|---|---|
+| > 10000 | Safe | Nothing |
+| = 10000 | Dangerous | Exactly on the liquidation line |
+| < 10000 | Liquidatable | Anyone can liquidate you at any time |
+| < 9000 | Deep water | The entire debt can be closed in one go |
 
-**Look at this card before borrowing** and you will not have to learn by failing.
-
----
-
-## 6. Every transaction is the same five steps
-
-Whatever page you are on and whatever you are doing, the flow is identical:
-
-```
-Fill parameters  →  [Build transaction]  →  preview appears  →  [Verify]  →  [Broadcast]
-```
-
-**① Build transaction**: signed locally. Nothing is spent yet and nothing goes on chain.
-
-**② Preview area**: a panel appears with several buttons:
-
-| Button | What it does |
-|---|---|
-| **Copy hex** | Copies the raw transaction |
-| **Save…** | Saves it to a file |
-| **Verify** | Asks the node whether the transaction format is valid (needs the network) |
-| **Translate** | Asks the node to explain in plain words what the transaction does |
-| **Broadcast** | Actually sends it |
-
-**③ Strongly recommended: click "Translate" first.** It lists what the transaction does in plain language, e.g. "Transfer 1 HAC from … to …". Confirm it is right before broadcasting.
-
-**④ After broadcast** the log shows success and the transaction hash.
-
-**⑤ Wait for a block.** Hacash produces a block roughly every **5 minutes**. A successful broadcast only means it entered the pending queue — **it only takes effect at the next block**. So if you click "Refresh" and the numbers have not changed, that is normal. The wallet automatically refreshes again after 15, 45, 90, 180 and 320 seconds.
+**There is no grace period.** Below a 160% collateral ratio you can be liquidated
+at any moment, with no advance notice.
 
 ---
 
-## 7. How to do the common things
+## 6. Every transaction follows the same steps
 
-### 7.1 Swap diamonds for hacds (most common)
+Whatever you do, the flow is:
 
-Go to the **"Swap / Deposit"** page and find **"HACD → hacds (deposit)"**.
+```
+Fill parameters → click "Build transaction" → review → click "Broadcast" → wait for confirmation
+```
 
-1. In "Diamond names (comma-separated)" enter the diamond names, comma-separated, e.g. `MVUUBA,HYXYHY`
-2. Click "Build transaction" → "Translate" to check → "Broadcast"
+**The preview shows**: action, byte size, fee, signature digest.
 
-**⚠ One diamond per transaction, maximum.**
+**Three possible outcomes after broadcasting**:
 
-This is not a software limit; it is a hard limit on chain. Verifying each diamond's certificate requires recomputing its score, which costs about 3,000 units of compute resource, and a transaction's resource cap is 6,100. Two diamonds come to 6,101 — just over — and the transaction fails outright.
-
-**To deposit several at once**: go to the **"HACD Gallery"** page, select several, and click "Batch deposit" — the wallet splits them into one transaction per diamond and broadcasts them one by one. Once deposited, the hacds are recorded under "Pending hacds"; they are not in your hands yet.
-
-### 7.2 Claiming hacds
-
-Still on the **"Swap / Deposit"** page, find **"Claim hacds (contract → me)"**.
-
-Enter the amount (**the unit is atoms**, see section 9), then build, translate, broadcast.
-
-Afterwards "Held hacds" increases. Only then are the hacds freely transferable.
-
-### 7.3 Depositing HAC into the contract / withdrawing it
-
-- **"Deposit HAC (HAC → contract, credits points)"**: sends HAC from your wallet into the contract, where it is recorded as "HAC points". **AMM swapping and lending both use this balance**, so deposit first if you want to use those.
-- **"Withdraw HAC (contract → me)"**: moves the points back to on-chain HAC.
-
-For the amount, **the unit is HAC** — type `10` for 10 HAC.
-
-### 7.4 Swapping in the pool (AMM)
-
-Go to the **"AMM & Liquidity"** page.
-
-**HAC → hacds**:
-- Fill in "HAC points in (HAC)" and "Min out (atoms, 0 = no limit)"
-- The panel below immediately shows how much you would get, the current pool price, and the fee
-- If it looks good, build and broadcast
-
-**hacds → HAC**: same idea, enter the hacds you are putting in (atoms) and the minimum out (HAC).
-
-**"Min out" is slippage protection.** Entering 0 means no limit. If the price moves too much while the swap is happening and what you actually receive would be less than the number you entered, the transaction fails automatically (you do not lose money). **Enter a floor you can accept rather than 0.**
-
-### 7.5 Adding liquidity to earn fees
-
-Go to the **"AMM & Liquidity"** page and find **"Add liquidity"**.
-
-Adding liquidity means putting both HAC and hacds into the pool at the same time in exchange for LP shares, which then earn a cut of the fees.
-
-**It is simple to use: fill in only one side and the wallet computes the other for you.**
-
-- Enter an amount in "HAC side (HAC)" and the hacds side is filled in immediately with the matching amount
-- Entering hacds works the same way in reverse
-
-**Why it is computed automatically**: the contract requires the ratio of the two to match the pool. If the ratio is off, the side you over-supplied **earns you no shares at all — it is simply donated to the pool**. So the wallet forces them into line.
-
-After filling in, the panel below shows "Estimated LP shares: X". If the two sides are not proportional (for example if you edited one manually), a warning appears in red and tells you what the number should be.
-
-**When the pool holds neither HAC nor hacds** (the first deposit) it is the exception: there is no ratio to match, you set both sides, and the shares are `√(HAC × hacds)`.
-
-**Removing liquidity**: enter the LP shares to burn and both assets come back to you in proportion.
-
-**Claiming LP rewards**: click "Claim LP rewards" to move accumulated fees into your balance. Not clicking does not lose them.
-
-### 7.6 Borrowing against collateral
-
-Go to the **"Lending"** page. **The order matters: collateral first, then borrow.**
-
-**① Add collateral**
-
-In the "Add collateral" card, enter the hacds amount (**the unit is atoms**).
-
-Below it tells you, live: what this collateral is worth in HAC, and how much you can borrow in total afterwards.
-
-**② Borrow HAC**
-
-In the "Borrow HAC" card, enter how much you want (**the unit is HAC**).
-
-Below it shows, live:
-- Your current max borrow
-- How much collateral this loan needs (`≥ X atoms`)
-- Whether it is enough (✔ or ✘)
-
-**If it shows ✘ and you submit anyway, it will fail with an error.** That is why you look at the prompt first.
-
-**③ Repaying**
-
-Enter the amount in the "Repay" card and make sure the HAC points are ready. Once repaid, the collateral is automatically released.
-
-**About interest**: the rate is 5% APR, but the UI does not show separately how much interest you owe — the contract folds it in. **It settles on chain when you repay; just repay the amount the wallet shows.**
-
-**About liquidation**: if the value of your collateral falls too far (the collateral ratio drops below 200%), anyone can come and liquidate your position; your collateral is taken and the liquidator gets a bonus. **Watch the liquidation state on the "Loan status" card on the home screen** — if it says "Safe", you are fine.
-
-### 7.7 Sending coins to someone else
-
-Go to the **"Transfers"** page.
-
-| What you want to send | Which item |
+| Outcome | Meaning |
 |---|---|
-| HAC | "HAC transfer" — write the amount as `1:248`, meaning 1 HAC |
-| hacds | "hacds to other" — enter the amount in **atoms** |
-| hacds back to the contract | "hacds to contract" |
-| Other assets (CARAT, HACP, …) | "Other asset transfer" — enter serial, address, amount |
-| **HACD diamonds** | **"Send HACD" — enter diamond names and the recipient address** |
+| `ret:0` | Reached the mempool, **not yet on chain** |
+| Confirmed | Balances change |
+| Error | Check the log; explained in plain language |
 
-**"Send HACD"** (give diamonds to someone else): enter the diamond names (comma-separated, e.g. `KWTVSH,VHUSMI`) and the destination address.
+**Blocks take about 300 seconds.** A successful broadcast is not instant effect;
+the wallet re-polls automatically (15/45/90/180/320 seconds).
 
-- **Up to 200 diamonds in one transaction**, unlike "deposit to swap" which is one at a time — a peer-to-peer transfer does not go through the contract, so that compute limit does not apply
-- The fee box is pre-filled with `0.0002 HAC × count`. **Clear it to pay less** — the wallet then estimates from the node's rate (a real saving when sending many)
-- This item **does not touch the contract**; it simply moves your diamonds to the recipient's address
+---
 
-**For "Other asset transfer", the serial is just the plain number**, e.g. `1111`. Including `#` also works but is unnecessary.
+## 7. Common operations
 
-### 7.8 The HACD Gallery: viewing diamonds, batch operations
+### 7.1 Turn diamonds into hacds (the most common operation)
 
-On the **"HACD Gallery"** page the left side shows thumbnails of all your diamonds; click one to see details on the right (art, name, number, score, the five dimensions, inscriptions).
+1. Open the "HACD" tab
+2. Click "Load my diamonds"
+3. **Select the diamonds you want to deposit** — many at once, up to 200
+4. Click "Bulk deposit"
 
-At the top you can filter by shape, style and minimum score.
+**One transaction, one signature, up to 200 diamonds.** This is the biggest
+change in this edition: the old version allowed only one per transaction.
 
-**Batch operations**:
-- Hold `Ctrl` and click a card to add one to the selection
-- Hold `Shift` and click to select a range up to that card
-- Then click "Batch deposit" or "Batch redeem"
-- The wallet pops up a dialog saying "will split into N transactions, 1 diamond each"; confirm and it broadcasts them automatically
+The interface shows the expected hacds: **1 point = 100 million hacds**.
 
-There is also a **"Copy names"** button that joins the selected diamond names with commas and copies them, handy for pasting elsewhere.
+> **Note**: what you receive is a **quota (due) inside the contract**, not yet an
+> on-chain asset. To get it into your wallet, see 7.2.
+
+### 7.2 Claim your hacds
+
+"Funds" tab → "Claim hacds" → enter amount → build → broadcast.
+
+**This step actually moves hacds into your address.** Afterwards it is a standard
+on-chain asset that can be sent to any Hacash asset wallet or exchange.
+
+### 7.3 Deposit HAC into the contract / withdraw it
+
+On the "Funds" tab:
+
+| Operation | What it does |
+|---|---|
+| Deposit HAC | Wallet HAC → HAC credit inside the contract (for liquidity, repayment) |
+| Withdraw HAC | Contract credit → wallet |
+| Deposit hacds | On-chain hacds → quota inside the contract (for liquidity, collateral) |
+| Claim hacds | Contract quota → on-chain |
+
+**Keep the distinction**: inside the contract is "credit", on-chain is "asset".
+They are not the same thing. AMM and lending operate on the **inside-contract**
+portion.
+
+### 7.4 Swap in the pool (AMM)
+
+The "Swap" tab, two directions:
+
+| Operation | What to enter |
+|---|---|
+| HAC → hacds | HAC in (unit: HAC) |
+| hacds → HAC | hacds in (unit: count) |
+
+After entering, the interface shows **how much you get** and **the current pool price** in real time.
+
+**Slippage protection**: `min_out` is the least you will accept; `0` means no
+limit. When the market is volatile, enter a number to prevent being front-run.
+
+### 7.5 Add liquidity and earn fees
+
+The "Liquidity" tab.
+
+Enter the HAC side, and **the hacds side is computed automatically from the pool ratio**. This stops you from mismatching the ratio and giving money away.
+
+| Item | Notes |
+|---|---|
+| Fee share | **80% of trading fees go to LPs**, 20% to the treasury |
+| Redemption fee share | **80% of redemption fees also go to LPs** |
+| Impermanent loss | Yes. Inherent to every AMM |
+| Credit risk | 30% of pool HAC is lent out; worst case you lose that 30% |
+
+**Removing liquidity takes two steps**: first "claim LP rewards", then "remove
+liquidity". The wallet splits it into two transactions for you; you click once.
+
+> Why split? A single transaction hits the mainnet `resource` bucket limit
+> (6,102 > 6,100). This was found in real testing; the contract cannot change, so
+> the wallet splits it.
+
+### 7.6 Borrow against collateral
+
+The "Lending" tab.
+
+1. First "Add collateral" — the collateral is the **hacds quota inside the contract**
+2. Then "Borrow", up to half the collateral value
+
+**Below the input, real-time hints show**: your current borrow limit, the
+collateral this transaction needs, and current collateral value. No guessing.
+
+**The rate floats**: utilization 0% → 2%, 35% → 6%, 50% → 46%.
+
+**Failure to repay means liquidation.** No grace period. Suggestions:
+- Do not borrow the maximum (30%–40% is far more comfortable)
+- Top up once health approaches 150%
+- Watch the health in the "Loan status" card; it uses **the same price** as
+  on-chain liquidation
+
+### 7.7 Send coins to someone
+
+The "Transfer" tab, four types:
+
+| Type | Notes |
+|---|---|
+| Send HAC | On-chain HAC |
+| Send hacds | On-chain hacds asset |
+| Send HACD | Diamonds, multiple at once |
+| Send other asset | Enter serial + amount |
+
+### 7.8 HACD tab: view diamonds, batch operations
+
+The "HACD" tab has two halves:
+
+**Top: deposit**
+- Load my diamonds → select → bulk deposit
+- Up to 200 per transaction
+
+**Bottom: redeem**
+- Load pool diamonds → select one → redeem
+- **Redemption is one diamond at a time**
+
+> Why can't redemption batch? Each diamond needs its own "cherry-picking premium"
+> (high-scoring diamonds cost more), and if a batch fails midway, rollback logic
+> is too risky in a contract that cannot be upgraded. The wallet splits your
+> selection into multiple transactions; you click once.
 
 ---
 
 ## 8. Advanced features (optional)
 
-### 8.1 Read-only queries
+### 8.1 Read-only query
 
-The **"Read-only"** page has a row of buttons. Clicking one queries the chain — no transaction, no fee. It covers HAC points, pending hacds, pool price, pool reserves, your debt and collateral, LP shares and more.
-
-Good for "I do not want to move money, I just want to see where things stand".
+"Tools" tab → "Read-only query". Call any read-only contract function directly
+and inspect the return value. Very useful for troubleshooting.
 
 ### 8.2 Atomic transactions
 
-The **"Atomic tx"** page. You can merge several operations into **one** transaction: all succeed or all fail — never "half done".
+Multiple actions in one transaction, all or nothing. The protocol cap is 200
+actions.
 
-How: on any operation card, click **"Add to combo"** to accumulate operations, then come to this page and click "Build atomic transaction".
+### 8.3 Offline signing (cold/hot separation)
 
-**Note: merging cannot get around the one-diamond-per-transaction limit.** A transaction shares one compute budget, so two diamonds still overflow. Use the batch function for diamonds.
+"Tools" tab → "Offline signing":
 
-### 8.3 Offline signing (cold/hot split)
+1. Cold machine (never online): fill parameters, build, sign
+2. Output a QR code or file
+3. Hot machine (online): scan or load the file, broadcast
 
-The **"Offline Sign"** page, for users who care about security.
-
-The idea: **the private key never sits on a networked machine**.
-
-1. On an online machine, fill in the operation and build an **unsigned** transaction body; save it to a file or note the text
-2. Take it to an offline machine (airplane mode, network cable unplugged), paste it on this page, and click "Sign unsigned body with current wallet"
-3. Take the signed transaction text back to the online machine and click "Broadcast signed transaction"
-
-That way the machine holding the private key never touches a network end to end. Hacash transactions have no expiry, so signing offline and broadcasting days later is fine.
-
-**Before signing, use "Verify unsigned body" and "Translate transaction"** to confirm the transaction is the one you intended.
+**The private key never touches the network.** Hacash transactions have no nonce
+and no timestamp expiry, so a transaction signed offline stays valid no matter
+how long it waits before broadcast.
 
 ### 8.4 Liquidation / settlement
 
-The **"Liquidation"** page has three blocks:
+"Tools" tab → "Liquidation". Lists every liquidatable address and its health.
 
-1. **My LP rewards** — settle in one click
-2. **Treasury sweep** — move accumulated fees to the treasury
-3. **Liquidation console** — lists every liquidatable position; anyone can execute, and there is a bonus
+Liquidation is profitable: you repay someone's debt and take collateral worth
+"repayment + 5%". Normal liquidation handles at most half of their debt at once.
 
-The first two concern ordinary users. The third is for advanced users: **liquidating someone else's position earns a bonus**, but you judge the risk yourself.
+### 8.5 Storage key renewal (operations)
 
-Clicking "Sync ledger" pulls data from the indexer (without an indexer it scans blocks locally, which is much slower).
+"Tools" tab → "Renew".
+
+Hacash contract state pays rent, and keys expire. **Anyone can renew and earn a reward (0.07 HAC per key)**. This is how the keeper works.
+
+Ordinary users can ignore this — the project's keeper renews automatically.
 
 ---
 
-## 9. ⚠ Reading the numbers (the section most likely to save you money)
+## 9. ⚠ Reading numbers (the easiest place to err)
 
-**hacds and HAC use completely different units. Getting it wrong means being off by a factor of one hundred million.**
+### 9.1 hacds is just a count
 
-### 9.1 hacds is in atoms
+**In this edition hacds is decimal 0 — 1 means one, with no fractions.**
 
-The smallest unit of hacds is the **atom**. In the wallet, **every hacds figure is in atoms** — balances, pools, input boxes, all of it.
+Balances, pools, collateral, input fields all show the same number.
 
 ```
-1 hacds = 100,000,000 atoms
+To send 70 hacds → enter 70
 ```
 
-So the default value `100000000` you see in an input box is **1 hacds**.
+> **Different from the old edition!** The old version (#2000) was decimal 8, where
+> you entered atoms and needed `7000000000` for 70. **Do not multiply by 1e8 here.**
 
-**Never type the count.** For example, to send 70 hacds you must not type `70` — that is 70 atoms, less than a millionth of one hacds. You type `7000000000`.
+### 9.2 HAC is also a count
 
-**How to remember**: if the input label says `(atoms)`, enter atoms. If it says `(HAC)`, enter the HAC count directly.
+Where the label says "(HAC)", enter 10 to deposit 10 HAC.
 
-### 9.2 HAC takes the count directly
+**Exception**: on the on-chain transfer page, HAC amounts use the `1:248` form
+(`1:248` = 1 HAC). That is Hacash's amount notation; follow the format of the
+default value in the field.
 
-HAC is simple. Where the label says "(HAC)", type `10` to deposit 10 HAC.
+> `a:b` = a × 10^(b−248). So `5:249` = 50 HAC, not 5.0038.
 
-**One exception**: on the Transfers page the HAC amount is written in the form `1:248` (`1:248` = 1 HAC). That is Hacash's amount notation — just follow the style of the input's default value.
-
-### 9.3 Quick reference
+### 9.3 Cheat sheet
 
 | What you are doing | Unit to enter | Example |
 |---|---|---|
 | Add liquidity — HAC side | HAC | `1` |
-| Add liquidity — hacds side | atoms | `33183372` |
+| Add liquidity — hacds side | count | `33183372` |
 | Swap — HAC in | HAC | `1` |
-| Swap — hacds in | atoms | `100000000` |
-| Add collateral | atoms | `100000000` |
+| Swap — hacds in | count | `100000000` |
+| Add collateral | count | `100000000` |
 | Borrow / repay | HAC | `0.5` |
-| Send hacds | atoms | `100000000` |
-| Send other assets | atoms | `100000000` |
+| Send hacds | count | `100000000` |
+| Send HAC (on-chain) | `value:mantissa` | `1:248` |
+
+**One sentence**: hacds takes a count, HAC takes a HAC count (except on-chain
+transfers).
+
+### 9.4 Why this is easy to get wrong
+
+HAC and hacds have different scales:
+
+- **HAC** is zhu on-chain, 1 HAC = 1e8 zhu; interfaces use HAC
+- **hacds** is the count on-chain, 1 = one
+
+So `add_liquidity(hac_amt, ds_amt)` takes two parameters on different scales: zhu
+on one side, hacds count on the other. This is the easiest place to make an
+off-by-1e8 error — we did it ourselves on the first deposit.
 
 ---
 
-## 10. When something goes wrong
+## 10. Troubleshooting
 
-### 10.1 Look at the log area first
+### 10.1 Check the log first
 
-The result of every operation, and the reason for any failure, is printed in the log area at the bottom. **Error messages are localised**, stating what went wrong and then what to do.
+Every operation's result and failure reason appear in the log area at the bottom.
+**Errors are in plain language**: what went wrong, then what to do.
 
 ### 10.2 Common errors
 
-| What you see | What it means | What to do |
+| What you see | Meaning | What to do |
 |---|---|---|
-| **Node/oracle unreachable** | The service cannot be reached | Click "Check"; verify the network; verify the addresses at the top |
-| **Address empty or malformed** | The address was not filled in fully | Copy the recipient address again, in full |
-| **Address checksum wrong** | Characters were dropped when copying | Copy it again |
-| **Insufficient balance** | The address has no HAC for the fee/gas | Send some HAC to that address |
-| **resource gas bucket exceeded** | More than one diamond in one transaction | One per transaction, or just use "Batch deposit". **Raising gas does not help** |
-| **Exceeds max borrow** | Borrowing without enough collateral | "Add collateral" first |
-| **Pending hacds insufficient** | You are claiming more than the contract owes you | Check "Pending hacds" and stay under it |
-| **Insufficient hacds for redemption, auto top-up failed** | Redeeming a diamond with too little quota; the contract tried to top up with HAC and could not | Deposit HAC first, or swap for some hacds first |
-| **Contract paused** | The admin paused the contract | Wait for it to resume; ask the operator |
-| **State changed, please retry** | The chain changed in the meantime | Refresh and do it again |
-| **Request timeout / server error** | The server is slow or temporarily unavailable | Wait and retry, or switch nodes |
+| Insufficient balance | Contract credit too low | Deposit on the "Funds" tab first |
+| `resource gas limit exceeded` | Single bucket over limit | Split into multiple transactions; **raising gas_max does not help** |
+| `compute gas limit exceeded` | Same | Split into multiple transactions |
+| `CallNotExist(51)` | Contract has no such function | Admin functions were all removed; stop clicking them |
+| `NotFindContract` | No contract at that address | Contract not deployed, or wrong address |
+| `StorageNotActive` | Storage key expired | Renew on the "Tools" tab |
+| `state changed` | On-chain state changed mid-flight | Retry |
+| `sandbox_per_ip_concurrency_exceeded` | Concurrency exceeded | Wait a few seconds and retry (node allows 2 per IP) |
+| Network error | Service unreachable | Check the node address and your network |
 
 ### 10.3 Broadcast succeeded but the balance did not change
 
-**Normal.** Wait for a block (about 5 minutes). The wallet refreshes automatically a few times; just wait.
+Normal. Blocks take about 300 seconds. Wait and click "Refresh assets".
 
-### 10.4 The UI text is too small / too large
+### 10.4 Text too small / too large
 
-Adjust with `+` and `−` at the top; `⟲` restores 100%.
+Use `−` / `+` at the top; `⟲` resets.
 
-### 10.5 The three cards can be collapsed
+### 10.5 The three cards collapse
 
-Click the small triangle to the left of "Assets", "Protocol status" or "Loan status" to collapse that card and free up screen space for the operation area below.
+Click the `▾` at their top-right.
 
 ---
 
 ## 11. Security notes
 
-**Never tell anyone your password, and never show anyone the result of "Export key".** The private key is your entire balance — whoever has it can move everything.
-
-**"Export key" displays the private key in plain text**, and the wallet asks for confirmation twice. After exporting, write it down offline. Do not screenshot it, do not put it in cloud storage.
-
-**Click "Lock / Exit" when you are done.**
-
-**Do not import your wallet on a shared computer.**
-
-**On-chain transactions cannot be reversed.** Before broadcasting, always click "Translate" and check the recipient address and the amount. If you send it to the wrong place, nobody can get it back.
-
-**Read the address before sending.** Prefer the copy button over typing it by hand.
+1. **Keep the mnemonic and password offline.** No recovery, no support.
+2. **Do not put your entire net worth in.** The contract cannot be upgraded; a
+   bug found later cannot be fixed.
+3. **The treasury key is a single point.** The contract has no withdrawal
+   function, so nobody can take your assets; but protocol revenue in the treasury
+   is controlled by the project's cold wallet — the only place you trust them.
+4. **There is no admin.** Nobody can pause the contract, change parameters, or
+   freeze your account. This can be verified directly from the function list.
+5. **The team will never message you first.** Anyone asking you to "verify your
+   wallet" or "send your mnemonic" is a scammer.
+6. **During offline signing the private key never touches the network.** Ideally
+   the cold machine is permanently disconnected.
 
 ---
 
@@ -464,38 +453,44 @@ Click the small triangle to the left of "Assets", "Protocol status" or "Loan sta
 
 | Term | In plain words |
 |---|---|
-| **HAC** | The native coin of the main chain |
-| **HACD** | Diamonds. They have value and can be swapped for hacds |
-| **hacds** | The asset you get from diamonds; freely transferable, tradable, usable as collateral |
-| **atoms** | The smallest unit of hacds; 1 hacds = 100 million atoms |
-| **LP shares** | Your receipt for money placed in the pool; they earn a cut of the fees |
-| **Pool / AMM** | A pot of funds that swaps automatically; the price comes from how much of each coin is in it |
-| **Slippage protection** | The fill price cannot be worse than the floor you set, otherwise it cancels automatically |
-| **Collateral ratio** | The relationship between what you borrowed and what you pledged; too low gets liquidated |
-| **Liquidation** | When collateral is insufficient, someone else can force-sell it to repay the debt |
-| **gas** | The compute resource an on-chain operation consumes, paid in HAC |
-| **Broadcast** | Send the transaction to the chain |
-| **Block** | A confirmation on chain, roughly every 5 minutes |
-| **Cold wallet / offline signing** | The signing machine is not networked; the safest arrangement for a private key |
-| **Oracle** | The service that scores diamonds; its signed certificate is needed to swap for hacds |
-| **Indexer** | The background service that works out whose loans should be liquidated |
+| **hacds** | The token you get for depositing diamonds; 1 point of diamond = 100 million |
+| **HAC** | The Hacash main coin — money you can spend |
+| **HACD** | Diamonds; deposit them to get hacds |
+| **due / quota** | hacds recorded for you inside the contract, not yet claimed on-chain |
+| **AMM** | Automated market making: one pool, anyone can trade, the price adjusts itself |
+| **LP** | Liquidity provider — someone who puts money in the pool and earns fees |
+| **Slippage** | How much your trade moves the price; large trades slip more |
+| **Collateral ratio** | Collateral value ÷ debt; 200% is the borrow line, 160% the liquidation line |
+| **Health** | The same as collateral ratio in another notation; 10000 = exactly on the line |
+| **Liquidation** | You cannot repay, someone repays for you and takes part of your collateral |
+| **Deep water** | Collateral ratio below 105%; the entire debt can be closed at once |
+| **hcut** | The global shrinkage factor in extreme bad-debt scenarios; only decreases |
+| **keeper** | Someone who renews the contract's storage rent for a reward; anyone can run one |
+| **Reference price** | The smoothed price the contract uses for valuation, different from spot, manipulation-resistant |
+| **Atomic transaction** | Several actions packaged into one transaction, all or nothing |
 
 ---
 
 ## 13. One-minute cheat sheet (keep it nearby)
 
 ```
-Create wallet  → Create wallet → set a password
-Check state    → click "Refresh"
-Get hacds      → Swap/Deposit → HACD→hacds → one diamond per tx
-Claim hacds    → Swap/Deposit → Claim hacds
-Deposit HAC    → Swap/Deposit → Deposit HAC (do this before AMM/lending)
-Swap           → AMM & Liquidity → fill one side → check the quote → broadcast
-Add liquidity  → AMM & Liquidity → Add liquidity → fill one side, the other is automatic
-Borrow         → Lending → "Add collateral" first → then "Borrow HAC"
-Send coins     → Transfers
-Every tx       → Build → Translate → Broadcast → wait 5 minutes
+Deposit diamonds:  HACD tab → load my diamonds → select (max 200) → bulk deposit
+Claim hacds:       Funds tab → claim hacds → amount → broadcast
+Swap:              Swap tab → pick direction → amount → build → broadcast
+Add liquidity:     Liquidity tab → enter HAC side → hacds auto-balanced → build → broadcast
+Borrow:            Lending tab → add collateral → borrow → build → broadcast
+Transfer:          Transfer tab → pick type → address and amount → build → broadcast
 
-Units: hacds takes atoms (1 hacds = 100000000)
-       HAC takes the count directly (10 means 10)
+Units:     hacds takes a count (1 means one)
+           HAC takes a HAC count (on-chain transfers use 1:248)
+           Do not multiply by 1e8!
+
+Liquidation:  160% collateral ratio, no grace period
+Health:       10000 = dangerous, > 10000 safe
+Blocks:       about 300 seconds
 ```
+
+---
+
+*This document corresponds to the finalized version of `HacdsDeFi3000.fitsh`,
+dated 2026-11-11.*

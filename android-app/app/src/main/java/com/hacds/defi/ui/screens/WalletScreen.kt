@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -149,9 +150,14 @@ fun WalletScreen(vm: AppViewModel) {
                             Text(if (createdKind == "password") tr("x_pwDerived") else tr("x_pwDerived"))
                         }
                     }
+                    // ⚠ 口令钱包模式下这个框填的是**派生私钥的 passphrase**，
+                    //   等同私钥本身，必须掩码（2026-11-12 审计 C-M2，M-13 的遗漏）。
+                    //   普通钱包模式下它只是备注，掩码也无害（少一点信息泄漏）。
                     OutlinedTextField(value = label, onValueChange = { label = it },
                         label = { Text(if (createdKind == "password") tr("x_passphrase") else tr("x_note")) },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        visualTransformation = if (createdKind == "password")
+                            PasswordVisualTransformation() else VisualTransformation.None)
                     OutlinedTextField(value = password, onValueChange = { password = it },
                         label = { Text(tr("x_pwEnc")) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
                         // M-13：同上，掩码显示
@@ -176,8 +182,11 @@ fun WalletScreen(vm: AppViewModel) {
                     OutlinedTextField(value = importText, onValueChange = { importText = it },
                         label = { Text(tr("x_importHint")) },
                         modifier = Modifier.fillMaxWidth(), minLines = 3)
+                    // 导入 keystore 用的口令 —— 明文显示会让旁人/录屏直接看到
+                    // 解密钱包的钥匙（2026-11-12 审计 C-M2）。
                     OutlinedTextField(value = password, onValueChange = { password = it },
-                        label = { Text(tr("x_pwKs")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        label = { Text(tr("x_pwKs")) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
                     OutlinedTextField(value = label, onValueChange = { label = it },
                         label = { Text(tr("x_note")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }

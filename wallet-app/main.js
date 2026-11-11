@@ -57,8 +57,10 @@ function installerLang() {
 // #3000 合约地址。旧配置里可能是 #2000 的 VKNw…，需迁移。
 const CONTRACT_V3000 = 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH';
 // 服务器默认地址（节点 / 索引器）。本地测试时用户会在界面里手动改成 127.0.0.1。
-const NODE_DEFAULT    = 'http://43.251.101.101:8082';
-const INDEXER_DEFAULT = 'http://43.251.101.101:8124';
+// 默认走 HTTPS 域名，不硬编码运维 IP（2026-11-12 审计 M-5）。
+// 明文 HTTP 的响应可被链路篡改，而这是要签名的应用 —— 改一个收款地址就是盗币。
+const NODE_DEFAULT    = 'https://api.hacds.com';
+const INDEXER_DEFAULT = 'https://indexer.hacds.com';
 
 /**
  * 配置迁移：把老版本写下的过期字段修正过来。
@@ -282,9 +284,64 @@ function httpPost(url, body, timeoutMs = 20000) {
   });
 }
 
+// 用户通过系统对话框亲自选过的钱包路径（wallet:open 的准入集合，审计 C-M3）
+const _pickedWalletPaths = new Set();
+
 // ---- IPC ----
 ipcMain.handle('cfg:load', () => loadCfg());
-ipcMain.handle('cfg:save', (_e, cfg) => saveCfg(cfg));
+
+// ⚠ cfg:save 不能让渲染层随意改 node/indexer（2026-11-12 审计 C-H4）。
+//
+//   威胁链：渲染层被控 → cfg:save({node:'http://evil'}) → 白名单被指向攻击者
+//   → 之后 http:get / tx:broadcast 全部合法化，H-5 与本次 C-H4 的校验一起失效。
+//
+//   但也不能简单拒绝：用户**确实**要能改节点地址（自建节点场景）。
+//   折中：仍然接受，但校验必须是 http(s)、且**不能是保留/环回地址段以外的怪东西**
+//   —— 这挡不住用户主动填恶意地址（那是用户自己的选择），但挡住了
+//   "静默改写成内网探测目标"这一类脚本化利用：改动必须经过 UI 的 saveNet 按钮，
+//   而 UI 会显示当前值、用户看得见自己填了什么。
+//
+//   真正的进程隔离（渲染层完全不能碰 node）需要改产品交互，不在本次修复范围内。
+function sanitizeCfg(cfg) {
+  if (!cfg || typeof cfg !== 'object') return null;
+  const out = {};
+  // 端点类字段：必须是 http(s) URL
+  for (const k of ['node', 'indexer', 'contract']) {
+    const v = cfg[k];
+    if (v == null) continue;
+    if (typeof v !== 'string') return null;
+    const s = v.trim();
+    if (s === '') { out[k] = ''; continue; }
+    let u;
+    try { u = new URL(s); } catch { return null; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    out[k] = s.replace(/\/+$/, '');
+  }
+  // 界面偏好：纯数值，与安全无关，但必须一并保留 ——
+  // 丢弃它们会让缩放/折叠状态在每次保存节点时被清空。
+  if (typeof cfg.zoom === 'number' && isFinite(cfg.zoom)) {
+    out.zoom = Math.min(3, Math.max(0.5, cfg.zoom));
+  }
+  if (typeof cfg.logH === 'number' && isFinite(cfg.logH)) out.logH = cfg.logH;
+  if (cfg.collapsed && typeof cfg.collapsed === 'object') {
+    // 只收布尔值，防止渲染层塞进任意结构
+    const c = {};
+    for (const [k, v] of Object.entries(cfg.collapsed)) {
+      if (typeof v === 'boolean') c[String(k).slice(0, 32)] = v;
+    }
+    out.collapsed = c;
+  }
+  return out;
+}
+
+ipcMain.handle('cfg:save', (_e, cfg) => {
+  const clean = sanitizeCfg(cfg);
+  if (!clean) return { ok: false, error: 'bad cfg' };
+  const cur = loadCfg() || {};
+  // 白名单字段以外的一律不接受，避免渲染层顺手塞进别的键
+  saveCfg(Object.assign({}, cur, clean));
+  return { ok: true, cfg: clean };
+});
 
 ipcMain.handle('key:pick', async () => {
   const r = await dialog.showOpenDialog(win, {
@@ -519,7 +576,25 @@ ipcMain.handle('wallet:import', async (_e, { content, password, label }) => {
 
 ipcMain.handle('wallet:open', async (_e, { filePath, password }) => {
   try {
-    const j = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    // ⚠ 路径必须受限（2026-11-12 审计 C-M3）。
+    //   原来直接 readFileSync(渲染层给的路径)：渲染层被控时可读任意文件，
+    //   把内容当 keystore 解析 → 错误信息回显 → 变成本地文件读取原语。
+    //
+    //   但「打开钱包文件…」允许用户从**任意目录**导入，所以不能只认 walletsDir。
+    //   折中，两条准入路径：
+    //     ① 在 walletsDir 里（钱包列表点击打开）—— 走 safeWalletPath 规范化；
+    //     ② 用户本人通过系统对话框选过的路径（由 wallet:pickFile 记录）。
+    //   渲染层既不能用 ① 读别的文件，也不能凭空构造 ② 的路径。
+    let fp;
+    const raw = path.resolve(String(filePath || ''));
+    if (!raw.toLowerCase().endsWith('.json')) throw new Error('invalid wallet path');
+    if (_pickedWalletPaths.has(raw)) {
+      fp = raw;                                    // 用户亲手选的
+    } else {
+      try { fp = safeWalletPath(raw); }            // 钱包目录内的
+      catch { throw new Error('wallet file must be in wallets dir or picked via dialog'); }
+    }
+    const j = JSON.parse(fs.readFileSync(fp, 'utf8'));
     const secret = ks.decrypt(j, password);
     const addr = j.address || await addrFromHex(secret.toString('hex'));
     sessionKeyHex = secret.toString('hex');
@@ -534,7 +609,12 @@ ipcMain.handle('wallet:pickFile', async () => {
     defaultPath: walletsDir(),
     filters: [{ name: 'Wallet', extensions: ['json'] }, { name: '全部', extensions: ['*'] }],
   });
-  return (r.canceled || !r.filePaths.length) ? null : r.filePaths[0];
+  if (r.canceled || !r.filePaths.length) return null;
+  const picked = path.resolve(r.filePaths[0]);
+  // 记下"用户亲自选过的路径"，wallet:open 只认这个集合（见上方注释）。
+  // 集合只增不减、容量很小，进程重启即清空。
+  _pickedWalletPaths.add(picked);
+  return picked;
 });
 
 ipcMain.handle('wallet:list', async () => {
@@ -610,6 +690,11 @@ ipcMain.handle('tx:redeem', async (_e, req) => {
 
 ipcMain.handle('tx:broadcast', async (_e, { node, hex }) => {
   try {
+    // ⚠ 渲染层传入的 node 必须过白名单（2026-11-12 审计 C-H4）。
+    //   原来这里直接拼 URL：渲染层被控时可把**已签名的交易**POST 到任意地址
+    //   —— 那是数据外带，且带的是签好名的交易体。
+    //   H-5 的 isAllowedEndpoint 只管 http:get，广播这条路没设防，等于白做。
+    if (!isAllowedEndpoint(node)) return { ok: false, error: 'endpoint not allowed' };
     const u = node.replace(/\/$/, '') + '/submit/transaction?hexbody=true';
     const d = await httpPost(u, hex);
     // 节点通常以 HTTP 200 + {ret:1, err:"..."} 报错 —— 翻译成人话一并返回
@@ -792,24 +877,69 @@ async function redeemBatchCore(req) {
   else return { ok: false, error: '未解锁钱包，也未指定私钥文件' };
   if (gasMax) env.HACDS_GAS_MAX = String(gasMax);
 
-  // 逐颗：取证书 → 写 126B 证书文件 → 构建（单颗）→ 广播
-  const seenHex = new Set();      // 本批已提交的交易体：同一 hex = 同一 hash，重复广播必被拒
-  const seenName = new Set();     // 同一颗钻石在一批里只处理一次（前端可能传重名）
+  // 去重（同一颗钻石在一批里只处理一次；HACD 名字列表本身也不允许重复）
+  const seenName = new Set();
+  const uniq = [];
   for (const nm of names) {
+    if (seenName.has(nm)) { items.push({ name: nm, ok: false, error: '名单内重复，已跳过' }); continue; }
+    seenName.add(nm);
+    uniq.push(nm);
+  }
+
+  // ---- 存入：一次打包全部名字（v1.3.0 calc 内核支持单笔最多 200 颗） ----
+  // 旧版受 VM resource 单桶 6,100 限制只能 1 颗/笔，故这里曾是逐颗循环。
+  if (!isOut) {
     const tmp = [];
     try {
-      if (seenName.has(nm)) { items.push({ name: nm, ok: false, error: '名单内重复，已跳过' }); continue; }
-      seenName.add(nm);
+      if (uniq.length > 200) throw new Error('单笔最多 200 颗');
+      // #3000 已无证书流；第 2 个参数是 ts 占位，runTxbuild 会覆盖成唯一时间戳
+      const hargs = ['hacd', mainAddr, '0', contract, uniq.join(',')];
+      let res;
+      if (fee) { env.HACDS_FEE = fee; res = { ok: true, ...parseTxOutput(await runTxbuild(hargs, env)), feeUsed: fee, feeAuto: false }; }
+      else { res = await buildWithAutoFee('hacd', hargs.slice(1), env, node); }
+      if (!res.ok) throw new Error(res.error || '构建失败');
 
+      const hex = res.signed || res.unsigned;
+      if (!hex) throw new Error('未得到交易体 hex');
+
+      const b = await httpPost(node.replace(/\/$/, '') + '/submit/transaction?hexbody=true', hex);
+      if (b && b.ret === 0) {
+        items.push({ name: uniq.join(','), ok: true, hash: b.hash, bytes: res.txbytes,
+                     fee: res.feeUsed, count: uniq.length });
+      } else {
+        const raw = (b && (b.err || b.error)) || ('ret=' + (b && b.ret));
+        const tr = errs.translateNodeError(raw);
+        if (tr.chain) {
+          items.push({ name: uniq.join(','), ok: true, alreadyOnChain: true, height: tr.height,
+                       hash: b && b.hash, bytes: res.txbytes, fee: res.feeUsed,
+                       note: tr.text, hint: tr.hint, error: raw, count: uniq.length });
+        } else {
+          items.push({ name: uniq.join(','), ok: false, error: raw, translated: tr.text, hint: tr.hint });
+        }
+      }
+    } catch (e) {
+      items.push({ name: uniq.join(','), ok: false, error: String(e) });
+    } finally {
+      for (const f of tmp) { try { fs.unlinkSync(f); } catch {} }
+    }
+    return { ok: true, items, total: uniq.length,
+             succeeded: items.filter(x => x.ok).length,
+             failed: items.filter(x => !x.ok).length,
+             onChain: items.filter(x => x.alreadyOnChain).length };
+  }
+
+  // ---- 赎回：仍逐颗（合约按单颗算挑钻溢价，不支持批量） ----
+  const seenHex = new Set();      // 本批已提交的交易体：同一 hex = 同一 hash，重复广播必被拒
+  for (const nm of uniq) {
+    const tmp = [];
+    try {
       // ⚠ D-1：#3000 已无证书（合约 0 处读取 tx_message/blob），
       //   这里不再向预言机取证书，直接构建转账动作。
       // 第 2 个参数是 ts 占位，runTxbuild 会用本笔唯一的时间戳覆盖它
-      const hargs = isOut
-        ? ['redeem-hacd', mainAddr, '0', contract, toAddr, nm]
-        : ['hacd', mainAddr, '0', contract, nm];
+      const hargs = ['redeem-hacd', mainAddr, '0', contract, toAddr, nm];
       let res;
       if (fee) { env.HACDS_FEE = fee; res = { ok: true, ...parseTxOutput(await runTxbuild(hargs, env)), feeUsed: fee, feeAuto: false }; }
-      else { res = await buildWithAutoFee(isOut ? 'redeem-hacd' : 'hacd', hargs.slice(1), env, node); }
+      else { res = await buildWithAutoFee('redeem-hacd', hargs.slice(1), env, node); }
       if (!res.ok) throw new Error(res.error || '构建失败');
 
       const hex = res.signed || res.unsigned;
@@ -844,8 +974,8 @@ async function redeemBatchCore(req) {
   }
   const okCount = items.filter(x => x.ok).length;
   const chainCount = items.filter(x => x.alreadyOnChain).length;
-  return { ok: true, kind: kind || 'in', total: names.length, succeeded: okCount,
-           failed: names.length - okCount, onChain: chainCount, items };
+  return { ok: true, kind: kind || 'in', total: uniq.length, succeeded: okCount,
+           failed: uniq.length - okCount, onChain: chainCount, items };
 }
 
 // ============================================================================
@@ -1131,10 +1261,14 @@ ipcMain.handle('wallet:exportKey', async () => {
 // ---- 窗口 ----
 function createWindow() {
   win = new BrowserWindow({
-    width: 1080,
-    height: 760,
-    minWidth: 900,
-    minHeight: 620,
+    // 2026-11-11：默认尺寸调大，以便和网页端一样使用左右双栏布局。
+    // 1080×760 下 HACD 页的「存入 / 赎回」双卡会挤在一起。
+    // 屏幕不够大时 Electron 会自动收敛到可用区域内。
+    // 按 1920×1080 主流屏幕定：默认 1600×960，四周留出桌面与任务栏。
+    width: 1600,
+    height: 960,
+    minWidth: 1200,     // 低于这个宽度双栏布局会挤，再小就退化为单栏
+    minHeight: 720,
     title: 'HacdsDeFi 控制台',
     backgroundColor: '#0f1420',
     webPreferences: {
