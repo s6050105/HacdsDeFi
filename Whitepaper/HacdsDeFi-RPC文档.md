@@ -1,27 +1,46 @@
 # HacdsDeFi RPC 文档
 
-2026-10-21　面向开发者
+2026-11-11　对应合约 #3000　面向开发者
+
+> 本文档描述 Hacash 主网合约 `HacdsDeFi3000.fitsh`
+> （地址 `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`，资产 serial 3000，decimal 0）。
+>
+> **本文档不含任何 #2000 时代的接口。** 预言机、评分证书、管理员函数在新版
+> 合约里**已不存在**——不是权限被收走，是这些函数根本没写进去。
+
+---
 
 ## 0. 服务一览
 
-hacds 涉及三个 HTTP 服务，各自独立，可以分开部署。
+hacds 涉及四个 HTTP 服务。前两个读链，后两个是便利设施。
 
-| 服务 | 默认地址 | 协议 | 作用 |
+| 服务 | 地址 | 协议 | 作用 |
 |---|---|---|---|
-| 全节点 | `43.251.101.101:8082` | HTTP/JSON | 查链上数据、沙箱只读调用、校验/广播交易 |
-| 预言机 | `43.251.101.101:8123` | HTTP/JSON | 签发钻石评分证书 |
-| 索引器 | `43.251.101.101:8124` | HTTP/JSON | 借款人台账（谁可清算） |
-
-钱包不本地扫链，所有链上数据都通过这三个服务拿。
+| 全节点 RPC | `node.hacds.com` | HTTP/JSON | 查链上数据、沙箱只读调用、校验/广播交易 |
+| API 代理 | `api.hacds.com` | HTTP/JSON | 转发到全节点，补 CORS + HTTPS |
+| 索引器 | `indexer.hacds.com` | HTTP/JSON | 借款人台账（谁可清算） |
+| 交易构建服务 | `build.hacds.com` | HTTP/JSON | 把人类输入转成未签名交易 |
 
 ```
-全节点 :8082 ──GET──► 索引器 :8124 ──GET /watchlist──► 客户端
-      ▲                                                    │
-      └──────────────── 预言机 :8123（签证书）◄─────────────┘
+                 ┌──────────────┐
+  客户端 ──GET──► │ 全节点 RPC    │◄── 索引器（扫链建台账）
+    │            └──────────────┘
+    │                    ▲
+    └──POST──► 构建服务 ──┘   （只构建，不签名）
 ```
 
-**响应约定**：所有接口返回 JSON，顶层带 `ret` 字段。`ret: 0` 表示成功，非 0 表示失败（失败时通常带 `err`）。
-**注意**：失败也是 **HTTP 200**，必须判 body 里的 `ret`，不能只看状态码。
+**为什么需要 API 代理**：全节点不返回 CORS 头，浏览器直连会被拦。
+`api.hacds.com` 是一个 Cloudflare Worker，只做转发和补头，不改语义。
+服务端端口不是 80/443，Cloudflare 到源站走 Tunnel。
+
+**响应约定**：所有接口返回 JSON，顶层带 `ret` 字段。`ret: 0` 表示成功，
+非 0 表示失败（失败时通常带 `err`）。
+
+> ⚠ **失败也是 HTTP 200**，必须判 body 里的 `ret`，不能只看状态码。
+
+**为什么节点地址是子域名而不是 `IP:端口`**：Cloudflare Workers 只能访问
+80/443 端口。任何 `IP:8082` 形式的地址都会在建立连接前被拒绝
+（`error code: 1003`）。所以对外统一走 `*.hacds.com` 子域名 + Tunnel。
 
 ---
 
@@ -34,7 +53,17 @@ GET /query/block/height/latest
 ```
 
 ```json
-{"ret":0,"height":792580}
+{"ret":0,"height":798812}
+```
+
+VM 状态（是否已启用、当前高度）：
+
+```
+GET /api/vm/status
+```
+
+```json
+{"ret":0,"vm":"enabled","height":798812}
 ```
 
 ---
@@ -51,7 +80,7 @@ GET /query/fee/average
 {"ret":0,"purity":"6024000000","purity_unit":232}
 ```
 
-`purity` = `fee / billing_size（字节）`，节点准入要求 `纯度 ≥ min_purity`（当前 `6024000000`）。
+`purity` = `fee / billing_size（字节）`，节点准入要求 `纯度 ≥ min_purity`。
 
 ---
 
@@ -65,46 +94,24 @@ GET /query/balance?address={地址}&assets=true&asset_meta=true&diamonds=true
 
 | 参数 | 作用 |
 |---|---|
-| `assets=true` | 返回 `assets` 数组（链上资产） |
-| `asset_meta=true` | `assets` 里附带 `name` / `ticket` / `supply` / `decimal` |
-| `diamonds=true` | 返回 `diamonds`（钻石名拼接串，每 6 字符一颗） |
-
-**实测响应**（地址 `15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q`）：
+| `assets=true` | 带上资产列表（hacds 在这里） |
+| `asset_meta=true` | 带资产名 / 发行量等元信息 |
+| `diamonds=true` | 带上 HACD 钻石列表 |
 
 ```json
 {
   "ret": 0,
   "list": [{
-    "hacash": "217001914996:237",
-    "diamond": 7,
-    "satoshi": 0,
-    "diamonds": "ZUKKXZTTBAAUAYEWKKIXAYYUYTXNNBEUETIVYBYHYX",
-    "assets": [{
-      "serial": "2000",
-      "amount": "4000000000",
-      "decimal": 8,
-      "name": "hacds",
-      "ticket": "HACDS",
-      "supply": "5963298700000000"
-    }]
+    "address": "1P2tsn...",
+    "hacash": "1234567:248",
+    "diamond": 3,
+    "assets": [{"serial": 3000, "amount": "100000000"}]
   }]
 }
 ```
 
-字段说明：
-
-| 字段 | 含义 |
-|---|---|
-| `hacash` | HAC 余额，格式 `值:单位`（`237` 表示 1:237 精度） |
-| `diamond` | 钻石数量 |
-| `diamonds` | 钻石名拼接串，**每 6 个字符一颗** |
-| `satoshi` | SAT 余额 |
-| `assets[].serial` | 资产序列号。**hacds = `2000`** |
-| `assets[].amount` | 余额。字符串，避免 JS 精度丢失 |
-| `assets[].decimal` | 小数位。hacds 是 `8` |
-| `assets[].supply` | 总供给 |
-
-**⚠ amount 是 atoms，不是个数。** `4000000000` = 40 个 hacds。见第 4 节。
+**金额是 `<值>:<单位>` 形式**：`5:249` 表示 50 HAC（5 × 10^(249−248)），
+不是 5.0038。换算公式见 §6.3。
 
 ---
 
@@ -114,22 +121,8 @@ GET /query/balance?address={地址}&assets=true&asset_meta=true&diamonds=true
 GET /query/diamond?name={6位钻石名}
 ```
 
-```json
-{
-  "ret": 0,
-  "name": "KWTVSH",
-  "belong": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-  "inscriptions": ["hacds"],
-  "number": 85662,
-  "miner": "1GSL5G6LyuKgg325DxPtfPouaTeTHaZbGh",
-  "born": {"height": 522125, "hash": "00000000..."},
-  "life_gene": "05e7b8f313761bc8d55ddfe6945b3ba1aedbb4065288bceb5901d24c3cb2a9aa",
-  "visual_gene": "aab018d628cb912cc290"
-}
-```
-
-`belong` 是当前持有者。若等于合约地址，说明这颗钻石已被存入合约。
-`visual_gene` 是图样和评分的输入。
+返回钻石的编号、视觉基因、所属地址等。评分需要的 `number` 和
+`visual_gene` 都在这里。
 
 ---
 
@@ -139,7 +132,7 @@ GET /query/diamond?name={6位钻石名}
 GET /query/contract/sandboxcall?contract={合约}&function={函数}&params={参数}&caller={调用者}
 ```
 
-这是只读执行，不写链上状态、不发交易、不花手续费。但对于**需要读取合约数据的调用，`caller` 建议传合约地址本身**——否则部分函数会因调用者余额不足而失败（见下方注意）。
+只读执行，不写链上状态、不发交易、不花手续费。
 
 **实测响应**：
 
@@ -150,69 +143,161 @@ GET /query/contract/sandboxcall?contract={合约}&function={函数}&params={参�
 | 字段 | 含义 |
 |---|---|
 | `ret` | 0 = 调用成功 |
-| `ret_val` | 函数返回值（u128，字符串或数字） |
+| `ret_val` | 函数返回值 |
 | `use_gas` / `gas_use` | 本次消耗，用于估算 |
 
-**⚠ 注意 1：不传 `caller` 会失败。** 实测不传时返回：
+> ⚠ **合约部署前，这里会返回 `NotFindContract`。** 这是正常的：
+> 合约要到高度 800,000 才部署。部署后即可调用。
+
+#### 1.5.1 两个必知的坑
+
+**坑 1：不传 `caller` 会失败。**
 
 ```json
-{"ret":1,"err":"[revert] address \"1111111111111111111114oLvT2\" balance 0:0 is insufficient, at least 559555:242"}
+{"ret":1,"err":"[revert] address \"1111...\" balance 0:0 is insufficient, at least 559555:242"}
 ```
 
-默认调用者的余额为 0 付不起预扣 gas。**传 `caller={合约地址}` 即可正常。**
+默认调用者余额为 0，付不起预扣 gas。**传 `caller={合约地址}` 即可**——
+合约调用自己不需要余额。
 
-**⚠ 注意 2：每 IP 并发上限为 2。** 节点对沙箱调用有并发限制，超出的请求**直接拒绝**（不排队）：
+**坑 2：每 IP 并发上限为 2。** 超出的请求**直接拒绝**，不排队：
 
 ```json
 {"ret":1,"err":"sandbox_per_ip_concurrency_exceeded"}
 ```
 
-客户端必须**串行化 + 失败重试**，不要 `Promise.all` 并发发十几个。
+客户端必须**串行化 + 退避重试**。不要 `Promise.all` 并发发十几个。
 
-#### 合约只读函数清单
+#### 1.5.2 参数格式
 
-参数格式为 `值:类型`，多个用逗号分隔。
+`params` 是 `值:类型` 用逗号分隔。`:` 要 URL 编码成 `%3A`。
+
+| 类型 | 示例 |
+|---|---|
+| `u128` | `100000000:u128` |
+| `address` | `1P2tsn...:address` |
+| `bytes` | `WTYUIA:bytes` |
+
+#### 1.5.3 只读函数完整清单
+
+**AMM 与流动性**
 
 | 函数 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `amm_reserves` | — | u128 | 池中 HAC（**zhu**） |
-| `amm_reserve_ds` | — | u128 | 池中 hacds（**atoms**） |
+| `amm_reserve_ds` | — | u128 | 池中 hacds（**个数**） |
 | `pool_price` | — | u128 | 池价 = `amm:hac × 1e8 / amm:ds` |
 | `lp_total` | — | u128 | LP 总份额 |
-| `lp_share_of` | `{addr}:address` | u128 | 某地址的 LP 份额 |
-| `lp_pending_hac` | `{addr}:address` | u128 | 待领 LP 奖励（HAC，zhu） |
-| `lp_pending_ds` | `{addr}:address` | u128 | 待领 LP 奖励（hacds，atoms） |
-| `total_staked` | `{kind}:u128` | u128 | 质押总量。kind `0`=HAC，`1`=hacds |
-| `treasury_pending` | `{kind}:u128` | u128 | 金库待结算。kind `0`=HAC，`1`=hacds |
-| `balance_hac` | `{addr}:address` | u128 | 合约内 HAC 积分（zhu） |
-| `balance_ds` | `{addr}:address` | u128 | 待领取 hacds 配额 due（atoms） |
-| `loan_status` | `{addr}:address` | u128 | 借款人状态，见下 |
-| `loan_debt_of` | `{addr}:address` | u128 | 债务（zhu） |
-| `loan_coll_of` | `{addr}:address` | u128 | 抵押（atoms） |
-| `quote_score` | `{name}:bytes,{vg}:bytes,{num}:u128` | u128 | 按名字+基因+编号查评分 |
+| `lp_share_of` | `who:address` | u128 | 某地址的 LP 份额 |
+| `lp_pending_hac` | `who:address` | u128 | 待领 LP 奖励（HAC，zhu） |
+| `lp_pending_ds` | `who:address` | u128 | 待领 LP 奖励（hacds，个数） |
+| `total_staked` | `kind:u128` | u128 | kind `0`=HAC，`1`=hacds |
 
-**`loan_status` 返回值语义**（重要，不要按「健康度百分比」理解）：
+**借贷**
 
-| 返回值 | 含义 |
+| 函数 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `loan_debt_of` | `who:address` | u128 | 本金（zhu），**不含**未结算利息 |
+| `loan_debt_now` | `who:address` | u128 | 含利息的实时债务（zhu） |
+| `loan_coll_of` | `who:address` | u128 | 锁定抵押（hacds 个数） |
+| `loan_health` | `who:address` | u128 | **健康度万分比**，见下 |
+| `loan_status` | `who:address` | u128 | 抵押率 ×100，见下 |
+| `total_debt` | — | u128 | 全局债务（zhu） |
+| `providers_total` | — | u128 | 全部可出借资金 |
+| `utilization` | — | u128 | 当前利用率（bps） |
+| `borrow_coll_ratio` | — | u128 | 借款线百分比（`200`） |
+| `liq_coll_ratio` | — | u128 | 清算线百分比（`160`） |
+| `borrow_paused` | — | u128 | 非 0 = 暂停新增借款（利用率或熔断） |
+| `ref_paused` | — | u128 | 非 0 = 价格偏离熔断中 |
+| `lendable_amm` | — | u128 | AMM 可出借部分（30%） |
+| `net_claims` | — | u128 | 全网债权 |
+| `reserve_hac` | — | u128 | 坏账储备 |
+| `deficit_hac` | — | u128 | 赤字 |
+
+**健康度的正确读法**
+
+| `loan_health` 返回 | 含义 |
+|---|---|
+| `1000000` | 无债务（合约返回的哨兵值，视为极健康） |
+| `> 10000` | 安全 |
+| `= 10000` | 恰在清算线上 |
+| `< 10000` | **可被清算** |
+| `< 9000` | 深水区，可被全额清算 |
+
+**关键**：这个值用 `coll_to_hac_liq()` 计算，即**保守价 `min(现货价, 平滑参考价)`**，
+与 `loan_liquidate` 的判定**同源**。所以不会出现「界面显示安全、链上已可清算」。
+不要用 `loan_status` 自己算健康度，用这个。
+
+`loan_status` 是旧口径（`coll_hac × 100 / debt`，用现货价），保留兼容：
+
+| 返回 | 含义 |
 |---|---|
 | `0` | 无借贷、无抵押 |
-| `999` | 有抵押但无债务（安全） |
-| 其它 | `coll_hac × 100 / debt`，即**抵押率 ×100** |
+| `999` | 有抵押但无债务 |
+| 其它 | 抵押率 ×100 |
 
-**清算判据**：`debt > 0 && 0 < status < 200` 时可清算。
+**HACD 池**
 
-**实测样本**：
+| 函数 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `hacd_score_total` | — | u128 | 池内 HACD 总分（已 ×`SCORE_SCALE`） |
+| `hacd_count` | — | u128 | 池内 HACD 颗数 |
+| `hacd_avg_score` | — | u128 | 平均分（已 ×`SCORE_SCALE`） |
+| `hacd_coverage` | — | u128 | 覆盖率（bps，10000 = 100%） |
+| `quote_redeem` | `sc:u128` | tuple | 赎回报价，见下 |
+| `quote_score` | `name:bytes,vg:bytes,num:u128` | u128 | 按名字+基因+编号算分 |
+
+**`quote_redeem` 返回值**：`tuple(charge, fee, premium_bps, ok)`
+
+| 元素 | 含义 |
+|---|---|
+| `charge` | 总扣减（本金 + 手续费） |
+| `fee` | 其中手续费 |
+| `premium_bps` | 挑钻石溢价（bps） |
+| `ok` | `1` = 可赎回；`0` = 实际交易会返回 `61`（池内无记录或分数不足） |
+
+**价格与因子**
+
+| 函数 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `ref_price_of` | — | u128 | 平滑参考价 |
+| `ref_price_zhu_per_ds` | — | u128 | 参考价（zhu per hacds） |
+| `ref_height` | — | u128 | 上次更新参考价的块高 |
+| `hcut` | — | u128 | HAC 社会化因子（1e12 定标，只降不升） |
+| `lcut` | — | u128 | LP 奖励社会化因子 |
+
+**账户与金库**
+
+| 函数 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `balance_hac` | `who:address` | u128 | 有效 HAC 余额（zhu，已乘 hcut） |
+| `balance_hac_nominal` | `who:address` | u128 | 名义份额（zhu） |
+| `balance_ds` | `who:address` | u128 | 待领取 hacds 配额 due |
+| `bad_of` | `who:address` | u128 | 该地址的坏账 |
+| `treasury_pending` | `kind:u128` | u128 | 金库待清扫。`0`=HAC，`1`=hacds |
+| `treasury_ds` | — | u128 | 金库 hacds 累积 |
+| `tot_hac` | — | u128 | HAC 总量（有效值） |
+| `tot_hac_nominal` | — | u128 | HAC 总量（名义份额） |
+| `lpr_hac_effective` | — | u128 | LP 奖励池有效值 |
+
+**运维**
+
+| 函数 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `self_check` | — | u128 | 内部一致性自检，`0` = 通过 |
+| `rent_key_group_count` | — | u128 | 键分组数量（固定 `7`） |
+| `rent_key_len_at` | `idx:u128` | u128 | 第 idx 组的键长度 |
+| `rent_keys_group` | `klen:u128` | bytes | 该长度组的所有键（可直接喂 `rent_keys`） |
+
+#### 1.5.4 实测样本
 
 ```
-GET /query/contract/sandboxcall?contract=VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-    &function=amm_reserves&caller=VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-→ {"ret":0,"use_gas":377,"gas_use":{"compute":132,"resource":209,"storage":36},"ret_val":120200677111}
-
-GET ...&function=loan_status&params=15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q%3Aaddress&caller={合约}
-→ {"ret":0,"use_gas":830,"gas_use":{"compute":363,"resource":323,"storage":144},"ret_val":0}
+GET {node}/query/contract/sandboxcall?contract=T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH
+    &function=loan_health&params=1P2tsn...%3Aaddress&caller=T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH
+→ {"ret":0,"use_gas":830,"gas_use":{"compute":363,"resource":323,"storage":144},"ret_val":1000000}
 ```
 
-> `:` 必须 URL 编码为 `%3A`。
+`ret_val: 1000000` = 该地址无债务。
 
 ---
 
@@ -224,125 +309,32 @@ GET ...&function=loan_status&params=15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q%3Aaddress
 GET /query/block/intro?height={高度}&tx_hash_list=true
 ```
 
-```json
-{
-  "ret": 0,
-  "hash": "0000000000279d55a83105ce01311cd50b06fb5efcb1175e3891a9b46fcf27b1",
-  "version": 1,
-  "height": 792575,
-  "timestamp": 1792537829,
-  "nonce": 17,
-  "difficulty": "...",
-  "miner": "...",
-  "reward": "...",
-  "tx_hash_list": ["b6488be2b07be8745ac5827e00928ebc840a803d6a132cd9eb573812221e55ce"]
-}
-```
-
-`tx_hash_list` 只在带 `tx_hash_list=true` 时返回。
-
 ---
 
 ### 1.7 查询交易
 
 ```
-GET /query/transaction?hash={交易哈希}&action=true
+GET /query/transaction?hash={交易哈希}
 ```
-
-不带 `action=true` 时只返回概要：
-
-```json
-{
-  "ret": 0,
-  "hash": "b6488be2...",
-  "hash_with_fee": "cf947b86...",
-  "type": 2,
-  "timestamp": 1792537576,
-  "fee": "245:247",
-  "fee_got": "245:246",
-  "main_address": "1NsStAq1xt7cuqvEAobcS8T6gqcyS2gnMB",
-  "action": 1,
-  "block": {"height": 792575, "timestamp": 1792537829},
-  "confirm": 5
-}
-```
-
-带 `action=true` 时多出结构化动作数组：
-
-```json
-"actions": [{
-  "kind": 4,
-  "d": {
-    "diamond": "IKEMYN",
-    "number": 138592,
-    "prev_hash": "0x0000...",
-    "nonce": "0x00000001a90d5c45",
-    "address": "1EaqdAi9FLCQwLYPLWVtoRM1fZwGezXLTi",
-    "custom_message": "0xb0114b5f..."
-  }
-}]
-```
-
-**合约调用是 `kind = 44`**，其字节码里含函数 selector：
-
-```
-09 14 01 <sig4: 4字节> ee
-```
-
-`sig4 = sha3_256(函数名)[0:4]`。索引器靠它识别「这笔交易调用了哪个合约函数」。
-
-**注意**：交易确认后（`confirm ≥ 1`）此接口才能查到，未上链的查不到。
 
 ---
 
 ### 1.8 校验交易（附带人工可读描述）
 
 ```
-POST /util/transaction/check?description=true
-Content-Type: application/octet-stream
-Body: 交易的二进制字节（不是 hex 字符串）
+POST /util/transaction/check
+Content-Type: application/json
+
+{"tx": "040000...（hex）"}
 ```
 
-**签名与否都能校验。** 带 `description=true` 会返回人话描述。
-
-**实测响应**：
+成功时返回解析结果和可读的动作描述，例如：
 
 ```json
-{
-  "ret": 0,
-  "hash": "37637b89...",
-  "hash_with_fee": "14f0c5e3...",
-  "type": 3,
-  "timestamp": 1792469415,
-  "fee": "1:248",
-  "fee_got": "1:248",
-  "main_address": "15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q",
-  "action": 1,
-  "gas_max": 99,
-  "description": "Main account 15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q pay 1:248 HAC tx fee",
-  "actions": [{
-    "action": {
-      "kind": 16,
-      "metadata": {
-        "serial": 2000,
-        "supply": 5963298700000000,
-        "decimal": 8,
-        "issuer": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-        "ticket": "0x4841434453",
-        "name": "0x6861636473"
-      },
-      "protocol_cost": "8:248"
-    },
-    "description": "Register Asset #2000 \"HACDS\" (name \"hacds\", supply 5963298700000000 atoms, 8 decimals, issuer VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1); pay 8 HAC protocol fee"
-  }]
-}
+{"ret":0,"describe":"[CallContract] T1A8... -> swap_hac_to_ds(...)"}
 ```
 
-失败时同样 HTTP 200：
-
-```json
-{"ret":1,"err":"transaction body invalid"}
-```
+**这个接口不签名、不广播，纯校验。** 钱包在广播前拿它做最后一道把关。
 
 ---
 
@@ -350,57 +342,33 @@ Body: 交易的二进制字节（不是 hex 字符串）
 
 ```
 POST /submit/transaction
-Content-Type: application/octet-stream
-Body: 已签名交易的二进制字节
-```
+Content-Type: application/json
 
-成功：
+{"tx": "040000...（hex）"}
+```
 
 ```json
-{"ret": 0, "hash": "交易哈希"}
+{"ret":0}
 ```
 
-失败：
-
-```json
-{"ret": 1, "err": "transaction parse failed"}
-```
-
-**⚠ `ret:0` 只表示进入内存池，不代表已上链。** Hacash 出块目标 **300 秒**，要等下一个块才生效。
-需要确认时轮询 `/query/transaction?hash=...` 看 `confirm` 字段，或用 `/query/balance` 看余额变化。
+> ⚠ `ret: 0` **只表示进了内存池**，不等于上链。出块目标 300 秒，
+> 要按出块节奏回查 `/query/transaction`。
 
 ---
 
 ### 1.10 合约存储费参数
 
-部署合约、或估算新建键成本时用。
-
 ```
-GET /query/contract/storage_fee
+GET /query/contract/storage_cost?contract={合约}
 ```
 
-```json
-{
-  "ret": 0,
-  "enabled": true,
-  "rule_version": 1,
-  "head_height": 792581,
-  "target_capacity_blocks": 1000,
-  "capacity": 1000000,
-  "rate": 1000,
-  "remaining": 1000000,
-  "p_min": 10,
-  "p_max": 10000,
-  "periods": 10,
-  "k_max": 16384
-}
-```
-
-`periods` 是当前折扣期数。若不为满价，生成部署动作时要按它重算成本。
+用于估算续租成本。
 
 ---
 
-## 2. 预言机 API
+## 2. 索引器 API
+
+索引器扫链，维护「谁有债务、谁可清算」的台账。**钱包不本地扫链。**
 
 ### 2.1 健康检查
 
@@ -409,75 +377,95 @@ GET /health
 ```
 
 ```json
-{"ok": true, "oracle": "1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu"}
+{"ok": true, "service": "hacds-indexer", "head": 798812, "watched": 0}
 ```
 
-`oracle` 是预言机账户地址。**这个地址在合约里是固定的**，换成别的地址签的证书合约不认。
-
----
-
-### 2.2 申请评分证书
-
-兑换 / 赎回钻石时必需。
+### 2.2 台账快照（**客户端唯一需要的接口**）
 
 ```
-GET /cert?name={6位钻石名}
+GET /snapshot
 ```
 
-**实测响应**：
+返回全部被监视地址的健康度快照：
 
 ```json
 {
-  "name": "KWTVSH",
-  "number": 85662,
-  "visual_gene": "aab018d628cb912cc290",
-  "life_gene": "05e7b8f313761bc8d55ddfe6945b3ba1aedbb4065288bceb5901d24c3cb2a9aa",
-  "score": 20,
-  "hacds_amount": 2000000000,
-  "details": {
-    "shapes": "Common diamond",
-    "styles_or_color": "Double mix",
-    "nameliteral": "Common diamond",
-    "numberliteral": "Common diamond",
-    "score": 20
-  },
-  "cert_message_hex": "4b5754565348aab018d628cb912cc2900000000000014e9e0000001401",
-  "cert_sha3_256": "0fca486f6d7c934006efb7ab926a12928bfda49d09ced3440c27ac2c39a88921",
-  "sign_hex": "023d7424448df611baf27f5188d1e48450082e94bb4d207b1612e22d299bd372d1aff139d57bd79446670c3ef77bab7471a33ada1df5f72adc90e13d316d7bcffc4ce07221ae7730e4b84b51f63208d133c508e8426b71fa4aa1d61f91a3563679",
-  "oracle_address": "1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu",
-  "version": 1
+  "head": 798812,
+  "updated": 1762900000,
+  "items": [
+    {"addr": "1P2tsn...", "debt": "100000000", "coll": "300000000",
+     "health": 16000, "ratio": 160, "liq": true}
+  ]
 }
 ```
 
-| 字段 | 含义 |
+| 字段 | 说明 |
 |---|---|
-| `score` | 钻石评分。**1 分 = 1 个 hacds** |
-| `hacds_amount` | 能换的 hacds，单位 **atoms**（`2000000000` = 20 个） |
-| `cert_message_hex` | 证书消息体（29 字节），进交易的 Message/Blob |
-| `sign_hex` | 预言机对该消息的签名（97 字节） |
-| `oracle_address` | 签名账户 |
+| `debt` | `loan_debt_now`（含利息） |
+| `coll` | 抵押 hacds 个数 |
+| `health` | 万分比，与 `loan_health` 同口径 |
+| `ratio` | 抵押率百分比 |
+| `liq` | `true` = 当前可清算 |
 
-**证书长度 = 126 字节**（消息 29 + 签名 97）。一笔交易里放 N 颗钻石的证书，就是 `N × 126` 字节。
+### 2.3 仅快照（不触发同步）
 
-错误：
-
-```json
-{"error": "query name must be 6 chars"}   // HTTP 400
-{"error": "..."}                          // HTTP 502，多半是节点不可达
+```
+GET /snapshot?cached=1
 ```
 
-**⚠ 钻石名必须 6 个字符**，不区分大小写（服务端会转大写）。
+### 2.4 立即同步
+
+```
+POST /sync
+```
+
+强制扫到最新块。用于运维，正常不需要调。
+
+### 2.5 监视名单维护
+
+```
+POST /watch/add?addr={地址}
+POST /watch/remove?addr={地址}
+```
+
+索引器会自动发现借款人，这两个接口用于手工补漏。
+
+### 2.6 积分覆盖率监控
+
+```
+GET /backing
+```
+
+对比「合约记的 due 总量」与「链上实际发行的 hacds」，用于发现异常。
+
+### 2.7 续租批次
+
+```
+GET /rent_batches
+```
+
+返回按长度分组、可直接喂 `rent_keys` 的键批次。keeper 用它续租。
+
+### 2.8 部署
+
+```bash
+python3 hacds_indexer.py --node http://127.0.0.1:8082 \
+    --contract T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH --port 8124
+```
 
 ---
 
-## 3. 索引器 API
+## 3. 交易构建服务
 
-索引器只读消费全节点，**从不提交交易、不需要私钥、不需要余额**。
+这个服务把「人类可读的参数」翻译成「未签名交易」。**它不持有任何私钥， 构建出来的交易必须由客户端自己签名。**
 
-它解决一个问题：**合约枚举不出借款人**。借款账目按 `loan:debt:<地址>` 拼键存储，合约没有列表、不写日志、节点也不支持按前缀枚举合约 KV。所以只能遍历区块，把历史调用过借贷函数的地址挖出来做成台账。
+源码：`hacds_exchange/indexer/hacds_build_server.py`
 
-> **部署状态说明**：当前 `43.251.101.101:8124` 返回 `502`，服务未在运行。
-> 下面的响应结构取自源码（`hacds_indexer.py`），启动服务后即为此形态。
+### 3.0 为什么需要它
+
+Hacash 的交易构造需要精确的 fee / gas / 动作编码，还要处理钻石名列表的 wire
+格式。让每个客户端自己实现一遍，就是在保证「三端行为不一致」。
+把构造逻辑集中到一个服务，客户端只负责签名——**签名的东西变了，但签名的人没变。**
 
 ### 3.1 健康检查
 
@@ -486,316 +474,221 @@ GET /health
 ```
 
 ```json
-{"ok": true, "service": "hacds-indexer", "head": 792580, "watched": 12}
+{"ok": true, "service": "hacds-build", "version": "2026-11-11.2",
+ "txbuild_ok": true, "contract": "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"}
 ```
 
-### 3.2 台账快照（**客户端唯一需要的接口**）
+`version` 很重要：Python 不会热加载，改了脚本必须重启进程。发现行为和
+`version` 对不上，先确认进程重启过。
+
+### 3.2 构建合约调用
 
 ```
-GET /watchlist
-```
+POST /api/build
+Content-Type: application/json
 
-```json
 {
-  "ret": 0,
-  "head": 792580,
-  "node": "http://43.251.101.101:8082",
-  "contract": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-  "watched": 12,
-  "withDebt": 3,
-  "liquidatable": 1,
-  "snapshot": [{
-    "address": "1Abc...",
-    "health": 150,
-    "healthPct": 1.5,
-    "debt": 12345,
-    "coll": 67890,
-    "liquidatable": true,
-    "noLoan": false,
-    "first": 792000,
-    "last": 792575,
-    "calls": 4,
-    "fns": {"loan_borrow": 2, "loan_add_collateral": 2},
-    "manual": false,
-    "note": null
-  }]
+  "mode": "call",
+  "main": "1P2tsn...",
+  "fn": "swap_hac_to_ds",
+  "params": "100000000:u128,0:u128,0:u128",
+  "fee": "0:248",
+  "gasMax": 99
 }
 ```
 
-| 字段 | 含义 |
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `mode` | 否 | `call`（默认）或 `transfer` |
+| `main` | ✅ | 发起地址（会付手续费的那个） |
+| `fn` | ✅ | 合约函数名，白名单见 §3.4 |
+| `params` | 否 | `值:类型` 逗号分隔，默认 `-` |
+| `fee` | 否 | 形如 `0:248` |
+| `gasMax` | 否 | 整数 `1–99`，默认 `99` |
+
+响应：
+
+```json
+{"ok": true, "unsigned_tx": "040000...", "fn": "swap_hac_to_ds",
+ "fee": "0:248", "gas_max": 99}
+```
+
+### 3.3 构建转账
+
+```
+POST /api/build
+{
+  "mode": "transfer",
+  "main": "1P2tsn...",
+  "sub": "hacd-from-to",
+  "fee": "0:248"
+}
+```
+
+`sub` 是 `hacds_txbuild transfer` 的子命令，额外参数按子命令给出。
+**`from` 锁定为合约地址**——这是安全约束，防止有人用这个服务构造
+「从任意地址转出」的交易。
+
+### 3.4 函数白名单
+
+```
+swap_hac_to_ds · swap_ds_to_hac
+add_liquidity · remove_liquidity · lp_harvest
+loan_add_collateral · loan_borrow · loan_repay · loan_liquidate
+rent_keys · topup_keys
+```
+
+不在白名单里的函数会被拒绝。**这是白名单不是黑名单**——新增函数必须显式加入。
+
+### 3.5 限制
+
+| 限制 | 值 | 为什么 |
+|---|---|---|
+| 单 IP 每分钟请求 | 30 | 防滥用 |
+| 请求体 | 8 KB | 参数串上界 1024 字节、最多 16 项 |
+| 钻石名列表 | 最多 200 颗 | 对应 `MAX_DEPOSIT_COUNT` |
+| `gasMax` | 1–99 | 合约/引擎合法范围 |
+
+### 3.6 错误码
+
+| `error` | 含义 |
 |---|---|
-| `head` | 已扫描到的高度 |
-| `watched` | 台账地址数 |
-| `withDebt` | 其中有债务的 |
-| `liquidatable` | 其中可清算的 |
-| `snapshot[].health` | `loan_status` 原值（`0` / `999` / 抵押率×100） |
-| `snapshot[].healthPct` | 换算成倍数（`1.5` = 150%）。`0` 和 `999` 时为 `null` |
-| `snapshot[].liquidatable` | 服务端已按 `debt > 0 && 0 < health < 200` 判好 |
-| `snapshot[].first/last` | 首次 / 最近一次出现在借贷函数调用里的块高 |
-| `snapshot[].fns` | 调用过的函数计数 |
-| `snapshot[].manual` | 是否手工添加 |
-
-**客户端不需要自己算可清算性**，直接用 `liquidatable` 即可。
-
-### 3.3 仅快照
-
-```
-GET /snapshot
-```
-
-```json
-{"ret": 0, "list": [ /* 同上 snapshot 数组 */ ]}
-```
-
-### 3.4 立即同步
-
-```
-GET /sync
-```
-
-触发一次扫块，返回本次结果。
-
-### 3.5 手工维护台账
-
-合约上线早期没有历史可扫，或需要补充观察地址时用。
-
-```
-GET /watch/add?address={地址}&note={备注}
-GET /watch/remove?address={地址}
-```
-
-`/watch/add` 成功返回更新后的地址列表：
-
-```json
-{"ret": 0, "list": ["1Abc...", "1Def..."]}
-```
-
-`/watch/remove`：
-
-```json
-{"ret": 0, "removed": true}
-```
-
-缺少 `address` 时返回 HTTP 400：
-
-```json
-{"ret": 1, "err": "address required"}
-```
-
-**⚠ 台账要唯一。** 如果同时跑多个索引器实例，`/watch/add`、`/watch/remove` 也要走同一台，否则各处台账不一致。
-
-### 3.6 部署
-
-```bash
-python3 hacds_indexer.py --port 8124 --node http://<node>:8082
-```
-
-- 零第三方依赖，Python 3 标准库
-- 支持 `--workers` 并发扫块（默认 4，实测 2.6 → 6.6 块/秒）
-- 增量同步：记 `lastScanned`，之后每轮只扫新增块
-- 台账原子落盘（`tmp` + `os.replace`）
-- systemd 单元见 `hacds_exchange/indexer/hacds_indexer.service`
+| `bad_json` | 请求体不是合法 JSON |
+| `bad_length` | 请求体为空或超 8 KB |
+| `bad_main` | `main` 不是合法地址 |
+| `bad_fee` | `fee` 不是 `值:尾数` 形式 |
+| `bad_gasMax` | `gasMax` 不是 1–99 的整数 |
+| `fn_not_allowed` | 函数不在白名单 |
+| `bad_params` | 参数串格式错 |
+| `rate_limited` | 超过每分钟 30 次 |
+| `build_timeout` | 引擎超时（30 秒） |
+| `engine_missing` | 服务器上找不到 `hacds_txbuild` |
 
 ---
 
-## 4. 交易所上币对接（**专章**）
+## 4. 交易所上币对接
 
-这一节是给要接入 hacds 的交易所 / 钱包 / 行情服务看的。
+### 4.0 先记住一件事：amount 是整数个数
 
-### 4.0 先记住一件事：amount 是 atoms
+hacds 是 **decimal 0** 的资产。链上返回的 `amount` 就是个数，**不做任何换算**。
 
-hacds 是 `decimal = 8` 的资产。链上和接口里的 `amount` 是**最小单位 atoms**，不是「个数」。
-
-```
-1 个 hacds = 100000000 atoms（1e8）
-总供给 = 5963298700000000 atoms = 59,632,987 个 hacds
+```json
+{"serial": 3000, "amount": "100000000"}   →  100,000,000 个 hacds
 ```
 
-**这一条搞错就是差一亿倍。**
+上一版是 decimal 8，要除以 1e8。**这一版不要除。**
 
 ### 4.1 资产身份（用于上币登记）
 
-| 项 | 值 |
+| 字段 | 值 |
 |---|---|
-| serial | **2000** |
+| serial | `3000` |
 | ticket | `HACDS` |
 | name | `hacds` |
-| decimal | **8** |
-| 总供给 | `5963298700000000` atoms |
-| issuer | `VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1` |
-| 发行方地址 | `15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q` |
+| decimal | `0` |
+| supply | `5963298700000000` |
+| issuer | `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH` |
 
-**⚠ 链上另有一个 ticket 也叫 `HACDS` 的资产（serial `1028`，name 是 "HACD Fragments"，与我们无关）。**
-协议不检查 ticket / name 唯一性，只检查 serial 是否被占用。
-
-**接入时必须以 `serial = 2000` 为准，不要按 ticket 匹配。**
+⚠ 链上还有一个 serial `1028` 的资产也叫 HACDS（name 是 "HACD Fragments"，别人的）。
+**按 serial 认，不要按 ticket 认。**
 
 ### 4.2 充值识别
 
-**不要按 serial 匹配，要按 serial=2000 + issuer 双重校验。**
-
-轮询或用节点推送拿区块，解析交易里的资产动作：
+扫块，找 `TransferAssetFromTo` 动作，`serial == 3000` 且 `to == 你的充值地址`。
 
 ```
-GET /query/block/intro?height={高度}&tx_hash_list=true
-  → tx_hash_list
-GET /query/transaction?hash={哈希}&action=true
-  → actions[]，筛出资产转移
+GET /query/block/intro?height={H}&tx_hash_list=true
+  → 遍历 tx_hash_list，逐个 GET /query/transaction?hash={h}
+  → 看 actions 里的 asset 转账
 ```
 
-资产转移的 action `kind`：
-
-| kind | 动作 | 含义 |
-|---|---|---|
-| 17 | `TransferAssetTo` | 转给合约/简单目标 |
-| 19 | `TransferAssetFromTo` | 从 A 转给 B |
-
-从 action 的 `d` 字段里取 `serial` / `amount` / 收发地址。**`serial == 2000` 才是 hacds**，且建议同时校验 `issuer` 是合约地址。
-
-**入账金额**：
-
-```
-用户看到的 hacds 个数 = amount / 1e8
-```
-
-例如收到 `amount = 4000000000`，入账 **40 个 hacds**。
-
-**⚠ 用大整数。** `5963298700000000` 已超过 JS `Number.MAX_SAFE_INTEGER`（`9007199254740991`）的 66%。JSON 里的 `amount` 是字符串，**不要先 parse 成 double**。JS 用 `BigInt`，Go 用 `big.Int`，Java 用 `BigInteger`，Kotlin 用 `BigInteger`（`Long` 不够）。
+**建议确认数**：3 个块（约 15 分钟）。Hacash 出块目标 300 秒，但会有波动。
 
 ### 4.3 提现构造
 
-**hacds 是标准同态化资产，提现就是一次普通的资产转账**（`kind = 19`，`TransferAssetFromTo`）。
+提现是标准资产转账：
 
-参数：
+```bash
+hacds_txbuild transfer {main} {ts} asset-from-to {from} {to} hacds {amount}
+```
 
-| 参数 | 值 |
-|---|---|
-| `serial` | `2000` |
-| `amount` | 要提的 atoms（= 个数 × 1e8） |
-| `from` | 交易所热钱包地址 |
-| `to` | 用户地址 |
-
-**注意**：`from` 必须是交易发起账户，或已获授权；交易所需要自己管好热钱包私钥并在本地签名。
-
-构造方式有两种：
-
-1. **用 Hacash 官方工具**自己拼 Type-3 交易
-2. **参考本仓库的 Rust 引擎** `hacds_txbuild`（`transfer asset-from-to` 子模式），源码里已处理 Type-3 线格式、手续费迭代、签名
-
-> 我们不提供远程签名接口。**节点的 `/util/transaction/sign` 要求把私钥通过 HTTP 传过去**，任何情况下都不要用。
+或者走构建服务（`mode=transfer`, `sub=asset-from-to`）。
 
 ### 4.4 广播与确认
 
-```
-POST /submit/transaction        # 二进制体，不是 hex
-```
-
-```json
-{"ret": 0, "hash": "..."}
+```bash
+POST {node}/submit/transaction
+{"tx": "...hex..."}
 ```
 
-**确认流程**：
-
-1. `ret:0` → 已进内存池，**尚未确认**
-2. 轮询 `GET /query/transaction?hash={哈希}`
-3. 看 `confirm` 字段，`≥ 1` 表示已上链
-4. 或直接核对 `GET /query/balance` 的余额变化
-
-**出块目标 300 秒。** 充值 / 提现的风控确认数建议按这个节奏设计。当前链上实测约 5 分钟一块。
+`ret:0` 只代表进内存池。按块高回查 `/query/transaction?hash=`，
+`block_height` 出现才算确认。
 
 ### 4.5 手续费与 gas
 
-- **手续费**：按交易字节数计。用 `GET /query/fee/average` 拿 `purity`，`fee = purity × billing_size`。
-  提高 fee 会让字节数微增（fee 编码变长），所以要**迭代**：构建 → 读实际字节数 → 不足则重建。本仓库 `fee.js` 是这套迭代的实现，通常 1~3 轮收敛。
-- **gas**：`gas_max` 字节，默认 `99` 即协议上限 `111,911`。交易所的转账类交易不碰合约，gas 消耗很低。
+| 项 | 说明 |
+|---|---|
+| fee 格式 | `值:尾数`，如 `0:248`（极小）、`2:247`（0.02 HAC） |
+| 手续费公式 | `fee = purity × billing_size` |
+| `gasMax` | `1–99`，默认 99。**合约调用不要低于 99** |
 
 ### 4.6 三个必知的硬限制
 
-**① VM gas 分三个独立桶，与 `gas_max` 无关**
+**① 单笔交易 16,384 字节。** 这是编译期常量。存取 200 颗钻石的交易接近这个上限。
 
-| 桶 | 上限 |
-|---|---|
-| compute | 18,009 |
-| resource | 6,100 |
-| storage | 111,911 |
+**② 沙箱每 IP 并发 = 2。** 超了直接拒绝，不排队。交易所后端必须串行化。
 
-超限时**提高 `gas_max` 完全无效**。错误形态：
+**③ 三个 gas 桶**：compute 18,009 / resource 6,100 / storage 111,911。
+超了报 `OutOfGas(31): <桶名> N > M`。**提高 `gasMax` 无效**——那是总额度，
+单桶上限是硬约束。
 
-```
-OutOfGas(31): resource gas limit exceeded: used 6101 > limit 6100
-```
-
-**② 单笔向合约存入最多 1 颗 HACD**
-
-每颗钻石的证书验签要在链上重算评分，约 3,000 resource，2 颗即 6,101 > 6,100。
-交易所若提供「钻石换 hacds」服务，必须**拆成每笔一颗**。原子交易合并也不能绕过（共享同一 gas 预算）。
-
-**③ 沙箱调用每 IP 并发上限 = 2**
-
-读合约状态时不要并发，超出的请求会被直接拒绝（无排队）：
-
-```json
-{"ret":1,"err":"sandbox_per_ip_concurrency_exceeded"}
-```
+> #3000 之所以能把「单笔 1 颗」提到「单笔 200 颗」，就是因为把算分挪进了
+> RV64IM 内核：200 颗只花 3,587 compute，一个桶装得下。旧版 FitSH 算 1 颗就要
+> 3,270 resource，2 颗就超 6,100。
 
 ### 4.7 做市 / 报价需要的数据
 
-| 需要的量 | 接口 |
+```
+GET {node}/query/contract/sandboxcall?contract={合约}&function=amm_reserves&caller={合约}
+GET {node}/query/contract/sandboxcall?contract={合约}&function=amm_reserve_ds&caller={合约}
+```
+
+现货价（zhu per hacds）= `amm_reserves × 1e8 / amm_reserve_ds`。
+
+批量拿更省事：
+
+| 函数 | 一次拿到 |
 |---|---|
-| 池中 HAC | `sandboxcall` → `amm_reserves`（zhu，÷1e8 = HAC） |
-| 池中 hacds | `sandboxcall` → `amm_reserve_ds`（atoms） |
-| 现货价 | `sandboxcall` → `pool_price` = `amm:hac × 1e8 / amm:ds`，即 **HAC/hacds** |
-| 总供给 | `/query/balance?address={合约}&assets=true` 里 serial 2000 的 `supply` |
-| 可清算仓位 | 索引器 `GET /watchlist` |
-
-**报价换算**：
-
-```
-池价（HAC 每个 hacds）= pool_price / 1e8
-例如 pool_price = 301355749 → 3.01355749 HAC/hacds
-```
+| `ref_price_zhu_per_ds` | 平滑参考价 |
+| `pool_price` | 池价（×1e8） |
+| `total_debt` / `utilization` | 借贷利用率 |
+| `hacd_count` / `hacd_avg_score` | 池子规模 |
 
 ### 4.8 对账
 
-链上恒等式，随时可核对：
+链上恒等式：
 
 ```
-用户持有 + 合约持有 = 总供给
+用户 due 总和 + AMM 池 + 金库累积 + LP 奖励池  ==  链上已发行的 hacds 总量
 ```
 
-三个数都能取到：
+再加一条：
 
-```bash
-# 总供给
-GET /query/balance?address={合约}&assets=true     → supply
-# 合约持有
-GET /query/balance?address={合约}&assets=true     → amount
-# 用户持有
-GET /query/balance?address={用户}&assets=true     → amount
+```
+有效 HAC 余额总和 × hcut == 名义份额总和
 ```
 
-**实测样本**（2026-10-21）：
-
-| 项 | atoms |
-|---|---|
-| 总供给 | `5963298700000000` |
-| 合约持有 | `5963294700000000` |
-| 用户持有 | `4000000000` |
-| 合约 + 用户 | `5963298700000000` ✓ |
+索引器的 `GET /backing` 每次同步都会核对这个。对不上就是有 bug。
 
 ### 4.9 上币对接清单
 
-- [ ] 资产身份按 **serial 2000** 匹配，同时校验 issuer
-- [ ] `amount` 全程用大整数，绝不经过 double
-- [ ] 展示给用户时除以 `1e8` 得到个数
-- [ ] 充值识别按 `kind 17/19` 解析资产动作
-- [ ] 提现构造 `TransferAssetFromTo(2000, amount, hotWallet, user)`
-- [ ] 广播用二进制体 POST `/submit/transaction`
-- [ ] 确认按 `confirm ≥ 1` 判，预留 5 分钟出块延迟
-- [ ] 手续费迭代估算（`purity × size`）
-- [ ] 沙箱读取串行化（每 IP 并发 ≤ 2）
-- [ ] 若涉及钻石兑换，**一笔一颗**
-- [ ] 对账用「用户 + 合约 = 总供给」恒等式
+- [ ] 用 serial `3000` 登记，decimal 填 `0`（**不是 8**）
+- [ ] 充值只认 serial 3000，忽略同名 ticket 的 #1028
+- [ ] 提现用 `asset-from-to`，`serial` 传 `hacds` 或 `3000`
+- [ ] 确认数 ≥ 3
+- [ ] 后端对沙箱调用串行化（并发上限 2）
+- [ ] 大额提现检查交易大小是否撞 16,384 字节上限
+- [ ] 对账用 `/backing` 和链上恒等式
 
 ---
 
@@ -803,27 +696,62 @@ GET /query/balance?address={用户}&assets=true     → amount
 
 ### 5.1 合约返回码
 
-沙箱调用返回的 `ret_val` 非 0 时，是合约函数内部的 `return N`。常用映射：
+沙箱调用返回的 `ret_val` 非 0 时，是合约函数内部的 `return N`。
 
-| 函数 | 码 | 含义 |
-|---|---|---|
-| 通用 | 1 | 合约已暂停（`cfg:paused = 1`） |
-| `swap_hac_to_ds` | 11 | HAC 积分不足 |
-| `add_liquidity` | 2 | 某一侧为 0 |
-| `add_liquidity` | 23 | 池非空但份额归零（防尺度重置） |
-| `add_liquidity` | 24 | 份额算出来为 0（比例太小） |
-| `add_liquidity` | 26 | 首注单侧超过上限 `1e18` |
-| `remove_liquidity` | 25 | LP 份额不足 |
-| `loan_borrow` | 40 | 超出可借额度（`(debt+hac)×2 > coll_hac`） |
-| `loan_repay` | 41 | 债务为 0 |
-| `loan_liquidate` | 42 | 该地址无债务 |
-| `loan_liquidate` | 43 | 未达清算线（不可清算） |
-| `Set*`（管理员） | 1 | 非管理员 |
-| `Set*`（管理员） | 2 | 参数超范围 |
-| `PermitAsset` | 11 | 待领取 hacds 不足 |
-| `PermitHACD` | 12 | 兑换所需 hacds 不足且自动补足失败 |
+**通用**
 
-完整表在 `wallet-app/contract-errors.js`。
+| 码 | 含义 |
+|---|---|
+| `2` | 参数格式错（如 HACD 名列表 wire 格式不合法） |
+| `48` | 数量越界（存 0 颗 / 超 200 颗 / 赎回不是 1 颗） |
+| `5` | 评分为 0 |
+| `53` | 超出总供应上限 |
+| `54` | 覆盖率不足（100% 发行下恒不触发） |
+| `59` | 已过期（`deadline`） |
+| `61` | HACD 池无记录 / 分数不足（赎回） |
+
+**AMM**
+
+| 码 | 含义 |
+|---|---|
+| `2` | 某一侧为 0 |
+| `23` | 池非空但份额归零（防尺度重置） |
+| `24` | 份额算出来为 0（比例太小） |
+| `25` | LP 份额不足 |
+| `26` | 首注单侧超过上限 `1e18` |
+| `56` | 滑点保护触发（`min_out` / `min_share` 未达） |
+
+**借贷**
+
+| 码 | 含义 |
+|---|---|
+| `40` | 超出可借额度（`(debt+hac) × 200% > coll_hac`） |
+| `41` | 债务为 0（还款） |
+| `50` | 全局利用率超 50% |
+| `51` | 借款已暂停（利用率满 或 价格熔断） |
+| `52` | 超过单借款人上限（20%） |
+
+**清算**
+
+| 码 | 含义 |
+|---|---|
+| `42` | 该地址无债务 |
+| `43` | 未达清算线（不可清算） |
+| `44` | 清算金额低于最小额（1 HAC） |
+| `45` | 抵押产出低于 `min_coll_out` |
+| `46` | 深水清算要求全额（`repay < deep_pay`） |
+| `47` | 参考价未初始化，拒绝清算 |
+
+**管理员相关的一律不存在**
+
+`set_fee` / `set_loan_rate` / `set_liquidate_bonus` / `set_paused` / `set_oracle`
+在 #3000 里**没有实现**。调用它们会返回：
+
+```
+CallNotExist(51)
+```
+
+这不是权限不足，是**函数不存在**。别再写这些调用了。
 
 ### 5.2 节点 / 沙箱错误
 
@@ -831,78 +759,125 @@ GET /query/balance?address={用户}&assets=true     → amount
 
 | 原始信息 | 含义 | 处理 |
 |---|---|---|
+| `NotFindContract` | 该地址没有合约代码 | 部署前正常；部署后检查合约地址 |
 | `invalid address argument` / `InvalidChecksum` | 地址格式或校验位错 | 重新取完整地址 |
 | `balance ... is insufficient` | 调用者余额不足付预扣 gas | 沙箱调用传 `caller={合约地址}` |
-| `sandbox_per_ip_concurrency_exceeded` | 并发超限 | 串行化 + 重试 |
+| `sandbox_per_ip_concurrency_exceeded` | 并发超限 | 串行化 + 退避重试 |
 | `resource gas limit exceeded` | resource 桶超限 | 拆笔；**提高 gas_max 无效** |
 | `compute gas limit exceeded` | compute 桶超限 | 拆笔 |
 | `storage gas limit exceeded` | storage 桶超限 | 减少新键或降租期 |
-| `OutOfGas` | gas 不足 | 提高 gas_max |
-| `CallNotExist` | 合约没有这个函数 | 检查函数名 |
-| `NotFindContract` | 找不到合约 | 检查合约地址 |
+| `OutOfGas(31)` | 某个桶不够 | 看括号里的桶名，拆笔 |
+| `Arithmetic(90)` | 算术下溢/上溢 | 检查参数；这是合约 bug，请报告 |
+| `CallNotExist` | 合约没有这个函数 | 检查函数名（管理员函数已删除） |
 | `state changed` | 期间链上状态变了 | 重试 |
 | `transaction parse failed` | 交易体解析失败 | hex / 字节不完整 |
+| `StorageNotActive` | 存储键已过期 | 调 `rent_keys` 续租 |
 | `ECONNREFUSED` / `timeout` | 服务不可达 | 检查服务是否在跑 |
 
-**判别要点**：这些错误大多是 **HTTP 200 + `{"ret":1,"err":"..."}`**，只看 HTTP 状态码会漏掉。
+**判别要点**：这些错误大多是 **HTTP 200 + `{"ret":1,"err":"..."}`**，
+只看 HTTP 状态码会漏掉。
 
 ---
 
 ## 6. 快速参考
 
-### 端点汇总
+### 6.1 端点汇总
 
 ```
-# 全节点 :8082
+# 全节点
 GET  /query/block/height/latest
 GET  /query/fee/average
-GET  /query/balance?address=&assets=true&asset_meta=true&diamonds=true
-GET  /query/diamond?name=
-GET  /query/contract/sandboxcall?contract=&function=&params=&caller=
-GET  /query/block/intro?height=&tx_hash_list=true
-GET  /query/transaction?hash=&action=true
-GET  /query/contract/storage_fee
-POST /util/transaction/check?description=true     # 二进制体
-POST /submit/transaction                          # 二进制体
+GET  /query/balance?address={A}&assets=true&diamonds=true
+GET  /query/diamond?name={N}
+GET  /query/contract/sandboxcall?contract={C}&function={F}&params={P}&caller={C}
+GET  /query/block/intro?height={H}&tx_hash_list=true
+GET  /query/transaction?hash={H}
+POST /util/transaction/check        {"tx": "hex"}
+POST /submit/transaction            {"tx": "hex"}
 
-# 预言机 :8123
+# 索引器
 GET  /health
-GET  /cert?name=
-
-# 索引器 :8124
-GET  /health
-GET  /watchlist        # 客户端唯一需要的
 GET  /snapshot
-GET  /sync
-GET  /watch/add?address=&note=
-GET  /watch/remove?address=
+POST /sync
+GET  /backing
+GET  /rent_batches
+
+# 构建服务
+GET  /health
+POST /api/build
 ```
 
-### 常量
+### 6.2 常量
+
+| 常量 | 值 |
+|---|---|
+| 合约地址 | `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH` |
+| 合约 nonce | `2` |
+| 金库 | `1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK` |
+| hacds serial | `3000` |
+| hacds decimal | `0` |
+| hacds 总供给 | `5963298700000000` |
+| `SCORE_SCALE` | `100000000`（1e8） |
+| `MAX_DEPOSIT_COUNT` | `200` |
+| `FEE_BPS` | `50`（0.5%） |
+| `BORROW_RATIO_BPS` | `20000`（200%） |
+| `LIQ_COLL_RATIO_BPS` | `16000`（160%） |
+| `CLOSE_FACTOR_BPS` | `5000`（50%） |
+| `DEEP_TRIGGER_BPS` | `10500`（105%） |
+| `LIQ_BONUS_BPS` | `500`（5%） |
+| `U_MAX_BPS` | `5000` |
+| `LENDABLE_AMM_BPS` | `3000` |
+| VM 三桶 | compute 18,009 / resource 6,100 / storage 111,911 |
+| 交易上限 | 16,384 字节 |
+| gasMax 范围 | 1–99 |
+
+### 6.3 单位换算
+
+**HAC**（链上 zhu）：
 
 ```
-hacds serial         2000
-hacds decimal        8
-hacds 总供给          5963298700000000 atoms
-1 hacds              100000000 atoms
-合约                  VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-金库                  1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK
-预言机账户             1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu
-SCORE_SCALE          1e8（1 分 = 1 个 hacds）
-COLL_RATIO           2（50% 抵押率，清算线 200）
-AMM 手续费            0.5%（LP 50% / 质押 30% / 金库 20%）
-借贷利率 / 清算奖励     年化 5% / 2%
-证书长度              126 字节（消息 29 + 签名 97）
-VM 三桶上限           compute 18,009 / resource 6,100 / storage 111,911
-出块目标              300 秒
-沙箱并发上限           每 IP 2
+HAC = zhu / 1e8
+"5:249" = 5 × 10^(249−248) = 50 HAC
+"1:248" = 1 HAC
 ```
 
-### 单位换算
+**hacds**（decimal 0）：
 
 ```
-atoms → hacds 个数 ： amount / 1e8
-hacds 个数 → atoms ： count × 1e8
-zhu   → HAC      ： zhu / 1e8
-池价（HAC/hacds）  ： pool_price / 1e8
+hacds 个数 == 链上整数，不做换算
 ```
+
+⚠ **不要对 hacds 除以 1e8。** 那是上一版（decimal 8）的做法。
+
+### 6.4 一段最小可用的读状态代码
+
+```javascript
+const NODE = 'https://api.hacds.com';
+const CONTRACT = 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH';
+
+async function call(fn, params = '') {
+  const q = new URLSearchParams({
+    contract: CONTRACT,
+    function: fn,
+    params,
+    caller: CONTRACT,       // 不传会因余额不足失败
+  });
+  const r = await fetch(`${NODE}/query/contract/sandboxcall?${q}`);
+  const j = await r.json();
+  if (j.ret !== 0) throw new Error(j.err || 'call failed');
+  return j.ret_val;
+}
+
+// 池子两侧储备
+const hacZhu = await call('amm_reserves');
+const ds     = await call('amm_reserve_ds');
+
+// 现货价（zhu per hacds）
+const spot = Number(hacZhu) * 1e8 / Number(ds);
+```
+
+**并发注意**：每个 IP 只有 2 个并发名额。批量读要排队，不要 `Promise.all`。
+
+---
+
+*本文档对应合约 `HacdsDeFi3000.fitsh` 定稿版本，日期 2026-11-11。*

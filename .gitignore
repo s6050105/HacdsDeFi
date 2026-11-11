@@ -10,6 +10,8 @@ wallet-*.json
 # ---- 依赖与构建产物 ----
 node_modules/
 dist/
+*.xml
+shot*.png
 tmp/
 tmp_analysis/
 __pycache__/

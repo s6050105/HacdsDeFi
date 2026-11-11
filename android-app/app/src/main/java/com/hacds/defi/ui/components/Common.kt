@@ -18,7 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.hacds.defi.ui.theme.BrandGold
+import com.hacds.defi.ui.theme.Blue
+import com.hacds.defi.ui.theme.Gold
 import com.hacds.defi.ui.components.AssetIcon
 
 /** 区块卡片。 */
@@ -55,7 +56,7 @@ fun KV(k: String, v: String?, mono: Boolean = false, hl: Boolean = false) {
             style = if (mono) MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
             else MaterialTheme.typography.bodyMedium,
             fontWeight = if (hl) FontWeight.Bold else FontWeight.Normal,
-            color = if (hl) BrandGold else MaterialTheme.colorScheme.onSurface,
+            color = if (hl) Blue else MaterialTheme.colorScheme.onSurface,
             maxLines = 3,
         )
     }
@@ -63,7 +64,7 @@ fun KV(k: String, v: String?, mono: Boolean = false, hl: Boolean = false) {
 
 /** 小徽标。 */
 @Composable
-fun Chip(text: String, color: Color = BrandGold) {
+fun Chip(text: String, color: Color = Blue) {
     Text(
         text,
         style = MaterialTheme.typography.labelSmall,
@@ -132,7 +133,7 @@ fun AssetRow(
             style = if (valueMono) MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
             else MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
-            color = BrandGold,
+            color = Blue,
         )
     }
 }

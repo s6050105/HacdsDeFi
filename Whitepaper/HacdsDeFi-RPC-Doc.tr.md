@@ -1,47 +1,80 @@
-# HacdsDeFi RPC Dokümantasyonu
+# HacdsDeFi RPC Belgeleri
 
-2026-10-21　Geliştiriciler için
+2026-11-11　Kontrat #3000　Geliştiriciler için
+
+> Bu belge, Hacash ana ağındaki `HacdsDeFi3000.fitsh` kontratını açıklar
+> (adres `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`, varlık serial 3000, ondalık 0).
+>
+> **Bu belge hiçbir #2000 dönemi arayüzü içermez.** Oracle, puanlama sertifikaları
+> ve yönetici fonksiyonları yeni kontratta **artık yok** — yetkiler alındığı için
+> değil, bu fonksiyonlar hiç yazılmadığı için.
+
+---
 
 ## 0. Servislere genel bakış
 
-hacds üç HTTP servisi içerir. Bağımsızdırlar ve ayrı ayrı kurulabilirler.
+hacds dört HTTP servisi içerir. İlk ikisi zinciri okur, diğer ikisi kolaylıktır.
 
-| Servis | Varsayılan adres | Protokol | Amaç |
+| Servis | Adres | Protokol | Amaç |
 |---|---|---|---|
-| Tam düğüm | `43.251.101.101:8082` | HTTP/JSON | Zincir verisi, sandbox salt-okunur çağrıları, işlem doğrulama/yayınlama |
-| Oracle | `43.251.101.101:8123` | HTTP/JSON | Elmas puanlama sertifikalarını imzalar |
-| İndeksleyici | `43.251.101.101:8124` | HTTP/JSON | Borçlu defteri (kim tasfiye edilebilir) |
-
-Cüzdan zinciri yerel olarak taramaz. Tüm zincir verisi bu üç servisten gelir.
+| Tam düğüm RPC | `node.hacds.com` | HTTP/JSON | Zincir verisi, sandbox salt okunur çağrı, doğrulama/yayın |
+| API vekili | `api.hacds.com` | HTTP/JSON | Düğüme yönlendirir, CORS + HTTPS ekler |
+| İndeksleyici | `indexer.hacds.com` | HTTP/JSON | Borçlu defteri (kim tasfiye edilebilir) |
+| Oluşturma servisi | `build.hacds.com` | HTTP/JSON | İnsan girdisini imzasız işleme çevirir |
 
 ```
-tam düğüm :8082 ──GET──► indeksleyici :8124 ──GET /watchlist──► istemci
-      ▲                                                             │
-      └──────────────── oracle :8123 (sertifika imzalar) ◄──────────┘
+                 ┌──────────────┐
+ istemci ─GET──► │ Tam düğüm RPC│◄── indeksleyici (zinciri tarar)
+    │            └──────────────┘
+    │                    ▲
+    └──POST──► oluşturma ┘   (oluşturur, asla imzalamaz)
 ```
 
-**Yanıt sözleşmesi**: her uç nokta, üst düzeyde `ret` alanı olan JSON döner. `ret: 0` başarı demektir; sıfırdan farklı değer başarısızlıktır (genellikle bir `err` alanıyla birlikte).
-**Not**: başarısızlıklar da **HTTP 200** döner. Gövdedeki `ret` alanına bakmalısınız — durum kodu tek başına söylemez.
+**API vekili neden gerekli**: düğüm CORS başlığı döndürmez, tarayıcı doğrudan
+çağıramaz. `api.hacds.com` yalnızca yönlendirme ve başlık ekleme yapan bir
+Cloudflare Worker'dır; semantik değişmez. Kaynak portlar 80/443 olmadığı için
+Cloudflare kaynağa Tunnel üzerinden ulaşır.
+
+**Yanıt kuralı**: her uç nokta üst düzeyde `ret` alanı olan JSON döndürür.
+`ret: 0` başarı, sıfırdan farklı değer başarısızlık (genellikle `err` ile).
+
+> ⚠ **Başarısızlıklar da HTTP 200 döndürür.** Durum kodunu değil, gövdedeki
+> `ret` alanını kontrol etmelisiniz.
+
+**Düğüm adresleri neden `IP:port` değil de alt alan adı**: Cloudflare Workers
+yalnızca 80 ve 443 portlarına ulaşabilir. `IP:8082` biçimindeki her adres, bağlantı
+denenmeden reddedilir (`error code: 1003`). Bu yüzden dışarıya her şey Tunnel
+destekli `*.hacds.com` alt alan adları üzerinden gider.
 
 ---
 
 ## 1. Tam düğüm API'si
 
-### 1.1 Blok yüksekliği
+### 1.1 Blok yüksekliği sorgusu
 
 ```
 GET /query/block/height/latest
 ```
 
 ```json
-{"ret":0,"height":792580}
+{"ret":0,"height":798812}
+```
+
+VM durumu (etkin mi, güncel yükseklik):
+
+```
+GET /api/vm/status
+```
+
+```json
+{"ret":0,"vm":"enabled","height":798812}
 ```
 
 ---
 
-### 1.2 Ortalama ücret
+### 1.2 Ortalama ücret sorgusu
 
-Ücret tahmini için.
+İşlem ücretini tahmin etmek için kullanılır.
 
 ```
 GET /query/fee/average
@@ -51,95 +84,62 @@ GET /query/fee/average
 {"ret":0,"purity":"6024000000","purity_unit":232}
 ```
 
-`purity` = `fee / billing_size (bayt)`. Düğüm kabulü `purity ≥ min_purity` gerektirir (şu anda `6024000000`).
+`purity` = `fee / billing_size (bayt)`. Düğüm kabulü `purity ≥ min_purity`
+gerektirir.
 
 ---
 
-### 1.3 Bakiye (HAC / elmaslar / varlıklar)
+### 1.3 Bakiye sorgusu (HAC / elmas / varlık)
 
 ```
 GET /query/balance?address={adres}&assets=true&asset_meta=true&diamonds=true
 ```
 
-Üç anahtar da isteğe bağlıdır:
+Üç bayrak da isteğe bağlıdır:
 
-| Parametre | Etkisi |
+| Bayrak | Etkisi |
 |---|---|
-| `assets=true` | `assets` dizisini döner (zincir üstü varlıklar) |
-| `asset_meta=true` | Her varlığa `name` / `ticket` / `supply` / `decimal` ekler |
-| `diamonds=true` | `diamonds` döner (elmas başına 6 karakterlik birleşik ad dizisi) |
-
-**Ölçülen yanıt** (adres `15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q`):
+| `assets=true` | Varlık listesini ekler (hacds buradadır) |
+| `asset_meta=true` | Varlık adı / arzı gibi üst verileri ekler |
+| `diamonds=true` | HACD elmas listesini ekler |
 
 ```json
 {
   "ret": 0,
   "list": [{
-    "hacash": "217001914996:237",
-    "diamond": 7,
-    "satoshi": 0,
-    "diamonds": "ZUKKXZTTBAAUAYEWKKIXAYYUYTXNNBEUETIVYBYHYX",
-    "assets": [{
-      "serial": "2000",
-      "amount": "4000000000",
-      "decimal": 8,
-      "name": "hacds",
-      "ticket": "HACDS",
-      "supply": "5963298700000000"
-    }]
+    "address": "1P2tsn...",
+    "hacash": "1234567:248",
+    "diamond": 3,
+    "assets": [{"serial": 3000, "amount": "100000000"}]
   }]
 }
 ```
 
-| Alan | Anlamı |
-|---|---|
-| `hacash` | HAC bakiyesi, `değer:birim` biçiminde (`237` = 1:237 hassasiyeti) |
-| `diamond` | Elmas sayısı |
-| `diamonds` | Birleşik elmas adları, **her biri 6 karakter** |
-| `satoshi` | SAT bakiyesi |
-| `assets[].serial` | Varlık serial'i. **hacds = `2000`** |
-| `assets[].amount` | Bakiye. String, JS hassasiyet kaybını önlemek için |
-| `assets[].decimal` | Ondalık basamak. hacds `8`'dir |
-| `assets[].supply` | Toplam arz |
-
-**⚠ `amount` atoms cinsindendir, adet değil.** `4000000000` = 40 hacds. Bkz. bölüm 4.
+**Tutarlar `<değer>:<birim>` biçimindedir**: `5:249` 50 HAC demektir
+(5 × 10^(249−248)), 5,0038 değil. Dönüşüm için §6.3.
 
 ---
 
-### 1.4 Elmas detayı
+### 1.4 Elmas detayı sorgusu
 
 ```
-GET /query/diamond?name={6 karakterlik elmas adı}
+GET /query/diamond?name={6 karakterli elmas adı}
 ```
 
-```json
-{
-  "ret": 0,
-  "name": "KWTVSH",
-  "belong": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-  "inscriptions": ["hacds"],
-  "number": 85662,
-  "miner": "1GSL5G6LyuKgg325DxPtfPouaTeTHaZbGh",
-  "born": {"height": 522125, "hash": "00000000..."},
-  "life_gene": "05e7b8f313761bc8d55ddfe6945b3ba1aedbb4065288bceb5901d24c3cb2a9aa",
-  "visual_gene": "aab018d628cb912cc290"
-}
-```
-
-`belong` mevcut sahibidir. Kontrat adresine eşitse elmas yatırılmıştır.
-`visual_gene`, görselin ve puanın girdisidir.
+Elmasın numarasını, görsel genini, sahibini ve daha fazlasını döndürür.
+Puanlama `number` ve `visual_gene` alanlarına ihtiyaç duyar; ikisi de buradadır.
 
 ---
 
-### 1.5 Sandbox salt-okunur çağrısı (**kontrat durumunu okumanın ana yolu**)
+### 1.5 Sandbox salt okunur çağrı (**kontrat durumunu okumanın ana yolu**)
 
 ```
 GET /query/contract/sandboxcall?contract={kontrat}&function={fonksiyon}&params={parametreler}&caller={çağıran}
 ```
 
-Salt-okunur yürütür: durum yazmaz, işlem oluşturmaz, ücret almaz. Ancak kontrat verisi okuyan çağrılar için **`caller` olarak kontrat adresinin kendisini geçin** — aksi halde bazı fonksiyonlar çağıranın bakiyesi olmadığı için başarısız olur (aşağıdaki nota bakın).
+Salt okunur yürütme: durum yazılmaz, işlem gönderilmez, ücret ödenmez.
 
-**Ölçülen yanıt**:
+**Gözlenen yanıt**:
 
 ```json
 {"ret":0,"use_gas":377,"gas_use":{"compute":132,"resource":209,"storage":36},"ret_val":120200677111}
@@ -148,257 +148,238 @@ Salt-okunur yürütür: durum yazmaz, işlem oluşturmaz, ücret almaz. Ancak ko
 | Alan | Anlamı |
 |---|---|
 | `ret` | 0 = çağrı başarılı |
-| `ret_val` | Fonksiyonun dönüş değeri (u128, string veya sayı) |
-| `use_gas` / `gas_use` | Bu çağrının tüketimi, tahmin için |
+| `ret_val` | Fonksiyonun dönüş değeri |
+| `use_gas` / `gas_use` | Tüketilen gaz, tahmin için |
 
-**⚠ Not 1: `caller` verilmezse başarısız olur.** Verilmeden ölçüldüğünde:
+> ⚠ **Dağıtımdan önce burada `NotFindContract` döner.** Bu normaldir: kontrat
+> 800.000 yüksekliğinde dağıtılır. Sonrasında çağrılabilir olur.
+
+#### 1.5.1 Bilmeniz gereken iki tuzak
+
+**Tuzak 1: `caller` geçmemek başarısız olur.**
 
 ```json
-{"ret":1,"err":"[revert] address \"1111111111111111111114oLvT2\" balance 0:0 is insufficient, at least 559555:242"}
+{"ret":1,"err":"[revert] address \"1111...\" balance 0:0 is insufficient, at least 559555:242"}
 ```
 
-Varsayılan çağıranın bakiyesi sıfırdır ve gaz ön provizyonunu karşılayamaz. **`caller={kontrat adresi}` geçin, çalışır.**
+Varsayılan çağıranın bakiyesi sıfırdır ve gazı ödeyemez. **`caller={kontrat adresi}` geçin** — kontratın kendini çağırması bakiye gerektirmez.
 
-**⚠ Not 2: IP başına eşzamanlılık 2 ile sınırlıdır.** Düğüm eşzamanlı sandbox çağrılarını sınırlar ve sınırı aşan istekler **doğrudan reddedilir** (kuyruklama yoktur):
+**Tuzak 2: IP başına sandbox eşzamanlılığı 2'dir.** Fazlası **doğrudan reddedilir**, kuyruğa alınmaz:
 
 ```json
 {"ret":1,"err":"sandbox_per_ip_concurrency_exceeded"}
 ```
 
-İstemciler **sıraya koymalı ve başarısızlıkta tekrar denemelidir**. `Promise.all` ile bir düzine isteği aynı anda göndermeyin.
+İstemciler **sıralamalı + geri çekilmeli** çalışmalıdır. `Promise.all` ile bir düzine
+istek atmayın.
 
-#### Salt-okunur kontrat fonksiyonları
+#### 1.5.2 Parametre biçimi
 
-Parametreler `değer:tür` biçiminde, birden fazlası virgülle ayrılır.
+`params`, virgülle ayrılmış `değer:tür` çiftleridir. `:` karakteri `%3A` olarak
+URL kodlanmalıdır.
+
+| Tür | Örnek |
+|---|---|
+| `u128` | `100000000:u128` |
+| `address` | `1P2tsn...:address` |
+| `bytes` | `WTYUIA:bytes` |
+
+#### 1.5.3 Tam salt okunur fonksiyon listesi
+
+**AMM ve likidite**
 
 | Fonksiyon | Parametreler | Döner | Not |
 |---|---|---|---|
 | `amm_reserves` | — | u128 | Havuzdaki HAC (**zhu**) |
-| `amm_reserve_ds` | — | u128 | Havuzdaki hacds (**atoms**) |
+| `amm_reserve_ds` | — | u128 | Havuzdaki hacds (**adet**) |
 | `pool_price` | — | u128 | Havuz fiyatı = `amm:hac × 1e8 / amm:ds` |
 | `lp_total` | — | u128 | Toplam LP payı |
-| `lp_share_of` | `{addr}:address` | u128 | Bir adresin LP payı |
-| `lp_pending_hac` | `{addr}:address` | u128 | Bekleyen LP ödülü (HAC, zhu) |
-| `lp_pending_ds` | `{addr}:address` | u128 | Bekleyen LP ödülü (hacds, atoms) |
-| `total_staked` | `{kind}:u128` | u128 | Toplam stake. kind `0`=HAC, `1`=hacds |
-| `treasury_pending` | `{kind}:u128` | u128 | Hazine bekleyeni. kind `0`=HAC, `1`=hacds |
-| `balance_hac` | `{addr}:address` | u128 | Kontrat içi HAC puanı (zhu) |
-| `balance_ds` | `{addr}:address` | u128 | Bekleyen hacds kotası, `due` (atoms) |
-| `loan_status` | `{addr}:address` | u128 | Borçlu durumu, aşağıya bakın |
-| `loan_debt_of` | `{addr}:address` | u128 | Borç (zhu) |
-| `loan_coll_of` | `{addr}:address` | u128 | Teminat (atoms) |
-| `quote_score` | `{name}:bytes,{vg}:bytes,{num}:u128` | u128 | Ad + gen + numara için puan |
+| `lp_share_of` | `who:address` | u128 | Bir adresin LP payı |
+| `lp_pending_hac` | `who:address` | u128 | Bekleyen LP ödülü (HAC, zhu) |
+| `lp_pending_ds` | `who:address` | u128 | Bekleyen LP ödülü (hacds, adet) |
+| `total_staked` | `kind:u128` | u128 | `0`=HAC, `1`=hacds |
 
-**`loan_status` dönüş anlamları** (önemli — sağlık yüzdesi olarak okumayın):
+**Kredi**
 
-| Değer | Anlamı |
+| Fonksiyon | Parametreler | Döner | Not |
+|---|---|---|---|
+| `loan_debt_of` | `who:address` | u128 | Anapara (zhu), **tahakkuk etmemiş faiz hariç** |
+| `loan_debt_now` | `who:address` | u128 | Faiz dâhil borç (zhu) |
+| `loan_coll_of` | `who:address` | u128 | Kilitli teminat (hacds adet) |
+| `loan_health` | `who:address` | u128 | **Sağlık, on binde bir**, aşağı bkz. |
+| `loan_status` | `who:address` | u128 | Teminat oranı ×100, aşağı bkz. |
+| `total_debt` | — | u128 | Küresel borç (zhu) |
+| `providers_total` | — | u128 | Toplam borç verilebilir fon |
+| `utilization` | — | u128 | Güncel kullanım (bps) |
+| `borrow_coll_ratio` | — | u128 | Borç çizgisi yüzdesi (`200`) |
+| `liq_coll_ratio` | — | u128 | Tasfiye çizgisi yüzdesi (`160`) |
+| `borrow_paused` | — | u128 | Sıfır değilse yeni borçlanma durdu |
+| `ref_paused` | — | u128 | Sıfır değilse fiyat sapması devre kesicisi etkin |
+| `lendable_amm` | — | u128 | AMM'in borç verilebilir kısmı (%30) |
+| `net_claims` | — | u128 | Ağ geneli toplam alacak |
+| `reserve_hac` | — | u128 | Batık borç rezervi |
+| `deficit_hac` | — | u128 | Açık |
+
+**Sağlık nasıl doğru okunur**
+
+| `loan_health` döner | Anlamı |
 |---|---|
-| `0` | Kredi yok, teminat yok |
-| `999` | Teminat var ama borç yok (güvenli) |
-| diğer | `coll_hac × 100 / debt`, yani **teminat oranı ×100** |
+| `1000000` | Borç yok (kontratın döndürdüğü işaret değeri, çok sağlıklı sayın) |
+| `> 10000` | Güvenli |
+| `= 10000` | Tam tasfiye çizgisinde |
+| `< 10000` | **Tasfiye edilebilir** |
+| `< 9000` | Derin su; tam tasfiye mümkün |
 
-**Tasfiye koşulu**: `debt > 0 && 0 < status < 200` iken tasfiye edilebilir.
+**Önemli**: bu değer `coll_to_hac_liq()` ile, yani **muhafazakâr fiyat `min(spot, düzleştirilmiş referans)`** ile hesaplanır ve `loan_liquidate` ile
+**aynı kaynaktan** gelir. Dolayısıyla "arayüz güvenli diyor, zincir tasfiye
+edilebilir diyor" durumu görülmez. Sağlığı `loan_status`'tan kendiniz hesaplamayın;
+bunu kullanın.
 
-**Ölçülen örnekler**:
+`loan_status` eski görünümdür (`coll_hac × 100 / debt`, spot fiyat), uyumluluk
+için korunmuştur:
+
+| Dönüş | Anlamı |
+|---|---|
+| `0` | Borç ve teminat yok |
+| `999` | Teminat var, borç yok |
+| diğer | Teminat oranı ×100 |
+
+**HACD havuzu**
+
+| Fonksiyon | Parametreler | Döner | Not |
+|---|---|---|---|
+| `hacd_score_total` | — | u128 | Havuzdaki toplam HACD puanı (×`SCORE_SCALE`) |
+| `hacd_count` | — | u128 | Havuzdaki HACD adedi |
+| `hacd_avg_score` | — | u128 | Ortalama puan (×`SCORE_SCALE`) |
+| `hacd_coverage` | — | u128 | Kapsam (bps, 10000 = %100) |
+| `quote_redeem` | `sc:u128` | tuple | Geri alma teklifi, aşağı bkz. |
+| `quote_score` | `name:bytes,vg:bytes,num:u128` | u128 | Ad + gen + numaradan puan |
+
+**`quote_redeem` dönüşü**: `tuple(charge, fee, premium_bps, ok)`
+
+| Öğe | Anlamı |
+|---|---|
+| `charge` | Toplam kesinti (anapara + ücret) |
+| `fee` | Ücret kısmı |
+| `premium_bps` | Kiraz toplama primi (bps) |
+| `ok` | `1` = geri alınabilir; `0` = gerçek işlem `61` döndürür |
+
+**Fiyat ve faktörler**
+
+| Fonksiyon | Parametreler | Döner | Not |
+|---|---|---|---|
+| `ref_price_of` | — | u128 | Düzleştirilmiş referans fiyat |
+| `ref_price_zhu_per_ds` | — | u128 | Referans fiyat (hacds başına zhu) |
+| `ref_height` | — | u128 | Referansın son güncellendiği blok |
+| `hcut` | — | u128 | HAC sosyalizasyon faktörü (1e12 ölçek, yalnızca azalır) |
+| `lcut` | — | u128 | LP ödülü sosyalizasyon faktörü |
+
+**Hesaplar ve hazine**
+
+| Fonksiyon | Parametreler | Döner | Not |
+|---|---|---|---|
+| `balance_hac` | `who:address` | u128 | Etkin HAC bakiyesi (zhu, hcut ile çarpılmış) |
+| `balance_hac_nominal` | `who:address` | u128 | Nominal pay (zhu) |
+| `balance_ds` | `who:address` | u128 | Bekleyen hacds kotası (due) |
+| `bad_of` | `who:address` | u128 | Adrese atfedilen batık borç |
+| `treasury_pending` | `kind:u128` | u128 | Hazinenin süpürülmeyi bekleyen tutarı |
+| `treasury_ds` | — | u128 | Birikmiş hazine hacds |
+| `tot_hac` | — | u128 | Toplam HAC (etkin) |
+| `tot_hac_nominal` | — | u128 | Toplam HAC (nominal) |
+| `lpr_hac_effective` | — | u128 | Etkin LP ödül havuzu |
+
+**Operasyon**
+
+| Fonksiyon | Parametreler | Döner | Not |
+|---|---|---|---|
+| `self_check` | — | u128 | İç tutarlılık kontrolü, `0` = geçti |
+| `rent_key_group_count` | — | u128 | Anahtar grubu sayısı (sabit `7`) |
+| `rent_key_len_at` | `idx:u128` | u128 | idx grubunun anahtar uzunluğu |
+| `rent_keys_group` | `klen:u128` | bytes | O uzunluktaki tüm anahtarlar |
+
+#### 1.5.4 Gözlenen örnek
 
 ```
-GET /query/contract/sandboxcall?contract=VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-    &function=amm_reserves&caller=VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-→ {"ret":0,"use_gas":377,"gas_use":{"compute":132,"resource":209,"storage":36},"ret_val":120200677111}
-
-GET ...&function=loan_status&params=15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q%3Aaddress&caller={kontrat}
-→ {"ret":0,"use_gas":830,"gas_use":{"compute":363,"resource":323,"storage":144},"ret_val":0}
+GET {node}/query/contract/sandboxcall?contract=T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH
+    &function=loan_health&params=1P2tsn...%3Aaddress&caller=T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH
+→ {"ret":0,"use_gas":830,"gas_use":{"compute":363,"resource":323,"storage":144},"ret_val":1000000}
 ```
 
-> `:` karakteri `%3A` olarak URL kodlanmalıdır.
+`ret_val: 1000000` = bu adresin borcu yok.
 
 ---
 
-### 1.6 Blok özeti
+### 1.6 Blok özeti sorgusu
 
-İndeksleyici bunu blokları gezip borçluları bulmak için kullanır.
+İndeksleyici, borçluları bulmak için blokları bununla gezer.
 
 ```
 GET /query/block/intro?height={yükseklik}&tx_hash_list=true
 ```
-
-```json
-{
-  "ret": 0,
-  "hash": "0000000000279d55a83105ce01311cd50b06fb5efcb1175e3891a9b46fcf27b1",
-  "version": 1,
-  "height": 792575,
-  "timestamp": 1792537829,
-  "nonce": 17,
-  "difficulty": "...",
-  "miner": "...",
-  "reward": "...",
-  "tx_hash_list": ["b6488be2b07be8745ac5827e00928ebc840a803d6a132cd9eb573812221e55ce"]
-}
-```
-
-`tx_hash_list` yalnızca `tx_hash_list=true` verildiğinde döner.
 
 ---
 
 ### 1.7 İşlem sorgusu
 
 ```
-GET /query/transaction?hash={işlem hash'i}&action=true
-```
-
-`action=true` olmadan yalnızca özet döner:
-
-```json
-{
-  "ret": 0,
-  "hash": "b6488be2...",
-  "hash_with_fee": "cf947b86...",
-  "type": 2,
-  "timestamp": 1792537576,
-  "fee": "245:247",
-  "fee_got": "245:246",
-  "main_address": "1NsStAq1xt7cuqvEAobcS8T6gqcyS2gnMB",
-  "action": 1,
-  "block": {"height": 792575, "timestamp": 1792537829},
-  "confirm": 5
-}
-```
-
-`action=true` ile yapılandırılmış bir eylem dizisi eklenir:
-
-```json
-"actions": [{
-  "kind": 4,
-  "d": {
-    "diamond": "IKEMYN",
-    "number": 138592,
-    "prev_hash": "0x0000...",
-    "nonce": "0x00000001a90d5c45",
-    "address": "1EaqdAi9FLCQwLYPLWVtoRM1fZwGezXLTi",
-    "custom_message": "0xb0114b5f..."
-  }
-}]
-```
-
-**Kontrat çağrıları `kind = 44`'tür** ve bayt kodları fonksiyon seçicisini içerir:
-
-```
-09 14 01 <sig4: 4 bayt> ee
-```
-
-`sig4 = sha3_256(fonksiyon adı)[0:4]`. İndeksleyici, bir işlemin hangi kontrat fonksiyonunu çağırdığını böyle belirler.
-
-**Not**: bu uç noktanın işlemi bulması için onaylanmış olması gerekir (`confirm ≥ 1`); onaylanmamış işlemler görünmez.
-
----
-
-### 1.8 İşlem doğrulama (insan okunur açıklamayla)
-
-```
-POST /util/transaction/check?description=true
-Content-Type: application/octet-stream
-Body: işlemin ham baytları (hex string değil)
-```
-
-**İmzalı ve imzasız ikisi de çalışır.** `description=true` ile sade dille açıklamalar döner.
-
-**Ölçülen yanıt**:
-
-```json
-{
-  "ret": 0,
-  "hash": "37637b89...",
-  "hash_with_fee": "14f0c5e3...",
-  "type": 3,
-  "timestamp": 1792469415,
-  "fee": "1:248",
-  "fee_got": "1:248",
-  "main_address": "15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q",
-  "action": 1,
-  "gas_max": 99,
-  "description": "Main account 15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q pay 1:248 HAC tx fee",
-  "actions": [{
-    "action": {
-      "kind": 16,
-      "metadata": {
-        "serial": 2000,
-        "supply": 5963298700000000,
-        "decimal": 8,
-        "issuer": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-        "ticket": "0x4841434453",
-        "name": "0x6861636473"
-      },
-      "protocol_cost": "8:248"
-    },
-    "description": "Register Asset #2000 \"HACDS\" (name \"hacds\", supply 5963298700000000 atoms, 8 decimals, issuer VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1); pay 8 HAC protocol fee"
-  }]
-}
-```
-
-Başarısızlıklar da HTTP 200 döner:
-
-```json
-{"ret":1,"err":"transaction body invalid"}
+GET /query/transaction?hash={işlem özeti}
 ```
 
 ---
 
-### 1.9 İşlem yayınlama
+### 1.8 İşlem doğrulama (okunabilir açıklamayla)
+
+```
+POST /util/transaction/check
+Content-Type: application/json
+
+{"tx": "040000... (hex)"}
+```
+
+Başarıda ayrıştırılmış sonucu ve okunabilir eylem açıklamasını döndürür:
+
+```json
+{"ret":0,"describe":"[CallContract] T1A8... -> swap_hac_to_ds(...)"}
+```
+
+**Bu uç nokta imzalamaz ve yayınlamaz; yalnızca doğrular.** Cüzdanlar yayından
+önce son kapı olarak kullanır.
+
+---
+
+### 1.9 İşlem yayını
 
 ```
 POST /submit/transaction
-Content-Type: application/octet-stream
-Body: imzalanmış işlemin ham baytları
-```
+Content-Type: application/json
 
-Başarı:
+{"tx": "040000... (hex)"}
+```
 
 ```json
-{"ret": 0, "hash": "işlem hash'i"}
+{"ret":0}
 ```
 
-Başarısızlık:
-
-```json
-{"ret": 1, "err": "transaction parse failed"}
-```
-
-**⚠ `ret:0` yalnızca havuza girdiğini gösterir, zincire girdiğini değil.** Hacash **300 saniyelik** bloklar hedefler, dolayısıyla ancak bir sonraki blokta yürürlüğe girer.
-Onaylamak için `/query/transaction?hash=...` yoklayıp `confirm` alanına bakın veya `/query/balance` ile bakiyeyi izleyin.
+> ⚠ `ret: 0` **yalnızca belleğe (mempool) ulaştığını** gösterir, onaylandığını
+> değil. Hedef blok süresi 300 saniyedir; `/query/transaction`'ı bu tempoda
+> yoklayın.
 
 ---
 
-### 1.10 Kontrat depolama ücreti parametreleri
-
-Kontrat dağıtırken veya yeni anahtarların maliyetini tahmin ederken kullanılır.
+### 1.10 Kontrat depolama maliyeti parametreleri
 
 ```
-GET /query/contract/storage_fee
+GET /query/contract/storage_cost?contract={kontrat}
 ```
 
-```json
-{
-  "ret": 0,
-  "enabled": true,
-  "rule_version": 1,
-  "head_height": 792581,
-  "target_capacity_blocks": 1000,
-  "capacity": 1000000,
-  "rate": 1000,
-  "remaining": 1000000,
-  "p_min": 10,
-  "p_max": 10000,
-  "periods": 10,
-  "k_max": 16384
-}
-```
-
-`periods` mevcut indirim dönemi sayısıdır. Tam fiyatta değilse, dağıtım eylemini bununla yeniden üretin.
+Yenileme maliyetini tahmin etmek için.
 
 ---
 
-## 2. Oracle API'si
+## 2. İndeksleyici API'si
+
+İndeksleyici zinciri tarar ve "kimin borcu var, kim tasfiye edilebilir" defterini
+tutar. **Cüzdanlar zinciri kendileri taramaz.**
 
 ### 2.1 Sağlık kontrolü
 
@@ -407,75 +388,99 @@ GET /health
 ```
 
 ```json
-{"ok": true, "oracle": "1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu"}
+{"ok": true, "service": "hacds-indexer", "head": 798812, "watched": 0}
 ```
 
-`oracle`, oracle hesap adresidir. **Bu adres kontratta sabittir** — başka bir adresle imzalanan sertifikalar kabul edilmez.
-
----
-
-### 2.2 Puanlama sertifikası isteme
-
-Elmas yatırmak veya geri almak için gereklidir.
+### 2.2 Defter anlık görüntüsü (**çoğu istemcinin ihtiyaç duyduğu tek uç nokta**)
 
 ```
-GET /cert?name={6 karakterlik elmas adı}
+GET /snapshot
 ```
 
-**Ölçülen yanıt**:
+İzlenen her adresin sağlık anlık görüntüsünü döndürür:
 
 ```json
 {
-  "name": "KWTVSH",
-  "number": 85662,
-  "visual_gene": "aab018d628cb912cc290",
-  "life_gene": "05e7b8f313761bc8d55ddfe6945b3ba1aedbb4065288bceb5901d24c3cb2a9aa",
-  "score": 20,
-  "hacds_amount": 2000000000,
-  "details": {
-    "shapes": "Common diamond",
-    "styles_or_color": "Double mix",
-    "nameliteral": "Common diamond",
-    "numberliteral": "Common diamond",
-    "score": 20
-  },
-  "cert_message_hex": "4b5754565348aab018d628cb912cc2900000000000014e9e0000001401",
-  "cert_sha3_256": "0fca486f6d7c934006efb7ab926a12928bfda49d09ced3440c27ac2c39a88921",
-  "sign_hex": "023d7424448df611baf27f5188d1e48450082e94bb4d207b1612e22d299bd372d1aff139d57bd79446670c3ef77bab7471a33ada1df5f72adc90e13d316d7bcffc4ce07221ae7730e4b84b51f63208d133c508e8426b71fa4aa1d61f91a3563679",
-  "oracle_address": "1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu",
-  "version": 1
+  "head": 798812,
+  "updated": 1762900000,
+  "items": [
+    {"addr": "1P2tsn...", "debt": "100000000", "coll": "300000000",
+     "health": 16000, "ratio": 160, "liq": true}
+  ]
 }
 ```
 
 | Alan | Anlamı |
 |---|---|
-| `score` | Elmas puanı. **1 puan = 1 hacds** |
-| `hacds_amount` | Verilen hacds, **atoms** cinsinden (`2000000000` = 20) |
-| `cert_message_hex` | Sertifika mesaj gövdesi (29 bayt), işlemin Message/Blob kısmına girer |
-| `sign_hex` | Oracle'ın o mesaj üzerindeki imzası (97 bayt) |
-| `oracle_address` | İmzalayan hesap |
+| `debt` | `loan_debt_now` (faiz dâhil) |
+| `coll` | Teminat hacds adedi |
+| `health` | On binde bir, `loan_health` ile aynı ölçek |
+| `ratio` | Teminat oranı yüzdesi |
+| `liq` | `true` = şu anda tasfiye edilebilir |
 
-**Sertifika uzunluğu = 126 bayt** (29 bayt mesaj + 97 bayt imza). Bir işlemde N elmas, `N × 126` bayt sertifika demektir.
+### 2.3 Yalnızca anlık görüntü (senkronizasyon yok)
 
-Hatalar:
-
-```json
-{"error": "query name must be 6 chars"}   // HTTP 400
-{"error": "..."}                          // HTTP 502, genellikle düğüme ulaşılamıyor
+```
+GET /snapshot?cached=1
 ```
 
-**⚠ Elmas adı tam olarak 6 karakter olmalıdır.** Büyük/küçük harf duyarsızdır (sunucu büyük harfe çevirir).
+### 2.4 Zorla senkronizasyon
+
+```
+POST /sync
+```
+
+En son bloğa kadar hemen tarar. Operasyon içindir; normalde gerekmez.
+
+### 2.5 İzleme listesi bakımı
+
+```
+POST /watch/add?addr={adres}
+POST /watch/remove?addr={adres}
+```
+
+İndeksleyici borçluları otomatik bulur; bu uç noktalar boşlukları elle kapatır.
+
+### 2.6 Arz kapsamı izleme
+
+```
+GET /backing
+```
+
+"Kontratın kaydettiği toplam due" ile "zincirde gerçekten basılmış hacds"i
+karşılaştırır, anormallik tespiti için.
+
+### 2.7 Kira partileri
+
+```
+GET /rent_batches
+```
+
+Uzunluğa göre gruplanmış ve doğrudan `rent_keys`'e verilebilecek anahtar
+partilerini döndürür. Keeper bunu kullanır.
+
+### 2.8 Dağıtım
+
+```bash
+python3 hacds_indexer.py --node http://127.0.0.1:8082 \
+    --contract T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH --port 8124
+```
 
 ---
 
-## 3. İndeksleyici API'si
+## 3. Oluşturma servisi
 
-İndeksleyici tam düğümü yalnızca salt-okunur tüketir. **Hiç işlem göndermez, özel anahtar gerektirmez, bakiye gerektirmez.**
+Bu servis "insan tarafından okunabilir parametreleri" "imzasız işleme" çevirir.
+**Hiçbir özel anahtar tutmaz; oluşturduğu işlem istemci tarafından imzalanmalıdır.**
 
-Tek bir sorunu çözer: **kontrat borçluları listeleyemez**. Kredi kayıtları adresten oluşturulan anahtarlarda saklanır (`loan:debt:<adres>`); kontratta liste yok, günlük yazılmaz ve düğüm kontrat KV'sini önekle listeleyemez. Dolayısıyla tek yol blokları gezip geçmişte kredi fonksiyonu çağırmış adresleri ortaya çıkarmaktır.
+Kaynak: `hacds_exchange/indexer/hacds_build_server.py`
 
-> **Dağıtım durumu**: şu anda `43.251.101.101:8124` `502` döner — servis çalışmıyor.
-> Aşağıdaki yanıt biçimleri kaynaktan (`hacds_indexer.py`) alınmıştır; çalıştığında alacağınız biçim budur.
+### 3.0 Neden var
+
+Hacash işlemi oluşturmak hassas ücret / gaz / eylem kodlaması ve elmas adı
+listelerinin wire biçimi gerektirir. Her istemcinin bunu yeniden uygulaması, üç
+istemcinin farklı davranacağını garanti eder. Oluşturmayı merkezileştirmek,
+istemcinin yalnızca imzalaması demektir — **imzalanan şey değişir, imzalayan değişmez.**
 
 ### 3.1 Sağlık kontrolü
 
@@ -484,316 +489,229 @@ GET /health
 ```
 
 ```json
-{"ok": true, "service": "hacds-indexer", "head": 792580, "watched": 12}
+{"ok": true, "service": "hacds-build", "version": "2026-11-11.2",
+ "txbuild_ok": true, "contract": "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"}
 ```
 
-### 3.2 Defter anlık görüntüsü (**bir istemcinin ihtiyaç duyduğu tek uç nokta**)
+`version` önemlidir: Python sıcak yeniden yükleme yapmaz, değişen bir betik süreç
+yeniden başlatılmasını gerektirir. Davranış ile `version` uyuşmuyorsa önce sürecin
+yeniden başlatıldığını doğrulayın.
+
+### 3.2 Kontrat çağrısı oluşturma
 
 ```
-GET /watchlist
-```
+POST /api/build
+Content-Type: application/json
 
-```json
 {
-  "ret": 0,
-  "head": 792580,
-  "node": "http://43.251.101.101:8082",
-  "contract": "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1",
-  "watched": 12,
-  "withDebt": 3,
-  "liquidatable": 1,
-  "snapshot": [{
-    "address": "1Abc...",
-    "health": 150,
-    "healthPct": 1.5,
-    "debt": 12345,
-    "coll": 67890,
-    "liquidatable": true,
-    "noLoan": false,
-    "first": 792000,
-    "last": 792575,
-    "calls": 4,
-    "fns": {"loan_borrow": 2, "loan_add_collateral": 2},
-    "manual": false,
-    "note": null
-  }]
+  "mode": "call",
+  "main": "1P2tsn...",
+  "fn": "swap_hac_to_ds",
+  "params": "100000000:u128,0:u128,0:u128",
+  "fee": "0:248",
+  "gasMax": 99
 }
 ```
 
-| Alan | Anlamı |
+| Alan | Zorunlu | Not |
+|---|---|---|
+| `mode` | Hayır | `call` (varsayılan) veya `transfer` |
+| `main` | ✅ | İşlemi başlatan adres (ücreti öder) |
+| `fn` | ✅ | Kontrat fonksiyon adı, beyaz liste §3.4 |
+| `params` | Hayır | `değer:tür` virgülle ayrılmış, varsayılan `-` |
+| `fee` | Hayır | `0:248` biçiminde |
+| `gasMax` | Hayır | `1–99` arası tam sayı, varsayılan `99` |
+
+Yanıt:
+
+```json
+{"ok": true, "unsigned_tx": "040000...", "fn": "swap_hac_to_ds",
+ "fee": "0:248", "gas_max": 99}
+```
+
+### 3.3 Transfer oluşturma
+
+```
+POST /api/build
+{
+  "mode": "transfer",
+  "main": "1P2tsn...",
+  "sub": "hacd-from-to",
+  "fee": "0:248"
+}
+```
+
+`sub`, `hacds_txbuild transfer` alt komutudur; ek argümanlar alt komuta göre
+verilir. **`from` kontrat adresine kilitlidir** — bu servisin "rastgele bir
+adresten transfer" işlemi oluşturmasını engelleyen bir güvenlik kısıtıdır.
+
+### 3.4 Fonksiyon beyaz listesi
+
+```
+swap_hac_to_ds · swap_ds_to_hac
+add_liquidity · remove_liquidity · lp_harvest
+loan_add_collateral · loan_borrow · loan_repay · loan_liquidate
+rent_keys · topup_keys
+```
+
+Beyaz liste dışındaki fonksiyonlar reddedilir. **Bu bir beyaz listedir, kara liste değil** — yeni fonksiyonlar açıkça eklenmelidir.
+
+### 3.5 Sınırlar
+
+| Sınır | Değer | Neden |
+|---|---|---|
+| IP başına dakikada istek | 30 | Kötüye kullanımı önleme |
+| İstek gövdesi | 8 KB | Parametre 1024 bayt, en fazla 16 öğe |
+| Elmas adı listesi | En fazla 200 | `MAX_DEPOSIT_COUNT` ile eşleşir |
+| `gasMax` | 1–99 | Kontrat ve motor için geçerli aralık |
+
+### 3.6 Hata kodları
+
+| `error` | Anlamı |
 |---|---|
-| `head` | Taranan yükseklik |
-| `watched` | Defterdeki adres sayısı |
-| `withDebt` | Borcu olanların sayısı |
-| `liquidatable` | Tasfiye edilebilir olanların sayısı |
-| `snapshot[].health` | Ham `loan_status` (`0` / `999` / oran ×100) |
-| `snapshot[].healthPct` | Kat sayısına çevrilmiş (`1.5` = %150). `0` veya `999` iken `null` |
-| `snapshot[].liquidatable` | Sunucuda `debt > 0 && 0 < health < 200` ile değerlendirilmiş |
-| `snapshot[].first/last` | İlk / en son kredi çağrısında göründüğü blok yüksekliği |
-| `snapshot[].fns` | Fonksiyon başına çağrı sayısı |
-| `snapshot[].manual` | Elle mi eklendi |
-
-**İstemcilerin tasfiye edilebilirliği kendileri hesaplaması gerekmez** — doğrudan `liquidatable` kullanın.
-
-### 3.3 Yalnızca anlık görüntü
-
-```
-GET /snapshot
-```
-
-```json
-{"ret": 0, "list": [ /* yukarıdaki snapshot dizisinin aynısı */ ]}
-```
-
-### 3.4 Şimdi eşitle
-
-```
-GET /sync
-```
-
-Bir tarama tetikler ve sonucu döner.
-
-### 3.5 Defteri elle yönetme
-
-Taranacak geçmişin olmadığı ilk günlerde veya izlemek istediğiniz adresleri eklemek için.
-
-```
-GET /watch/add?address={adres}&note={not}
-GET /watch/remove?address={adres}
-```
-
-`/watch/add` güncellenmiş adres listesini döner:
-
-```json
-{"ret": 0, "list": ["1Abc...", "1Def..."]}
-```
-
-`/watch/remove`:
-
-```json
-{"ret": 0, "removed": true}
-```
-
-`address` eksikse HTTP 400 döner:
-
-```json
-{"ret": 1, "err": "address required"}
-```
-
-**⚠ Defter tek kaynak olmalıdır.** Birden fazla indeksleyici örneği çalıştırıyorsanız, `/watch/add` ve `/watch/remove` aynı örneğe gitmelidir, yoksa defterler ayrışır.
-
-### 3.6 Dağıtım
-
-```bash
-python3 hacds_indexer.py --port 8124 --node http://<node>:8082
-```
-
-- Sıfır üçüncü taraf bağımlılığı, Python 3 standart kütüphanesi
-- Eşzamanlı tarama için `--workers` (varsayılan 4; ölçülen 2,6 → 6,6 blok/sn)
-- Artımlı: `lastScanned` kaydeder, sonra yalnızca yeni blokları tarar
-- Defter atomik yazılır (`tmp` + `os.replace`)
-- systemd birimi: `hacds_exchange/indexer/hacds_indexer.service`
+| `bad_json` | Gövde geçerli JSON değil |
+| `bad_length` | Gövde boş veya 8 KB üzeri |
+| `bad_main` | `main` geçerli adres değil |
+| `bad_fee` | `fee` `değer:mantis` biçiminde değil |
+| `bad_gasMax` | `gasMax` 1–99 arası tam sayı değil |
+| `fn_not_allowed` | Fonksiyon beyaz listede değil |
+| `bad_params` | Parametre dizisi bozuk |
+| `rate_limited` | Dakikada 30 isteği aştı |
+| `build_timeout` | Motor zaman aşımı (30 saniye) |
+| `engine_missing` | Sunucuda `hacds_txbuild` bulunamadı |
 
 ---
 
-## 4. Borsa listeleme entegrasyonu (**özel bölüm**)
+## 4. Borsa listeleme entegrasyonu
 
-Bu bölüm hacds'i entegre edecek borsalar, cüzdanlar ve piyasa verisi servisleri içindir.
+### 4.0 Tek bir şeyi unutmayın: amount düz adettir
 
-### 4.0 Önce bir şeyi unutmayın: amount atoms cinsindendir
+hacds **ondalık 0**'dır. Zincirden dönen `amount` adedin kendisidir, **hiçbir dönüşüm yoktur**.
 
-hacds, `decimal = 8` bir varlıktır. Zincirdeki ve arayüzlerdeki `amount`, **en küçük birim olan atoms**'tır, adet değildir.
-
-```
-1 hacds = 100000000 atoms (1e8)
-toplam arz = 5963298700000000 atoms = 59.632.987 hacds
+```json
+{"serial": 3000, "amount": "100000000"}   →  100.000.000 hacds
 ```
 
-**Bunu yanlış yapmak yüz milyon kat sapma demektir.**
+Önceki sürüm ondalık 8'di ve 1e8'e bölmek gerekiyordu. **Bu sürümde bölmeyin.**
 
 ### 4.1 Varlık kimliği (listeleme kaydı için)
 
-| Öğe | Değer |
+| Alan | Değer |
 |---|---|
-| serial | **2000** |
+| serial | `3000` |
 | ticket | `HACDS` |
 | name | `hacds` |
-| decimal | **8** |
-| toplam arz | `5963298700000000` atoms |
-| issuer | `VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1` |
-| ihraççı adresi | `15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q` |
+| ondalık | `0` |
+| arz | `5963298700000000` |
+| issuer | `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH` |
 
-**⚠ Zincirde ticket'ı da `HACDS` olan başka bir varlık vardır (serial `1028`, adı "HACD Fragments", bizimle ilgisiz).**
-Protokol, ticket veya ad benzersizliğini kontrol etmez — yalnızca serial'in alınıp alınmadığına bakar.
-
-**`serial = 2000` ile eşleştirin. Ticket ile eşleştirmeyin.**
+⚠ Ayrıca ticket'ı HACDS olan serial `1028` varlığı var (adı "HACD Fragments",
+başkasının). **Ticket'a göre değil, serial'e göre eşleştirin.**
 
 ### 4.2 Yatırma tespiti
 
-**Yalnızca serial ile eşleştirmeyin — serial=2000 *ve* issuer kontrol edin.**
-
-Blokları yoklayın veya abone olun, sonra her işlemdeki varlık eylemlerini ayrıştırın:
-
-```
-GET /query/block/intro?height={yükseklik}&tx_hash_list=true
-  → tx_hash_list
-GET /query/transaction?hash={hash}&action=true
-  → actions[], varlık transferlerini süzün
-```
-
-Varlık transferi eylemi `kind`:
-
-| kind | Eylem | Anlamı |
-|---|---|---|
-| 17 | `TransferAssetTo` | Kontrata / basit hedefe transfer |
-| 19 | `TransferAssetFromTo` | A'dan B'ye transfer |
-
-Eylemin `d` alanından `serial` / `amount` ve gönderen/alıcı adreslerini okuyun. **`serial == 2000` hacds'tir** ve ayrıca `issuer`'ın kontrat adresi olduğunu kontrol etmeniz önerilir.
-
-**Yatırılacak miktar**:
+Blokları tarayıp `serial == 3000` ve `to == yatırma adresiniz` olan
+`TransferAssetFromTo` eylemlerini bulun.
 
 ```
-kullanıcının gördüğü hacds adedi = amount / 1e8
+GET /query/block/intro?height={H}&tx_hash_list=true
+  → tx_hash_list üzerinde gezinin, her biri için GET /query/transaction?hash={h}
+  → varlık transfer eylemlerine bakın
 ```
 
-Örneğin `amount = 4000000000` alındığında **40 hacds** yatırılır.
-
-**⚠ Büyük tam sayı kullanın.** `5963298700000000`, JS `Number.MAX_SAFE_INTEGER` (`9007199254740991`) değerinin %66 üzerindedir. JSON'daki `amount` bir string'tir — **önce double'a çevirmeyin**. JS'te `BigInt`, Go'da `big.Int`, Java'da `BigInteger`, Kotlin'de `BigInteger` kullanın (`Long` yetmez).
+**Önerilen onay sayısı**: 3 blok (yaklaşık 15 dakika). Hedef blok süresi 300
+saniyedir ama dalgalanır.
 
 ### 4.3 Çekim oluşturma
 
-**hacds standart bir değiştirilebilir varlıktır, dolayısıyla çekim sıradan bir varlık transferidir** (`kind = 19`, `TransferAssetFromTo`).
+Çekim standart bir varlık transferidir:
 
-Parametreler:
-
-| Parametre | Değer |
-|---|---|
-| `serial` | `2000` |
-| `amount` | çekilecek atoms (= adet × 1e8) |
-| `from` | borsa sıcak cüzdan adresi |
-| `to` | kullanıcı adresi |
-
-**Not**: `from`, işlemi başlatan hesap olmalı ya da yetkilendirilmiş olmalıdır; borsanın sıcak cüzdan anahtarını yönetip yerelde imzalaması gerekir.
-
-Oluşturmanın iki yolu:
-
-1. Type-3 işlemi **Hacash'in resmî araçlarıyla** kendiniz kurun
-2. **Bu depodaki Rust motoruna** bakın: `hacds_txbuild` (`transfer asset-from-to` alt modu); kaynak Type-3 tel formatını, ücret yinelemesini ve imzalamayı zaten yönetir
-
-> Uzaktan imzalama uç noktası sunmuyoruz. **Düğümün `/util/transaction/sign` uç noktası özel anahtarınızın HTTP üzerinden gönderilmesini gerektirir** — hiçbir koşulda kullanmayın.
-
-### 4.4 Yayınlama ve onay
-
-```
-POST /submit/transaction        # ikili gövde, hex değil
+```bash
+hacds_txbuild transfer {main} {ts} asset-from-to {from} {to} hacds {amount}
 ```
 
-```json
-{"ret": 0, "hash": "..."}
+Ya da oluşturma servisi üzerinden (`mode=transfer`, `sub=asset-from-to`).
+
+### 4.4 Yayın ve onay
+
+```bash
+POST {node}/submit/transaction
+{"tx": "...hex..."}
 ```
 
-**Onay akışı**:
-
-1. `ret:0` → havuza girdi, **henüz onaylanmadı**
-2. `GET /query/transaction?hash={hash}` yoklayın
-3. `confirm` alanına bakın; `≥ 1` zincire girdi demektir
-4. Veya doğrudan `GET /query/balance` ile bakiye değişimini kontrol edin
-
-**Blok hedefi 300 saniyedir.** Yatırma/çekim risk onaylarınızı bu ritme göre tasarlayın. Bugün zincirde ölçülen: yaklaşık 5 dakikada bir blok.
+`ret:0` yalnızca belleğe ulaştığı anlamına gelir. Blok yüksekliğine göre
+`/query/transaction?hash=` ile yoklayın; `block_height` göründüğünde onaylanmıştır.
 
 ### 4.5 Ücretler ve gaz
 
-- **Ücret**: işlem bayt boyutuna göre alınır. `GET /query/fee/average` ile `purity` alın; `fee = purity × billing_size`.
-  Ücreti artırmak bayt boyutunu biraz büyütür (ücret kodlaması uzar), bu yüzden **yineleyin**: oluştur → gerçek bayt boyutunu oku → eksikse yeniden oluştur. Bu depodaki `fee.js` bu yinelemedir; genellikle 1–3 turda yakınsar.
-- **gaz**: `gas_max` baytı, varsayılan `99` yani protokol sınırı `111.911`. Borsa transfer işlemleri kontrata dokunmaz, dolayısıyla gaz tüketimi çok düşüktür.
-
-### 4.6 Bilmeniz gereken üç katı sınır
-
-**① VM gazı, `gas_max` ile ilgisiz üç bağımsız kovaya ayrılır**
-
-| Kova | Sınır |
+| Öğe | Not |
 |---|---|
-| compute | 18.009 |
-| resource | 6.100 |
-| storage | 111.911 |
+| fee biçimi | `değer:mantis`, ör. `0:248` (en az), `2:247` (0,02 HAC) |
+| fee formülü | `fee = purity × billing_size` |
+| `gasMax` | `1–99`, varsayılan 99. **Kontrat çağrılarında 99'un altına inmeyin** |
 
-Aşıldığında **`gas_max`'ı artırmak hiçbir işe yaramaz**. Hata şöyle görünür:
+### 4.6 Bilmeniz gereken üç sert sınır
+
+**① İşlem en fazla 16.384 bayttır.** Bu derleme zamanı sabitidir. 200 elmaslık
+yatırma bu sınıra yaklaşır.
+
+**② IP başına sandbox eşzamanlılığı = 2.** Fazlası kuyruğa alınmaz, reddedilir.
+Borsa arka uçları sıralamalı çalışmalıdır.
+
+**③ Üç gaz kovası**: compute 18.009 / resource 6.100 / storage 111.911. Aşımda
+`OutOfGas(31): <kova> N > M` raporlanır. **`gasMax`'ı artırmak işe yaramaz** —
+o toplam bütçedir; kova başına sınır sert bir kısıttır.
+
+> #3000'ün "işlem başına 1 elmas"tan "işlem başına 200 elmas"a çıkabilmesinin
+> nedeni tam olarak puanlamanın RV64IM çekirdeğine taşınmasıdır: 200 elmas
+> `compute`tan yalnızca 3.587 harcar, tek kova. Eski FitSH sürümü tek elmas için
+> 3.270 `resource` harcıyordu, yani iki elmas 6.100'ü aşıyordu.
+
+### 4.7 Piyasa yapıcılığı / fiyat teklifi için gereken veriler
 
 ```
-OutOfGas(31): resource gas limit exceeded: used 6101 > limit 6100
+GET {node}/query/contract/sandboxcall?contract={kontrat}&function=amm_reserves&caller={kontrat}
+GET {node}/query/contract/sandboxcall?contract={kontrat}&function=amm_reserve_ds&caller={kontrat}
 ```
 
-**② Kontrat yatırma işlemi başına en fazla bir HACD**
+Spot fiyat (hacds başına zhu) = `amm_reserves × 1e8 / amm_reserve_ds`.
 
-Her elmasın sertifikasını doğrulamak zincir üstü puan yeniden hesaplaması gerektirir, yaklaşık 3.000 resource; iki elmas 6.101 > 6.100 eder.
-Borsa "elmas karşılığı hacds" hizmeti veriyorsa **işlem başına bir elmas olacak şekilde bölmek zorundadır**. Atomik işlemle birleştirmek de işe yaramaz (tek gaz bütçesini paylaşırlar).
+Toplu çekmek daha kolaydır:
 
-**③ Sandbox çağrıları IP başına 2 eşzamanlılıkla sınırlıdır**
-
-Kontrat durumu okumalarını paralelleştirmeyin; sınırı aşan istekler doğrudan reddedilir (kuyruk yok):
-
-```json
-{"ret":1,"err":"sandbox_per_ip_concurrency_exceeded"}
-```
-
-### 4.7 Piyasa yapıcılığı / kotasyon için gereken veriler
-
-| İhtiyacınız | Uç nokta |
+| Fonksiyon | Bir seferde döner |
 |---|---|
-| Havuzdaki HAC | `sandboxcall` → `amm_reserves` (zhu; ÷1e8 = HAC) |
-| Havuzdaki hacds | `sandboxcall` → `amm_reserve_ds` (atoms) |
-| Spot fiyat | `sandboxcall` → `pool_price` = `amm:hac × 1e8 / amm:ds`, yani **hacds başına HAC** |
-| Toplam arz | `/query/balance?address={kontrat}&assets=true` içinde serial 2000'in `supply` değeri |
-| Tasfiye edilebilir pozisyonlar | indeksleyici `GET /watchlist` |
-
-**Kotasyon dönüşümü**:
-
-```
-hacds başına HAC cinsinden havuz fiyatı = pool_price / 1e8
-örn. pool_price = 301355749 → 3,01355749 HAC/hacds
-```
+| `ref_price_zhu_per_ds` | Düzleştirilmiş referans fiyat |
+| `pool_price` | Havuz fiyatı (×1e8) |
+| `total_debt` / `utilization` | Kredi kullanımı |
+| `hacd_count` / `hacd_avg_score` | Havuz büyüklüğü |
 
 ### 4.8 Mutabakat
 
-Her an kontrol edebileceğiniz zincir üstü özdeşlik:
+Zincir üstü özdeşlik:
 
 ```
-kullanıcı varlıkları + kontrat varlıkları = toplam arz
+kullanıcı due toplamı + AMM havuzu + hazine birikimi + LP ödül havuzu
+    == zincirde basılmış toplam hacds
 ```
 
-Üç sayı da alınabilir:
+Ayrıca:
 
-```bash
-# toplam arz
-GET /query/balance?address={kontrat}&assets=true     → supply
-# kontrat varlıkları
-GET /query/balance?address={kontrat}&assets=true     → amount
-# kullanıcı varlıkları
-GET /query/balance?address={kullanıcı}&assets=true   → amount
+```
+etkin HAC bakiyeleri toplamı × hcut == nominal paylar toplamı
 ```
 
-**Ölçülen örnek** (2026-10-21):
+İndeksleyicinin `GET /backing` uç noktası bunu her senkronizasyonda kontrol eder.
+Uyuşmazlık bir hata demektir.
 
-| Öğe | atoms |
-|---|---|
-| toplam arz | `5963298700000000` |
-| kontrat varlıkları | `5963294700000000` |
-| kullanıcı varlıkları | `4000000000` |
-| kontrat + kullanıcı | `5963298700000000` ✓ |
+### 4.9 Listeleme kontrol listesi
 
-### 4.9 Listeleme entegrasyon kontrol listesi
-
-- [ ] Varlığı **serial 2000** ile eşleştirin, ayrıca issuer'ı doğrulayın
-- [ ] `amount`'ı baştan sona büyük tam sayı olarak tutun; asla double'dan geçirmeyin
-- [ ] Kullanıcıya adet gösterirken `1e8`'e bölün
-- [ ] Yatırmaları `kind 17/19` varlık eylemlerini ayrıştırarak tespit edin
-- [ ] Çekimleri `TransferAssetFromTo(2000, amount, hotWallet, user)` olarak kurun
-- [ ] `POST /submit/transaction`'a ikili gövdeyle yayınlayın
-- [ ] `confirm ≥ 1` ile onaylayın, 5 dakikalık blok gecikmesini hesaba katın
-- [ ] Ücretleri yinelemeli tahmin edin (`purity × size`)
-- [ ] Sandbox okumalarını sıralayın (IP başına eşzamanlılık ≤ 2)
-- [ ] Elmas işin içindeyse **işlem başına bir tane**
-- [ ] "kullanıcı + kontrat = toplam arz" özdeşliğiyle mutabakat yapın
+- [ ] serial `3000` ile kaydedin, ondalık `0` (**8 değil**)
+- [ ] Yatırmalar yalnızca serial 3000'i tanısın; aynı ticket'lı #1028'i yok sayın
+- [ ] Çekimler `asset-from-to` kullansın, `serial` olarak `hacds` veya `3000`
+- [ ] Onay sayısı ≥ 3
+- [ ] Arka uç sandbox çağrılarını sıralamalı yapsın (eşzamanlılık sınırı 2)
+- [ ] Büyük çekimlerde işlemin 16.384 bayt sınırına çarpıp çarpmadığı kontrol edilsin
+- [ ] Mutabakat `/backing` ve zincir üstü özdeşlikle yapılsın
 
 ---
 
@@ -801,106 +719,191 @@ GET /query/balance?address={kullanıcı}&assets=true   → amount
 
 ### 5.1 Kontrat dönüş kodları
 
-Bir sandbox çağrısı sıfırdan farklı `ret_val` döndüğünde bu, kontrat fonksiyonunun içindeki `return N`'dir. Sık kullanılan eşlemeler:
+Sandbox çağrısından dönen sıfırdan farklı `ret_val`, kontrat içindeki bir
+`return N`'dir.
 
-| Fonksiyon | Kod | Anlamı |
-|---|---|---|
-| genel | 1 | Kontrat duraklatıldı (`cfg:paused = 1`) |
-| `swap_hac_to_ds` | 11 | HAC puanı yetersiz |
-| `add_liquidity` | 2 | Bir taraf 0 |
-| `add_liquidity` | 23 | Havuz boş değil ama pay sıfır (ölçek koruması) |
-| `add_liquidity` | 24 | Hesaplanan pay 0 (oran çok küçük) |
-| `add_liquidity` | 26 | İlk yatırım: bir taraf `1e18` sınırını aşıyor |
-| `remove_liquidity` | 25 | LP payı yetersiz |
-| `loan_borrow` | 40 | Borç limiti aşıldı (`(debt+hac)×2 > coll_hac`) |
-| `loan_repay` | 41 | Borç 0 |
-| `loan_liquidate` | 42 | Adresin borcu yok |
-| `loan_liquidate` | 43 | Tasfiye çizgisi aşılmamış (tasfiye edilemez) |
-| `Set*` (yönetici) | 1 | Yönetici değil |
-| `Set*` (yönetici) | 2 | Parametre aralık dışı |
-| `PermitAsset` | 11 | Bekleyen hacds yetersiz |
-| `PermitHACD` | 12 | Geri alım için hacds yetersiz ve otomatik tamamlama başarısız |
+**Genel**
 
-Tam tablo `wallet-app/contract-errors.js` içindedir.
+| Kod | Anlamı |
+|---|---|
+| `2` | Bozuk parametre (ör. HACD ad listesi wire biçimi) |
+| `48` | Adet aralık dışı (0 elmas / 200 üzeri / geri alma tam 1 değil) |
+| `5` | Puan 0 |
+| `53` | Toplam arzı aşacak |
+| `54` | Kapsam yetersiz (%100 basımda hiç tetiklenmez) |
+| `59` | Süresi dolmuş (`deadline`) |
+| `61` | HACD havuz kaydı yok / puan yetersiz (geri alma) |
+
+**AMM**
+
+| Kod | Anlamı |
+|---|---|
+| `2` | Bir taraf sıfır |
+| `23` | Havuz dolu ama pay sıfıra yuvarlanıyor (ölçek sıfırlama koruması) |
+| `24` | Hesaplanan pay sıfır (oran çok küçük) |
+| `25` | LP payı yetersiz |
+| `26` | İlk yatırım `1e18` taraf sınırını aşıyor |
+| `56` | Kayma koruması tetiklendi (`min_out` / `min_share` tutmadı) |
+
+**Kredi**
+
+| Kod | Anlamı |
+|---|---|
+| `40` | Borç limitini aşıyor (`(debt+hac) × %200 > coll_hac`) |
+| `41` | Borç sıfır (geri ödeme) |
+| `50` | Küresel kullanım %50 üzeri |
+| `51` | Borçlanma durdu (kullanım dolu veya fiyat devre kesicisi) |
+| `52` | Tek borçlu sınırı aşıldı (%20) |
+
+**Tasfiye**
+
+| Kod | Anlamı |
+|---|---|
+| `42` | O adresin borcu yok |
+| `43` | Henüz tasfiye edilebilir değil |
+| `44` | Asgari tasfiye tutarının altında (1 HAC) |
+| `45` | Teminat çıkışı `min_coll_out` altında |
+| `46` | Derin su tasfiyesi tam geri ödeme gerektirir (`repay < deep_pay`) |
+| `47` | Referans fiyat başlatılmamış; tasfiye reddedildi |
+
+**Yönetici fonksiyonları yok**
+
+`set_fee` / `set_loan_rate` / `set_liquidate_bonus` / `set_paused` / `set_oracle`
+#3000'de **uygulanmadı**. Çağrılmaları şunu döndürür:
+
+```
+CallNotExist(51)
+```
+
+Bu yetki hatası değil — **fonksiyon yok.** Bu çağrıları yazmayı bırakın.
 
 ### 5.2 Düğüm / sandbox hataları
 
-String ile eşleştirilir. Sık görülen kategoriler:
+Dizgiyle eşleştirin; yaygın sınıflar:
 
-| Ham mesaj | Anlamı | Ele alınışı |
+| Ham mesaj | Anlamı | İşlem |
 |---|---|---|
-| `invalid address argument` / `InvalidChecksum` | Adres biçimi veya sağlama basamağı hatalı | Adresi tamamen yeniden alın |
-| `balance ... is insufficient` | Çağıran gaz ön provizyonunu karşılayamıyor | Sandbox çağrılarında `caller={kontrat adresi}` geçin |
-| `sandbox_per_ip_concurrency_exceeded` | Eşzamanlılık sınırı aşıldı | Sıralayın ve tekrar deneyin |
-| `resource gas limit exceeded` | resource kovası aşıldı | İşlemi bölün; **gas_max'ı artırmak işe yaramaz** |
-| `compute gas limit exceeded` | compute kovası aşıldı | İşlemi bölün |
-| `storage gas limit exceeded` | storage kovası aşıldı | Daha az yeni anahtar veya daha kısa kiralama süresi |
-| `OutOfGas` | Gaz bitti | gas_max'ı artırın |
-| `CallNotExist` | Kontratta böyle bir fonksiyon yok | Fonksiyon adını kontrol edin |
-| `NotFindContract` | Kontrat bulunamadı | Kontrat adresini kontrol edin |
-| `state changed` | Bu arada zincir durumu değişti | Tekrar deneyin |
-| `transaction parse failed` | İşlem gövdesi ayrıştırılamadı | hex / baytlar eksik |
-| `ECONNREFUSED` / `timeout` | Servise ulaşılamıyor | Servisin çalışıp çalışmadığını kontrol edin |
+| `NotFindContract` | O adreste kontrat kodu yok | Dağıtımdan önce normal; sonra adresi kontrol edin |
+| `invalid address argument` / `InvalidChecksum` | Adres biçimi veya sağlama hatası | Tam adresi yeniden alın |
+| `balance ... is insufficient` | Çağıran gazı ödeyemiyor | `caller={kontrat adresi}` geçin |
+| `sandbox_per_ip_concurrency_exceeded` | Eşzamanlılık aşıldı | Sırala + geri çekil |
+| `resource gas limit exceeded` | Resource kovası aşıldı | İşlemi bölün; **gas_max artırmak işe yaramaz** |
+| `compute gas limit exceeded` | Compute kovası aşıldı | İşlemi bölün |
+| `storage gas limit exceeded` | Storage kovası aşıldı | Daha az yeni anahtar veya daha kısa kira |
+| `OutOfGas(31)` | Bir kova tükendi | Parantezdeki kova adına bakın, bölün |
+| `Arithmetic(90)` | Aritmetik alt/üst taşma | Girdileri kontrol edin; bu bir kontrat hatasıdır, bildirin |
+| `CallNotExist` | Kontratta bu fonksiyon yok | Adı kontrol edin (yönetici fonksiyonları kaldırıldı) |
+| `state changed` | Zincir üstü durum değişti | Yeniden deneyin |
+| `transaction parse failed` | İşlem gövdesi ayrıştırılamadı | Eksik hex / bayt |
+| `StorageNotActive` | Depolama anahtarının süresi doldu | `rent_keys` ile yenileyin |
+| `ECONNREFUSED` / `timeout` | Servise ulaşılamıyor | Çalışıp çalışmadığını kontrol edin |
 
-**Kilit nokta**: bunların çoğu **HTTP 200 + `{"ret":1,"err":"..."}`** olarak döner. Yalnızca HTTP durumuna bakmak bunları kaçırır.
+**Pratik kural**: bunların çoğu **HTTP 200 + `{"ret":1,"err":"..."}`** biçimindedir.
+Yalnızca durum kodunu kontrol etmek bunları kaçırır.
 
 ---
 
 ## 6. Hızlı başvuru
 
-### Uç noktalar
+### 6.1 Uç nokta özeti
 
 ```
-# tam düğüm :8082
+# Tam düğüm
 GET  /query/block/height/latest
 GET  /query/fee/average
-GET  /query/balance?address=&assets=true&asset_meta=true&diamonds=true
-GET  /query/diamond?name=
-GET  /query/contract/sandboxcall?contract=&function=&params=&caller=
-GET  /query/block/intro?height=&tx_hash_list=true
-GET  /query/transaction?hash=&action=true
-GET  /query/contract/storage_fee
-POST /util/transaction/check?description=true     # ikili gövde
-POST /submit/transaction                          # ikili gövde
+GET  /query/balance?address={A}&assets=true&diamonds=true
+GET  /query/diamond?name={N}
+GET  /query/contract/sandboxcall?contract={C}&function={F}&params={P}&caller={C}
+GET  /query/block/intro?height={H}&tx_hash_list=true
+GET  /query/transaction?hash={H}
+POST /util/transaction/check        {"tx": "hex"}
+POST /submit/transaction            {"tx": "hex"}
 
-# oracle :8123
+# İndeksleyici
 GET  /health
-GET  /cert?name=
-
-# indeksleyici :8124
-GET  /health
-GET  /watchlist        # bir istemcinin ihtiyaç duyduğu tek şey
 GET  /snapshot
-GET  /sync
-GET  /watch/add?address=&note=
-GET  /watch/remove?address=
+POST /sync
+GET  /backing
+GET  /rent_batches
+
+# Oluşturma servisi
+GET  /health
+POST /api/build
 ```
 
-### Sabitler
+### 6.2 Sabitler
+
+| Sabit | Değer |
+|---|---|
+| Kontrat adresi | `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH` |
+| Kontrat nonce | `2` |
+| Hazine | `1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK` |
+| hacds serial | `3000` |
+| hacds ondalık | `0` |
+| hacds toplam arz | `5963298700000000` |
+| `SCORE_SCALE` | `100000000` (1e8) |
+| `MAX_DEPOSIT_COUNT` | `200` |
+| `FEE_BPS` | `50` (%0,5) |
+| `BORROW_RATIO_BPS` | `20000` (%200) |
+| `LIQ_COLL_RATIO_BPS` | `16000` (%160) |
+| `CLOSE_FACTOR_BPS` | `5000` (%50) |
+| `DEEP_TRIGGER_BPS` | `10500` (%105) |
+| `LIQ_BONUS_BPS` | `500` (%5) |
+| `U_MAX_BPS` | `5000` |
+| `LENDABLE_AMM_BPS` | `3000` |
+| VM kovaları | compute 18.009 / resource 6.100 / storage 111.911 |
+| İşlem sınırı | 16.384 bayt |
+| gasMax aralığı | 1–99 |
+
+### 6.3 Birim dönüşümü
+
+**HAC** (zincirde zhu):
 
 ```
-hacds serial         2000
-hacds decimal        8
-hacds toplam arz     5963298700000000 atoms
-1 hacds              100000000 atoms
-kontrat              VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1
-hazine               1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK
-oracle hesabı        1H3sFZ53HzNVUVN97mjpC9JT8s2PqKMyRu
-SCORE_SCALE          1e8 (1 puan = 1 hacds)
-COLL_RATIO           2 (%50 teminat oranı, tasfiye çizgisi 200)
-AMM komisyonu        %0,5 (LP %50 / stake %30 / hazine %20)
-kredi oranı / tasfiye primi  yıllık %5 / %2
-sertifika uzunluğu   126 bayt (mesaj 29 + imza 97)
-VM kova sınırları    compute 18.009 / resource 6.100 / storage 111.911
-blok hedefi          300 saniye
-sandbox eşzamanlılık IP başına 2
+HAC = zhu / 1e8
+"5:249" = 5 × 10^(249−248) = 50 HAC
+"1:248" = 1 HAC
 ```
 
-### Birim dönüşümü
+**hacds** (ondalık 0):
 
 ```
-atoms → hacds adedi : amount / 1e8
-hacds adedi → atoms : adet × 1e8
-zhu   → HAC         : zhu / 1e8
-havuz fiyatı (HAC/hacds) : pool_price / 1e8
+hacds adedi == zincirdeki tam sayı, dönüşüm yok
 ```
+
+⚠ **hacds'i 1e8'e bölmeyin.** Bu önceki sürümün (ondalık 8) yöntemiydi.
+
+### 6.4 Minimal çalışan durum okuyucu
+
+```javascript
+const NODE = 'https://api.hacds.com';
+const CONTRACT = 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH';
+
+async function call(fn, params = '') {
+  const q = new URLSearchParams({
+    contract: CONTRACT,
+    function: fn,
+    params,
+    caller: CONTRACT,       // geçilmezse yetersiz bakiye hatası verir
+  });
+  const r = await fetch(`${NODE}/query/contract/sandboxcall?${q}`);
+  const j = await r.json();
+  if (j.ret !== 0) throw new Error(j.err || 'call failed');
+  return j.ret_val;
+}
+
+// Havuzun iki tarafı
+const hacZhu = await call('amm_reserves');
+const ds     = await call('amm_reserve_ds');
+
+// Spot fiyat (hacds başına zhu)
+const spot = Number(hacZhu) * 1e8 / Number(ds);
+```
+
+**Eşzamanlılık notu**: her IP'nin yalnızca 2 eşzamanlılık yuvası vardır. Toplu
+okumaları kuyruğa alın; `Promise.all` kullanmayın.
+
+---
+
+*Bu belge, `HacdsDeFi3000.fitsh` kontratının 2026-11-11 tarihli kesinleşmiş
+sürümüne karşılık gelir.*

@@ -1,0 +1,3713 @@
+{
+  "contract": "HacdsDeFi",
+  "funcs": [
+    {
+      "lets": [
+        0,
+        1
+      ],
+      "name": "ld_u128",
+      "param_prelude_count": 1,
+      "params": [
+        "key"
+      ],
+      "slots": [
+        "key",
+        "v"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "name": "wr_u128",
+      "param_prelude_count": 2,
+      "params": [
+        "key",
+        "val"
+      ],
+      "slots": [
+        "key",
+        "val",
+        "st",
+        "live"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "hcut_of",
+      "param_prelude_count": 0,
+      "slots": [
+        "v"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "lcut_of",
+      "param_prelude_count": 0,
+      "slots": [
+        "v"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "hcut_of",
+          "sig": "f8eb0eb7"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "hac_to_nominal",
+      "param_prelude_count": 1,
+      "params": [
+        "amount"
+      ],
+      "slots": [
+        "amount"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "hcut_of",
+          "sig": "f8eb0eb7"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "nominal_to_hac",
+      "param_prelude_count": 1,
+      "params": [
+        "nominal"
+      ],
+      "slots": [
+        "nominal"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "hcut_of",
+          "sig": "f8eb0eb7"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "hac_to_nominal_up",
+      "param_prelude_count": 1,
+      "params": [
+        "amount"
+      ],
+      "slots": [
+        "amount"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "lcut_of",
+          "sig": "59015fdd"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "lpr_to_nominal",
+      "param_prelude_count": 1,
+      "params": [
+        "amount"
+      ],
+      "slots": [
+        "amount"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "lcut_of",
+          "sig": "59015fdd"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "lpr_to_effective",
+      "param_prelude_count": 1,
+      "params": [
+        "nominal"
+      ],
+      "slots": [
+        "nominal"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "providers",
+          "sig": "bba06710"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        3
+      ],
+      "name": "rate_model_bps",
+      "param_prelude_count": 0,
+      "slots": [
+        "p",
+        "debt",
+        "u",
+        "den"
+      ],
+      "vars": [
+        2
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "tot_hac_eff",
+          "sig": "2b60c8f5"
+        },
+        {
+          "name": "lcut_of",
+          "sig": "59015fdd"
+        },
+        {
+          "name": "lendable_amm_hac",
+          "sig": "6456822e"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "minu",
+          "sig": "97ea4ed0"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "lpr_to_effective",
+          "sig": "f84c71a9"
+        },
+        {
+          "name": "hcut_of",
+          "sig": "f8eb0eb7"
+        }
+      ],
+      "lets": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        12,
+        13,
+        15,
+        16,
+        17,
+        19
+      ],
+      "name": "apply_loss",
+      "param_prelude_count": 1,
+      "params": [
+        "loss"
+      ],
+      "slots": [
+        "loss",
+        "res",
+        "take",
+        "tre",
+        "take2",
+        "lpr_eff",
+        "take3",
+        "lc",
+        "new_lcut",
+        "absorbed3",
+        "cap",
+        "take4",
+        "amm",
+        "ammds",
+        "take_ds",
+        "dep_eff",
+        "take5",
+        "hc",
+        "new_hcut",
+        "absorbed5"
+      ],
+      "vars": [
+        0,
+        8,
+        11,
+        14,
+        18
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "minu",
+          "sig": "97ea4ed0"
+        },
+        {
+          "name": "providers",
+          "sig": "bba06710"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "apply_reserve",
+      "param_prelude_count": 1,
+      "params": [
+        "amt"
+      ],
+      "slots": [
+        "amt",
+        "def",
+        "take",
+        "target",
+        "res",
+        "take2"
+      ],
+      "vars": [
+        0,
+        5
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "nominal_to_hac",
+          "sig": "05c78efc"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "tot_hac_eff",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "lendable_amm_hac",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "tot_hac_eff",
+          "sig": "2b60c8f5"
+        },
+        {
+          "name": "lendable_amm_hac",
+          "sig": "6456822e"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "providers",
+      "param_prelude_count": 0,
+      "slots": [
+        "p"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "providers",
+          "sig": "bba06710"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "utilization_bps",
+      "param_prelude_count": 0,
+      "slots": [
+        "p"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "coverage_ds",
+      "param_prelude_count": 0,
+      "slots": [
+        "claims"
+      ],
+      "vars": [
+        0
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "tot_hac_eff",
+          "sig": "2b60c8f5"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "lpr_to_effective",
+          "sig": "f84c71a9"
+        }
+      ],
+      "lets": [
+        1
+      ],
+      "name": "net_claims_hac",
+      "param_prelude_count": 0,
+      "slots": [
+        "c",
+        "d"
+      ],
+      "vars": [
+        0
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1
+      ],
+      "name": "ld_bytes",
+      "param_prelude_count": 1,
+      "params": [
+        "key"
+      ],
+      "slots": [
+        "key",
+        "v"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "buf_cut_as_u128",
+      "param_prelude_count": 2,
+      "params": [
+        "b",
+        "off"
+      ],
+      "slots": [
+        "b",
+        "off",
+        "seg"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "buf_cut_as_u128",
+          "sig": "1d7975c2"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "pk_get",
+      "param_prelude_count": 2,
+      "params": [
+        "pack",
+        "idx"
+      ],
+      "slots": [
+        "pack",
+        "idx"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "pk_get",
+          "sig": "24b00b2f"
+        },
+        {
+          "name": "wr_bytes",
+          "sig": "51d227b0"
+        },
+        {
+          "name": "ld_bytes",
+          "sig": "bf437881"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        9
+      ],
+      "name": "pk_set",
+      "param_prelude_count": 4,
+      "params": [
+        "key",
+        "nfields",
+        "idx",
+        "val"
+      ],
+      "slots": [
+        "key",
+        "nfields",
+        "idx",
+        "val",
+        "cur",
+        "fresh",
+        "i",
+        "pre",
+        "post",
+        "tail"
+      ],
+      "vars": [
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "pk_get",
+          "sig": "24b00b2f"
+        },
+        {
+          "name": "wr_bytes",
+          "sig": "51d227b0"
+        },
+        {
+          "name": "ld_bytes",
+          "sig": "bf437881"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "name": "pk_set2",
+      "param_prelude_count": 6,
+      "params": [
+        "key",
+        "nfields",
+        "i1",
+        "v1",
+        "i2",
+        "v2"
+      ],
+      "slots": [
+        "key",
+        "nfields",
+        "i1",
+        "v1",
+        "i2",
+        "v2",
+        "cur",
+        "out",
+        "j"
+      ],
+      "vars": [
+        7,
+        8
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "name": "wr_bytes",
+      "param_prelude_count": 2,
+      "params": [
+        "key",
+        "val"
+      ],
+      "slots": [
+        "key",
+        "val",
+        "st",
+        "live"
+      ]
+    },
+    {
+      "lets": [
+        0
+      ],
+      "name": "u_key",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "pk_get",
+          "sig": "24b00b2f"
+        },
+        {
+          "name": "u_key",
+          "sig": "2bab56c6"
+        },
+        {
+          "name": "ld_bytes",
+          "sig": "bf437881"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "ld_u_field",
+      "param_prelude_count": 2,
+      "params": [
+        "who",
+        "idx"
+      ],
+      "slots": [
+        "who",
+        "idx"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "u_key",
+          "sig": "2bab56c6"
+        },
+        {
+          "name": "pk_set",
+          "sig": "3d7f19ed"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "wr_u_field",
+      "param_prelude_count": 3,
+      "params": [
+        "who",
+        "idx",
+        "val"
+      ],
+      "slots": [
+        "who",
+        "idx",
+        "val"
+      ]
+    },
+    {
+      "lets": [
+        0
+      ],
+      "name": "ln_key",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "pk_get",
+          "sig": "24b00b2f"
+        },
+        {
+          "name": "ln_key",
+          "sig": "b9f308d1"
+        },
+        {
+          "name": "ld_bytes",
+          "sig": "bf437881"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "ld_ln_field",
+      "param_prelude_count": 2,
+      "params": [
+        "who",
+        "idx"
+      ],
+      "slots": [
+        "who",
+        "idx"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "pk_set",
+          "sig": "3d7f19ed"
+        },
+        {
+          "name": "ln_key",
+          "sig": "b9f308d1"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "wr_ln_field",
+      "param_prelude_count": 3,
+      "params": [
+        "who",
+        "idx",
+        "val"
+      ],
+      "slots": [
+        "who",
+        "idx",
+        "val"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "pk_set2",
+          "sig": "6de9f9c7"
+        },
+        {
+          "name": "ln_key",
+          "sig": "b9f308d1"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "wr_ln_two",
+      "param_prelude_count": 5,
+      "params": [
+        "who",
+        "i1",
+        "v1",
+        "i2",
+        "v2"
+      ],
+      "slots": [
+        "who",
+        "i1",
+        "v1",
+        "i2",
+        "v2"
+      ]
+    },
+    {
+      "lets": [
+        0
+      ],
+      "name": "ck_key",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ck_key",
+          "sig": "2411e588"
+        },
+        {
+          "name": "pk_get",
+          "sig": "24b00b2f"
+        },
+        {
+          "name": "ld_bytes",
+          "sig": "bf437881"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "ld_ck_field",
+      "param_prelude_count": 2,
+      "params": [
+        "who",
+        "idx"
+      ],
+      "slots": [
+        "who",
+        "idx"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ck_key",
+          "sig": "2411e588"
+        },
+        {
+          "name": "pk_set",
+          "sig": "3d7f19ed"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "wr_ck_field",
+      "param_prelude_count": 3,
+      "params": [
+        "who",
+        "idx",
+        "val"
+      ],
+      "slots": [
+        "who",
+        "idx",
+        "val"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "total_add",
+          "sig": "f37a03d1"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "bal_add",
+      "param_prelude_count": 3,
+      "params": [
+        "who",
+        "kind",
+        "delta"
+      ],
+      "slots": [
+        "who",
+        "kind",
+        "delta"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "total_sub",
+          "sig": "9c4039b4"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "bal_sub_chk",
+      "param_prelude_count": 4,
+      "params": [
+        "who",
+        "kind",
+        "delta",
+        "err"
+      ],
+      "slots": [
+        "who",
+        "kind",
+        "delta",
+        "err",
+        "bal"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1
+      ],
+      "name": "minu",
+      "param_prelude_count": 2,
+      "params": [
+        "a",
+        "b"
+      ],
+      "slots": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u_field",
+          "sig": "386f025c"
+        },
+        {
+          "name": "ld_ck_field",
+          "sig": "8e92c5ce"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "wr_ck_field",
+          "sig": "cdb6faf3"
+        },
+        {
+          "name": "ld_u_field",
+          "sig": "d006938a"
+        },
+        {
+          "name": "total_add",
+          "sig": "f37a03d1"
+        },
+        {
+          "name": "kind_suffix",
+          "sig": "f8f52a6d"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "name": "settle_and_write",
+      "param_prelude_count": 3,
+      "params": [
+        "who",
+        "kind",
+        "newbal"
+      ],
+      "slots": [
+        "who",
+        "kind",
+        "newbal",
+        "sfx",
+        "oldbal",
+        "rpu",
+        "chk",
+        "gain"
+      ],
+      "vars": [
+        2
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u_field",
+          "sig": "d006938a"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "ld_bal",
+      "param_prelude_count": 2,
+      "params": [
+        "who",
+        "kind"
+      ],
+      "slots": [
+        "who",
+        "kind"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u_field",
+          "sig": "386f025c"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "wr_bal",
+      "param_prelude_count": 3,
+      "params": [
+        "who",
+        "kind",
+        "val"
+      ],
+      "slots": [
+        "who",
+        "kind",
+        "val"
+      ]
+    },
+    {
+      "lets": [
+        0
+      ],
+      "name": "kind_suffix",
+      "param_prelude_count": 1,
+      "params": [
+        "kind"
+      ],
+      "slots": [
+        "kind"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "debt_total_sub",
+      "param_prelude_count": 1,
+      "params": [
+        "delta"
+      ],
+      "slots": [
+        "delta",
+        "tot"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "kind_suffix",
+          "sig": "f8f52a6d"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "total_add",
+      "param_prelude_count": 2,
+      "params": [
+        "kind",
+        "delta"
+      ],
+      "slots": [
+        "kind",
+        "delta",
+        "sfx",
+        "key",
+        "tot"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "kind_suffix",
+          "sig": "f8f52a6d"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "total_sub",
+      "param_prelude_count": 2,
+      "params": [
+        "kind",
+        "delta"
+      ],
+      "slots": [
+        "kind",
+        "delta",
+        "sfx",
+        "key",
+        "tot"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "lpr_to_nominal",
+          "sig": "13541785"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "apply_reserve",
+          "sig": "d73d5a6b"
+        },
+        {
+          "name": "kind_suffix",
+          "sig": "f8f52a6d"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        7,
+        8,
+        9,
+        10
+      ],
+      "name": "charge_fee_amm",
+      "param_prelude_count": 2,
+      "params": [
+        "kind",
+        "fee"
+      ],
+      "slots": [
+        "kind",
+        "fee",
+        "sfx",
+        "lp_part",
+        "tre_part",
+        "lpttot",
+        "lp_nom",
+        "lpukey",
+        "lpu",
+        "lpr",
+        "leftover"
+      ],
+      "vars": [
+        4,
+        6
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "lpr_to_nominal",
+          "sig": "13541785"
+        },
+        {
+          "name": "lendable_amm_hac",
+          "sig": "6456822e"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "providers",
+          "sig": "bba06710"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "apply_reserve",
+          "sig": "d73d5a6b"
+        },
+        {
+          "name": "hcut_of",
+          "sig": "f8eb0eb7"
+        },
+        {
+          "name": "kind_suffix",
+          "sig": "f8f52a6d"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18
+      ],
+      "name": "charge_fee_interest",
+      "param_prelude_count": 2,
+      "params": [
+        "kind",
+        "fee"
+      ],
+      "slots": [
+        "kind",
+        "fee",
+        "sfx",
+        "provider_part",
+        "reserve_part",
+        "prov",
+        "lp_share",
+        "dep_share",
+        "tot",
+        "dep_nom",
+        "rpukey",
+        "rpu",
+        "lpttot",
+        "lp_nom",
+        "lpukey",
+        "lpu",
+        "lpr",
+        "leftover",
+        "trekey"
+      ],
+      "vars": [
+        4,
+        6,
+        7
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "batch_score_total",
+          "sig": "f0d4d0a0"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "score_of",
+      "param_prelude_count": 1,
+      "params": [
+        "name"
+      ],
+      "slots": [
+        "name"
+      ]
+    },
+    {
+      "lets": [
+        0
+      ],
+      "name": "be8_to_u128",
+      "param_prelude_count": 1,
+      "params": [
+        "b"
+      ],
+      "slots": [
+        "b",
+        "v",
+        "i"
+      ],
+      "vars": [
+        1,
+        2
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "be8_to_u128",
+          "sig": "e847765c"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "kernel_score",
+      "param_prelude_count": 1,
+      "params": [
+        "raw"
+      ],
+      "slots": [
+        "raw"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "kernel_score",
+          "sig": "08f34cf5"
+        },
+        {
+          "name": "score_sum",
+          "sig": "6a639f35"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "name": "batch_score_total",
+      "param_prelude_count": 2,
+      "params": [
+        "count",
+        "names"
+      ],
+      "slots": [
+        "count",
+        "names",
+        "s",
+        "nms",
+        "wire",
+        "n1",
+        "n2",
+        "a1",
+        "a2",
+        "w1",
+        "w2"
+      ],
+      "vars": [
+        2
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_add",
+          "sig": "194c3b32"
+        },
+        {
+          "name": "hac_to_nominal",
+          "sig": "866bfdf6"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "abstract::PayableHAC",
+      "param_prelude_count": 2,
+      "params": [
+        "cp",
+        "amount"
+      ],
+      "slots": [
+        "cp",
+        "amount",
+        "zhu",
+        "main",
+        "nom"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1
+      ],
+      "name": "abstract::PayableSAT",
+      "param_prelude_count": 2,
+      "params": [
+        "cp",
+        "count"
+      ],
+      "slots": [
+        "cp",
+        "count"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_add",
+          "sig": "194c3b32"
+        },
+        {
+          "name": "coverage_ds",
+          "sig": "20db1788"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "batch_score_total",
+          "sig": "f0d4d0a0"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        7
+      ],
+      "name": "abstract::PayableHACD",
+      "param_prelude_count": 3,
+      "params": [
+        "cp",
+        "count",
+        "names"
+      ],
+      "slots": [
+        "cp",
+        "count",
+        "names",
+        "total_score",
+        "gross",
+        "mint",
+        "claims",
+        "main"
+      ],
+      "vars": [
+        6
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_add",
+          "sig": "194c3b32"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "name": "abstract::PayableAsset",
+      "param_prelude_count": 3,
+      "params": [
+        "cp",
+        "serial",
+        "amount"
+      ],
+      "slots": [
+        "cp",
+        "serial",
+        "amount",
+        "main"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_sub_chk",
+          "sig": "060e7eed"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "hac_to_nominal_up",
+          "sig": "85647c5e"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "name": "abstract::PermitHAC",
+      "param_prelude_count": 2,
+      "params": [
+        "cp",
+        "amount"
+      ],
+      "slots": [
+        "cp",
+        "amount",
+        "zhu",
+        "main",
+        "tre",
+        "nom"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1
+      ],
+      "name": "abstract::PermitSAT",
+      "param_prelude_count": 2,
+      "params": [
+        "cp",
+        "count"
+      ],
+      "slots": [
+        "cp",
+        "count"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "auto_topup_ds",
+          "sig": "1aca482b"
+        },
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "charge_fee_amm",
+          "sig": "6ac1afa6"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "score_of",
+          "sig": "8f056bfa"
+        },
+        {
+          "name": "total_sub",
+          "sig": "9c4039b4"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        17,
+        18
+      ],
+      "name": "abstract::PermitHACD",
+      "param_prelude_count": 3,
+      "params": [
+        "cp",
+        "count",
+        "names"
+      ],
+      "slots": [
+        "cp",
+        "count",
+        "names",
+        "nm",
+        "sc",
+        "gross",
+        "cnt",
+        "pool_score",
+        "premium_bps",
+        "avg",
+        "base_fee",
+        "premium",
+        "fee",
+        "charge",
+        "main",
+        "duewho",
+        "due",
+        "shortfall",
+        "ok"
+      ],
+      "vars": [
+        8,
+        16
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_sub_chk",
+          "sig": "060e7eed"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "abstract::PermitAsset",
+      "param_prelude_count": 3,
+      "params": [
+        "cp",
+        "serial",
+        "amount"
+      ],
+      "slots": [
+        "cp",
+        "serial",
+        "amount",
+        "main",
+        "tre"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "charge_fee_amm",
+          "sig": "6ac1afa6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "name": "amm_swap",
+      "param_prelude_count": 3,
+      "params": [
+        "dir",
+        "in_amt",
+        "min_out"
+      ],
+      "slots": [
+        "dir",
+        "in_amt",
+        "min_out",
+        "pool_hac",
+        "pool_ds",
+        "fee_bps",
+        "fee",
+        "net_in",
+        "out",
+        "fee2",
+        "net_in2",
+        "out2"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_sub_chk",
+          "sig": "060e7eed"
+        },
+        {
+          "name": "bal_add",
+          "sig": "194c3b32"
+        },
+        {
+          "name": "amm_swap",
+          "sig": "78c4ccb2"
+        },
+        {
+          "name": "hac_to_nominal_up",
+          "sig": "85647c5e"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        7
+      ],
+      "name": "auto_topup_ds",
+      "param_prelude_count": 2,
+      "params": [
+        "who",
+        "shortfall"
+      ],
+      "slots": [
+        "who",
+        "shortfall",
+        "pool_hac",
+        "pool_ds",
+        "hac_need",
+        "need_nom",
+        "r",
+        "got"
+      ],
+      "vars": [
+        4
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_sub_chk",
+          "sig": "060e7eed"
+        },
+        {
+          "name": "bal_add",
+          "sig": "194c3b32"
+        },
+        {
+          "name": "amm_swap",
+          "sig": "78c4ccb2"
+        },
+        {
+          "name": "hac_to_nominal_up",
+          "sig": "85647c5e"
+        },
+        {
+          "name": "ref_refresh",
+          "sig": "a4c8c0ba"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "name": "swap_hac_to_ds",
+      "param_prelude_count": 3,
+      "params": [
+        "hac_in",
+        "min_out",
+        "deadline"
+      ],
+      "slots": [
+        "hac_in",
+        "min_out",
+        "deadline",
+        "main",
+        "in_nom",
+        "r",
+        "got"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_sub_chk",
+          "sig": "060e7eed"
+        },
+        {
+          "name": "bal_add",
+          "sig": "194c3b32"
+        },
+        {
+          "name": "amm_swap",
+          "sig": "78c4ccb2"
+        },
+        {
+          "name": "hac_to_nominal",
+          "sig": "866bfdf6"
+        },
+        {
+          "name": "ref_refresh",
+          "sig": "a4c8c0ba"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "name": "swap_ds_to_hac",
+      "param_prelude_count": 3,
+      "params": [
+        "ds_in",
+        "min_out",
+        "deadline"
+      ],
+      "slots": [
+        "ds_in",
+        "min_out",
+        "deadline",
+        "main",
+        "r",
+        "got",
+        "got_nom"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "isqrt",
+          "sig": "0621ca33"
+        },
+        {
+          "name": "wr_u_field",
+          "sig": "386f025c"
+        },
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "hac_to_nominal_up",
+          "sig": "85647c5e"
+        },
+        {
+          "name": "total_sub",
+          "sig": "9c4039b4"
+        },
+        {
+          "name": "ref_refresh",
+          "sig": "a4c8c0ba"
+        },
+        {
+          "name": "lp_settle",
+          "sig": "b4502a82"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "ld_u_field",
+          "sig": "d006938a"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "name": "add_liquidity",
+      "param_prelude_count": 4,
+      "params": [
+        "hac_amt",
+        "ds_amt",
+        "min_share",
+        "deadline"
+      ],
+      "slots": [
+        "hac_amt",
+        "ds_amt",
+        "min_share",
+        "deadline",
+        "main",
+        "ph",
+        "pd",
+        "lpttot",
+        "hac_use",
+        "ds_use",
+        "share",
+        "mint_to_main",
+        "s1",
+        "s2",
+        "hac_nom",
+        "balwho",
+        "bal",
+        "duewho",
+        "due",
+        "lptwho",
+        "lpt"
+      ],
+      "vars": [
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "bal_add",
+          "sig": "194c3b32"
+        },
+        {
+          "name": "wr_u_field",
+          "sig": "386f025c"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "hac_to_nominal",
+          "sig": "866bfdf6"
+        },
+        {
+          "name": "ref_refresh",
+          "sig": "a4c8c0ba"
+        },
+        {
+          "name": "lp_settle",
+          "sig": "b4502a82"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "ld_u_field",
+          "sig": "d006938a"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ],
+      "name": "remove_liquidity",
+      "param_prelude_count": 4,
+      "params": [
+        "share_burn",
+        "min_hac_out",
+        "min_ds_out",
+        "deadline"
+      ],
+      "slots": [
+        "share_burn",
+        "min_hac_out",
+        "min_ds_out",
+        "deadline",
+        "main",
+        "lptwho",
+        "lpt",
+        "lpttot",
+        "ph",
+        "pd",
+        "hac_out",
+        "ds_out",
+        "hac_nom_out"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "lp_settle",
+          "sig": "b4502a82"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "lp_harvest",
+      "param_prelude_count": 0,
+      "slots": [
+        "main"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "lp_settle_leg",
+          "sig": "677a5985"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "lp_settle",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "hac_to_nominal",
+          "sig": "866bfdf6"
+        },
+        {
+          "name": "ld_ck_field",
+          "sig": "8e92c5ce"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "wr_ck_field",
+          "sig": "cdb6faf3"
+        },
+        {
+          "name": "ld_u_field",
+          "sig": "d006938a"
+        },
+        {
+          "name": "total_add",
+          "sig": "f37a03d1"
+        },
+        {
+          "name": "lpr_to_effective",
+          "sig": "f84c71a9"
+        },
+        {
+          "name": "kind_suffix",
+          "sig": "f8f52a6d"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "name": "lp_settle_leg",
+      "param_prelude_count": 2,
+      "params": [
+        "who",
+        "kind"
+      ],
+      "slots": [
+        "who",
+        "kind",
+        "sfx",
+        "lptwho",
+        "lpt",
+        "lpu",
+        "lch",
+        "gain_nom",
+        "gain_eff",
+        "lpr",
+        "gain_final",
+        "bal",
+        "lprd",
+        "bal2"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        5,
+        7
+      ],
+      "name": "isqrt",
+      "param_prelude_count": 1,
+      "params": [
+        "a"
+      ],
+      "slots": [
+        "a",
+        "bits",
+        "t",
+        "s",
+        "i",
+        "half",
+        "prev",
+        "q"
+      ],
+      "vars": [
+        1,
+        2,
+        3,
+        4,
+        6
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "pool_price",
+      "param_prelude_count": 0,
+      "slots": [
+        "pool_hac",
+        "pool_ds"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "name": "ref_refresh",
+      "param_prelude_count": 0,
+      "slots": [
+        "ph",
+        "pd",
+        "now",
+        "spot",
+        "ref",
+        "refh",
+        "dt",
+        "maxstep",
+        "w",
+        "keep",
+        "take",
+        "newref",
+        "lo",
+        "hi"
+      ],
+      "vars": [
+        7,
+        8
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "coll_to_hac",
+      "param_prelude_count": 1,
+      "params": [
+        "coll"
+      ],
+      "slots": [
+        "coll",
+        "ref"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        5
+      ],
+      "name": "coll_to_hac_liq_with",
+      "param_prelude_count": 2,
+      "params": [
+        "coll",
+        "ref"
+      ],
+      "slots": [
+        "coll",
+        "ref",
+        "ph",
+        "pd",
+        "liq",
+        "spot"
+      ],
+      "vars": [
+        4
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "coll_to_hac_liq_with",
+          "sig": "7053fc36"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "name": "coll_to_hac_liq",
+      "param_prelude_count": 1,
+      "params": [
+        "coll"
+      ],
+      "slots": [
+        "coll",
+        "ref"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "loan_health_bps_with",
+      "param_prelude_count": 2,
+      "params": [
+        "debt",
+        "coll_hac"
+      ],
+      "slots": [
+        "debt",
+        "coll_hac",
+        "need"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "coll_to_hac_liq",
+          "sig": "06893b65"
+        },
+        {
+          "name": "loan_health_bps_with",
+          "sig": "3db88bed"
+        },
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "name": "loan_health_bps",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "debt",
+        "coll",
+        "coll_hac"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_ln_field",
+          "sig": "04c25681"
+        },
+        {
+          "name": "charge_fee_interest",
+          "sig": "52254db6"
+        },
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        },
+        {
+          "name": "rate_model_bps",
+          "sig": "6015afca"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "name": "accrue_interest",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "debtwho",
+        "debt",
+        "lastwho",
+        "last",
+        "now",
+        "rate",
+        "delta",
+        "interest",
+        "newdebt"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_ln_field",
+          "sig": "04c25681"
+        },
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "ref_refresh",
+          "sig": "a4c8c0ba"
+        },
+        {
+          "name": "accrue_interest",
+          "sig": "e6bb920b"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "name": "loan_add_collateral",
+      "param_prelude_count": 1,
+      "params": [
+        "ds_amt"
+      ],
+      "slots": [
+        "ds_amt",
+        "main",
+        "duewho",
+        "due",
+        "collwho",
+        "coll"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_ln_field",
+          "sig": "04c25681"
+        },
+        {
+          "name": "coll_to_hac_liq",
+          "sig": "06893b65"
+        },
+        {
+          "name": "bal_add",
+          "sig": "194c3b32"
+        },
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "hac_to_nominal",
+          "sig": "866bfdf6"
+        },
+        {
+          "name": "ref_refresh",
+          "sig": "a4c8c0ba"
+        },
+        {
+          "name": "providers",
+          "sig": "bba06710"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "accrue_interest",
+          "sig": "e6bb920b"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "name": "loan_borrow",
+      "param_prelude_count": 1,
+      "params": [
+        "hac_amt"
+      ],
+      "slots": [
+        "hac_amt",
+        "main",
+        "debtwho",
+        "debt",
+        "collwho",
+        "coll",
+        "prov",
+        "totd",
+        "coll_hac",
+        "nom"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_ln_field",
+          "sig": "04c25681"
+        },
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "hac_to_nominal_up",
+          "sig": "85647c5e"
+        },
+        {
+          "name": "total_sub",
+          "sig": "9c4039b4"
+        },
+        {
+          "name": "debt_total_sub",
+          "sig": "d928d47d"
+        },
+        {
+          "name": "accrue_interest",
+          "sig": "e6bb920b"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ],
+      "name": "loan_repay",
+      "param_prelude_count": 1,
+      "params": [
+        "hac_amt"
+      ],
+      "slots": [
+        "hac_amt",
+        "main",
+        "debtwho",
+        "debt",
+        "balwho",
+        "bal",
+        "pay",
+        "pay_nom",
+        "newdebt",
+        "collwho",
+        "coll",
+        "duewho",
+        "due"
+      ],
+      "vars": [
+        6
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_ln_field",
+          "sig": "04c25681"
+        },
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "loan_health_bps_with",
+          "sig": "3db88bed"
+        },
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        },
+        {
+          "name": "apply_loss",
+          "sig": "606d2a2f"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "coll_to_hac_liq_with",
+          "sig": "7053fc36"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "hac_to_nominal_up",
+          "sig": "85647c5e"
+        },
+        {
+          "name": "total_sub",
+          "sig": "9c4039b4"
+        },
+        {
+          "name": "ref_refresh",
+          "sig": "a4c8c0ba"
+        },
+        {
+          "name": "wr_ln_two",
+          "sig": "ae76f9f4"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "debt_total_sub",
+          "sig": "d928d47d"
+        },
+        {
+          "name": "accrue_interest",
+          "sig": "e6bb920b"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        12,
+        13,
+        16,
+        17,
+        18,
+        19,
+        21,
+        22
+      ],
+      "name": "loan_liquidate",
+      "param_prelude_count": 3,
+      "params": [
+        "borrower",
+        "repay",
+        "min_coll_out"
+      ],
+      "slots": [
+        "borrower",
+        "repay",
+        "min_coll_out",
+        "ref",
+        "debtwho",
+        "debt",
+        "collwho",
+        "coll",
+        "coll_hac",
+        "payer",
+        "pbal",
+        "deep_pay",
+        "deep_nom",
+        "loss",
+        "max_repay",
+        "pay",
+        "protocol_fee",
+        "need_hac",
+        "need_nom",
+        "take_value",
+        "coll_take",
+        "newdebt",
+        "left"
+      ],
+      "vars": [
+        10,
+        11,
+        14,
+        15,
+        20
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "coll_to_hac",
+          "sig": "18f75ca5"
+        },
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "name": "loan_status",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "debt",
+        "coll",
+        "coll_hac"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "settle_and_write",
+          "sig": "3b15537c"
+        },
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        },
+        {
+          "name": "hac_to_nominal",
+          "sig": "866bfdf6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "total_add",
+          "sig": "f37a03d1"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        6,
+        7,
+        8,
+        10,
+        12,
+        13,
+        14,
+        15
+      ],
+      "name": "rent_keys",
+      "param_prelude_count": 3,
+      "params": [
+        "keys",
+        "klen",
+        "period"
+      ],
+      "slots": [
+        "keys",
+        "klen",
+        "period",
+        "n",
+        "i",
+        "paid",
+        "k",
+        "st",
+        "live",
+        "threshold",
+        "tre",
+        "reward",
+        "keeper",
+        "balwho",
+        "bal",
+        "nom"
+      ],
+      "vars": [
+        4,
+        5,
+        9,
+        11
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        7
+      ],
+      "name": "topup_keys",
+      "param_prelude_count": 3,
+      "params": [
+        "keys",
+        "klen",
+        "period"
+      ],
+      "slots": [
+        "keys",
+        "klen",
+        "period",
+        "n",
+        "i",
+        "k",
+        "st",
+        "live"
+      ],
+      "vars": [
+        4
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "balance_ds",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "kind_suffix",
+          "sig": "f8f52a6d"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "treasury_pending",
+      "param_prelude_count": 1,
+      "params": [
+        "kind"
+      ],
+      "slots": [
+        "kind"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "amm_reserves",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "amm_reserve_ds",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "batch_score_total",
+          "sig": "f0d4d0a0"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "quote_score",
+      "param_prelude_count": 3,
+      "params": [
+        "name",
+        "vg",
+        "num"
+      ],
+      "slots": [
+        "name",
+        "vg",
+        "num"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "loan_debt_of",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "loan_coll_of",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "kind_suffix",
+          "sig": "f8f52a6d"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "total_staked",
+      "param_prelude_count": 1,
+      "params": [
+        "kind"
+      ],
+      "slots": [
+        "kind"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u_field",
+          "sig": "d006938a"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "lp_share_of",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_ck_field",
+          "sig": "8e92c5ce"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "ld_u_field",
+          "sig": "d006938a"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "name": "lp_pending_hac",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "lpt",
+        "lpu",
+        "lch"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_ck_field",
+          "sig": "8e92c5ce"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "ld_u_field",
+          "sig": "d006938a"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "name": "lp_pending_ds",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "lpt",
+        "lpu",
+        "lch"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "lp_total",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "ref_price_of",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "ref_price_zhu_per_ds",
+      "param_prelude_count": 0,
+      "slots": [
+        "ref"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "ref_height",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "bad_of",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "treasury_ds",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "hcut_of",
+          "sig": "f8eb0eb7"
+        }
+      ],
+      "name": "hcut",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "lcut_of",
+          "sig": "59015fdd"
+        }
+      ],
+      "name": "lcut",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "nominal_to_hac",
+          "sig": "05c78efc"
+        },
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "balance_hac",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_bal",
+          "sig": "76d468ef"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "balance_hac_nominal",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "tot_hac_eff",
+          "sig": "2b60c8f5"
+        }
+      ],
+      "name": "tot_hac",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "tot_hac_nominal",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "providers",
+          "sig": "bba06710"
+        }
+      ],
+      "name": "providers_total",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "lendable_amm_hac",
+          "sig": "6456822e"
+        }
+      ],
+      "name": "lendable_amm",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "utilization_bps",
+          "sig": "60d7aa55"
+        }
+      ],
+      "name": "utilization",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "total_debt",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "net_claims_hac",
+          "sig": "e0f6806e"
+        }
+      ],
+      "name": "net_claims",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "reserve_hac",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "deficit_hac",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "lpr_to_effective",
+          "sig": "f84c71a9"
+        }
+      ],
+      "name": "lpr_hac_effective",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "borrow_paused",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "ref_paused",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        },
+        {
+          "name": "rate_model_bps",
+          "sig": "6015afca"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "loan_debt_now",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "debt",
+        "last",
+        "now",
+        "interest"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "coll_to_hac_liq",
+          "sig": "06893b65"
+        },
+        {
+          "name": "ld_ln_field",
+          "sig": "52b47304"
+        },
+        {
+          "name": "loan_debt_now",
+          "sig": "76de0670"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "loan_health",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "debt_now",
+        "coll",
+        "coll_hac",
+        "need"
+      ]
+    },
+    {
+      "name": "borrow_coll_ratio",
+      "param_prelude_count": 0
+    },
+    {
+      "lets": [
+        0
+      ],
+      "name": "rent_keys_group",
+      "param_prelude_count": 1,
+      "params": [
+        "klen"
+      ],
+      "slots": [
+        "klen",
+        "k"
+      ],
+      "vars": [
+        1
+      ]
+    },
+    {
+      "name": "rent_key_group_count",
+      "param_prelude_count": 0
+    },
+    {
+      "lets": [
+        0
+      ],
+      "name": "rent_key_len_at",
+      "param_prelude_count": 1,
+      "params": [
+        "idx"
+      ],
+      "slots": [
+        "idx"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "coverage_ds",
+          "sig": "20db1788"
+        },
+        {
+          "name": "lcut_of",
+          "sig": "59015fdd"
+        },
+        {
+          "name": "utilization_bps",
+          "sig": "60d7aa55"
+        },
+        {
+          "name": "rent_low",
+          "sig": "a05ade5e"
+        },
+        {
+          "name": "providers",
+          "sig": "bba06710"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "hcut_of",
+          "sig": "f8eb0eb7"
+        }
+      ],
+      "lets": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "name": "self_check",
+      "param_prelude_count": 0,
+      "slots": [
+        "r",
+        "hc",
+        "lc",
+        "prov",
+        "d"
+      ],
+      "vars": [
+        0
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "name": "rent_low",
+      "param_prelude_count": 1,
+      "params": [
+        "k"
+      ],
+      "slots": [
+        "k",
+        "st",
+        "live"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "hacd_score_total",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "name": "hacd_count",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "name": "hacd_avg_score",
+      "param_prelude_count": 0,
+      "slots": [
+        "c"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "coverage_ds",
+          "sig": "20db1788"
+        }
+      ],
+      "name": "hacd_coverage",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        7
+      ],
+      "name": "quote_redeem",
+      "param_prelude_count": 1,
+      "params": [
+        "sc"
+      ],
+      "slots": [
+        "sc",
+        "gross",
+        "cnt",
+        "pool_score",
+        "premium_bps",
+        "avg",
+        "base_fee",
+        "premium"
+      ],
+      "vars": [
+        4
+      ]
+    },
+    {
+      "name": "liq_coll_ratio",
+      "param_prelude_count": 0
+    }
+  ],
+  "inherits": [],
+  "libs": []
+}

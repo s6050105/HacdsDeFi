@@ -190,8 +190,9 @@ object NodeApi {
         Http.postAsync(
             "${node.trimEnd('/')}/util/transaction/check?hexbody=true&description=true&action=true&body=true", hex)
 
-    // ---- 预言机证书 ----
-
-    suspend fun cert(oracle: String, name: String): JSONObject =
-        Http.getJsonAsync("${oracle.trimEnd('/')}/cert?name=$name")
+    // ---- 预言机证书：已移除 ----
+    //
+    // #3000 删除了证书与预言机（合约改为链上读基因自算分），HACD 存入/赎回
+    // 不再需要证书。原 `cert(oracle, name)` 已无调用方，保留只会误导后续维护者
+    // （让人以为还要向预言机取证），故删除。
 }

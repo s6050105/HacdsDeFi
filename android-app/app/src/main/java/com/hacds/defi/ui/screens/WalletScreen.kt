@@ -22,6 +22,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,7 +45,10 @@ fun WalletScreen(vm: AppViewModel) {
     var importText by remember { mutableStateOf("") }
     var createdKind by remember { mutableStateOf("random") }
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var useBio by remember { mutableStateOf(false) }
+    // M-11 P0：生物识别开关改为**持久化 + 默认开启**。
+    // 原实现 `remember { mutableStateOf(false) }` 默认关且重启复位，
+    // 等于默认不设防。现在首次安装即开启，用户可手动关。
+    var useBio by remember { mutableStateOf(com.hacds.defi.wallet.Biometric.isEnabled(ctx)) }
 
     LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
@@ -60,7 +65,12 @@ fun WalletScreen(vm: AppViewModel) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text(tr("x_bioOpen"), modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodySmall)
-                        androidx.compose.material3.Switch(checked = useBio, onCheckedChange = { useBio = it })
+                        androidx.compose.material3.Switch(
+                            checked = useBio,
+                            onCheckedChange = {
+                                useBio = it
+                                com.hacds.defi.wallet.Biometric.setEnabled(ctx, it)  // 持久化
+                            })
                     }
                 }
                 if (session.unlocked) {
@@ -120,6 +130,8 @@ fun WalletScreen(vm: AppViewModel) {
                 value = password, onValueChange = { password = it },
                 label = { Text(tr("x_pwPc")) }, modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                // M-13：密码必须掩码显示（原实现明文，肩窥/录屏即泄露）
+                visualTransformation = PasswordVisualTransformation(),
             )
         }
     }
@@ -138,11 +150,18 @@ fun WalletScreen(vm: AppViewModel) {
                             Text(if (createdKind == "password") tr("x_pwDerived") else tr("x_pwDerived"))
                         }
                     }
+                    // ⚠ 口令钱包模式下这个框填的是**派生私钥的 passphrase**，
+                    //   等同私钥本身，必须掩码（2026-11-12 审计 C-M2，M-13 的遗漏）。
+                    //   普通钱包模式下它只是备注，掩码也无害（少一点信息泄漏）。
                     OutlinedTextField(value = label, onValueChange = { label = it },
                         label = { Text(if (createdKind == "password") tr("x_passphrase") else tr("x_note")) },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        visualTransformation = if (createdKind == "password")
+                            PasswordVisualTransformation() else VisualTransformation.None)
                     OutlinedTextField(value = password, onValueChange = { password = it },
-                        label = { Text(tr("x_pwEnc")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        label = { Text(tr("x_pwEnc")) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        // M-13：同上，掩码显示
+                        visualTransformation = PasswordVisualTransformation())
                 }
             },
             confirmButton = {
@@ -163,8 +182,11 @@ fun WalletScreen(vm: AppViewModel) {
                     OutlinedTextField(value = importText, onValueChange = { importText = it },
                         label = { Text(tr("x_importHint")) },
                         modifier = Modifier.fillMaxWidth(), minLines = 3)
+                    // 导入 keystore 用的口令 —— 明文显示会让旁人/录屏直接看到
+                    // 解密钱包的钥匙（2026-11-12 审计 C-M2）。
                     OutlinedTextField(value = password, onValueChange = { password = it },
-                        label = { Text(tr("x_pwKs")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        label = { Text(tr("x_pwKs")) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
                     OutlinedTextField(value = label, onValueChange = { label = it },
                         label = { Text(tr("x_note")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }
@@ -179,8 +201,9 @@ fun WalletScreen(vm: AppViewModel) {
             dismissButton = { TextButton(onClick = { dialog = null }) { Text(tr("btn_cancel")) } },
         )
         "export" -> {
-            val key = vm.exportKey()
+            // M-12：确认后才真正取私钥（原实现一进对话框就取，私钥已进 Compose 状态）
             var confirmed by remember { mutableStateOf(false) }
+            val key = if (confirmed) vm.exportKey(confirm = true) else null
             AlertDialog(
                 onDismissRequest = { dialog = null },
                 title = { Text("⚠ " + tr("acct.exportKey")) },

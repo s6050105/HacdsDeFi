@@ -1,487 +1,495 @@
 # HacdsDeFi Kullanım Kılavuzu
 
-2026-10-21　Cüzdan sürümü 0.1.0 (Windows 64-bit) için
+2026-11-11　PC cüzdanı 0.4.0 / Android 0.2.0 için
 
-## Bu kılavuz kimin için
-
-Cüzdanı eline almış, ilk kez açmış ve nereye tıklayacağını bilmeyen kişi için.
-
-Kontrat bilmediğinizi, HVM bilmediğinizi varsayıyor ve bilmenize de gerek yok. Sonunda şunları kendiniz yapabilir durumda olmalısınız: kurulum, cüzdan oluşturma, elması hacds'e çevirme, havuzda takas, teminatla borç alma ve başkasına coin gönderme.
-
-Para geçen her yerde birim açıkça yazılı. **En kolay hata burada yapılır — lütfen 9. bölümü okuyun.**
+> Bu belge #3000 kontratına karşılık gelir (adres
+> `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`, varlık serial 3000).
+>
+> **Bu sürüm oracle'ı, puanlama sertifikalarını ve yöneticiyi kaldırdı.** Artık
+> hiçbir servisin sertifika düzenlemesini beklemiyorsunuz ve "yönetici kontratı
+> durdurdu" hiç yaşanamaz — o fonksiyon yok.
 
 ---
 
-## 1. Önce üç şey
+## Bu kılavuz kimin için
 
-**Bir Windows bilgisayar** (64-bit). Cüzdan bir masaüstü uygulamasıdır; web sürümü ve mobil sürümü yoktur (Android sürümü geliştiriliyor).
+Bu cüzdanı almış, ilk kez açmış ve nereye tıklayacağını bilmeyen biri için.
 
-**İki dosyadan biri**: `HacdsDeFi-Setup-0.1.0-x64.exe` kurulum sürümüdür, çift tıklayıp kurun. `HacdsDeFi-0.1.0-x64.exe` taşınabilir sürümdür, çift tıklayınca çalışır. Hangisi olursa.
+Kontrat ya da HVM hakkında hiçbir şey bilmediğinizi varsayıyoruz, bilmeniz de
+gerekmiyor. Okuduktan sonra hepsini kendiniz yapabilmelisiniz: kurmak, cüzdan
+oluşturmak, elmasları hacds'e çevirmek, havuzda takas yapmak, teminatla borç
+almak ve başkasına coin göndermek.
 
-**Sunuculara erişim.** Cüzdan zincir verisini kendisi saklamaz; üç servise bağlanır:
+Tutarın geçtiği her yerde birim belirtilmiştir. **Hata yapılması en kolay yer burasıdır — lütfen §9'u okuyun.**
 
-| Servis | Adres | Ne yapar |
+---
+
+## 1. Hazırlanacak üç şey
+
+**Bir bilgisayar** (Windows 64-bit) **veya bir Android telefon**.
+
+| Platform | Dosya | Not |
 |---|---|---|
-| Düğüm | `43.251.101.101:8082` | Bakiye sorgulama, işlem yayınlama |
-| Oracle | `43.251.101.101:8123` | Elmas puanlama sertifikası verir (hacds'e çevirmek için gerekli) |
-| İndeksleyici | `43.251.101.101:8124` | Kredi tasfiyesi için defter (isteğe bağlı) |
+| PC | `HacdsDeFi-Setup-0.4.0-x64.exe` | Kurulum paketi, çift tıklayıp kurun |
+| PC | `HacdsDeFi-0.4.0-x64.exe` | Taşınabilir, çift tıklayıp çalıştırın |
+| Android | `HacdsDeFi-0.2.0-arm64.apk` | "Bilinmeyen kaynaklardan kurulum"a izin vermelisiniz |
 
-Bu adresler önceden doldurulmuştur. Ağ çalıştığı sürece değiştirmeniz gerekmez. Sunucu değiştirirseniz üstten değiştirin.
+PC için ikisinden birini seçin. Telefonlar arm64 olmalı (son yılların tüm yaygın
+modelleri).
+
+**Sunuculara ağ erişimi.** Cüzdan zincir verisi saklamaz; iki servise bağlanır:
+
+| Servis | Adres | Amaç |
+|---|---|---|
+| Düğüm | `node.hacds.com` | Bakiye, yayın, kontrat durumunu okuma |
+| İndeksleyici | `indexer.hacds.com` | Tasfiye defteri (isteğe bağlı) |
+
+İkisi de önceden doldurulmuştur. Ağ çalışıyorsa hiçbir şeyi değiştirmeniz
+gerekmez. Değiştirmek için üstteki alanları düzenleyin.
+
+> **Artık yalnızca iki servis var — oracle yok.** Eski sürümde elmaslar için
+> puanlama sertifikası düzenleyen üçüncü bir servis vardı. Tamamen kaldırıldı:
+> kontrat artık elmas genini okuyup kendisi puanlıyor, zincir dışı hiçbir adım yok.
 
 ---
 
 ## 2. İlk açılış
 
-Açıldığında üst kısım şöyle görünür:
+PC'de üst satır şöyle görünür:
 
 ```
-[Düğüm] [Oracle] [Kontrat] [İndeksleyici] [Kaydet] [Kontrol]     [−] 100% [+] [⟲]   [Dil▾]
+[Düğüm] [Dizinleyici] [Kontrat] [Kaydet] [Test]     [−] 100% [+] [⟲]   [Dil▾]
 ```
 
-**Yapılacak ilk şey: "Kontrol" düğmesine basın.**
+**İlk iş: "Test" düğmesine tıklayın.**
 
-Sonra aşağıdaki günlük alanına bakın. İki satır görünmelidir:
+Sonra alttaki günlük alanına bakın. `Düğüm OK, yükseklik 79xxxx` görmelisiniz.
 
-- `Düğüm OK, yükseklik 79xxxx`
-- `Oracle OK, 1H3sFZ53…`
-
-İkisi de OK ise ağ erişilebilir demektir, devam edebilirsiniz. Hata varsa 10. bölüme bakın.
-
-Sağdaki `100%` arayüz yakınlaştırmasıdır; yazı küçükse `+` düğmesine basın. En sağdaki açılır liste dili değiştirir (简体中文 / English / Türkçe).
+Düğüme ulaşılamıyorsa önce ağınızı kontrol edin. **İndeksleyicinin kapalı olması sizi engellemez** — yalnızca tasfiye sayfası yavaşlar (blokları yerel taramaya
+döner).
 
 ---
 
-## 3. Cüzdan oluşturma (veya içe aktarma)
-
-Bu aşamada ortada "Cüzdan kilitli" yazar ve altında bir düğme sırası vardır:
-
-```
-Cüzdan kilitli   [Cüzdan oluştur] [Cüzdan içe aktar] [Cüzdan dosyası aç…] [Cüzdanlar] [Harici anahtar dosyası kullan]
-```
+## 3. Cüzdan oluşturun (ya da içe aktarın)
 
 ### 3.1 Yeni kullanıcılar: cüzdan oluşturma
 
-"Cüzdan oluştur" düğmesine basın ve iki şey girin:
+"Cüzdan oluştur"a tıklayın ve bir parola belirleyin.
 
-- **Parola**: bir tane belirleyin. Bu parola cüzdan dosyanızı korur; kaybederseniz bir daha açamazsınız.
-- **Etiket** (isteğe bağlı): örneğin "Ana cüzdan".
+**En az 8 karakter ve kaybolursa kurtarılamaz.** Cüzdan dosyası şifrelenip bu
+makinede saklanır; kurtarma yok, destek yok, arka kapı yok. Kağıda yazın —
+yalnızca bilgisayarda tutmayın.
 
-Onaylayın, cüzdan oluşur. Adres üstte görünür.
+Tamamlandığında adresiniz (`1` ile başlar, yaklaşık 34 karakter) ve 12 kelimelik
+anımsatıcı gösterilir. **Anımsatıcıyı yazıp çevrimdışı saklayın.** Cüzdanınızı geri
+yüklemenin tek yolu odur.
 
-### 3.2 Mevcut cüzdanlar: üç içe aktarma yolu
+### 3.2 Mevcut cüzdanlar: üç içe aktarma yöntemi
 
-| Durumunuz | Hangi düğme |
+| Yöntem | Ne zaman |
 |---|---|
-| Elinizde 64 karakterlik özel anahtar var (hex dizisi) | "Cüzdan içe aktar" |
-| Daha önce kaydettiğiniz bir keystore dosyanız var | "Cüzdan dosyası aç…" |
-| Özel anahtar bir dosyada ve içe aktarmak istemiyorsunuz | "Harici anahtar dosyası kullan" |
+| Anımsatıcı | Başka bir cüzdandan taşınırken |
+| Keystore dosyası | PC ve Android birbiriyle uyumludur; aynı biçim (`hacds-keystore v1`) |
+| Özel anahtar | Eski anahtarlar için |
 
-İçe aktarıldıktan sonra hesap alanında aynı şekilde görünür.
+### 3.3 Birden fazla cüzdan yönetimi
 
-### 3.3 Birden fazla cüzdanı yönetme
-
-"Cüzdanlar" düğmesine basın; tüm cüzdanların adresini, etiketini ve bakiyesini görürsünüz. Açabilir, yeniden adlandırabilir ve silebilirsiniz.
-
-**Geçiş için bir kısayol var**: üstteki yeşil adrese tıklayın, bir liste açılır. Birini seçip geçin (parola sorulur). Önce "Cüzdanlar" ekranına girmeniz gerekmez.
+"Cüzdan yöneticisi"ne tıklayarak bu makinedeki tüm cüzdanları görür, geçiş yapar,
+yeniden adlandırır veya silersiniz.
 
 ---
 
-## 4. Kilit açıldıktan sonra ne görünür
+## 4. Kilit açıldıktan sonra ne görürsünüz
 
-Üst kısım şuna döner:
-
-```
-🔓 1You…Addr   [Yönetici]   [Yenile] [Anahtarı dışa aktar] [Kilitle / Çık]
-```
-
-**"Yenile"**: zincir verisi kendi kendine güncellenmez. Güncel bakiyeyi görmek istediğinizde basın.
-
-**"Kilitle / Çık"**: işiniz bittiğinde basmayı unutmayın. Kilitleme özel anahtarı bellekten siler; bilgisayarı alan biri paranızı hareket ettiremez.
-
-Altında yapabileceğiniz her şeyin bulunduğu sekme sırası vardır:
+Üstte **yedi sekme** vardır, web sürümüyle birebir aynı:
 
 ```
-Takas / Yatır | AMM & Likidite | Kredi | Transferler | HACD Galeri | Salt-okunur
-Tasfiye | Atomik işlem | Çevrimdışı imza
+[Takas] [Likidite] [Kredi] [HACD] [Transfer] [Fon] [Araçlar]
 ```
 
-"Yönetici" sekmesi yalnızca kontrat yöneticisinde görünür. Sıradan kullanıcılarda bu sekme yoktur — dikkate almayın.
+Altında üç kalıcı kart:
+
+| Kart | İçerik |
+|---|---|
+| Varlık özeti | HAC, HACD adedi, hacds bakiyesi, kontrat içi kota |
+| Protokol durumu | Havuzun iki tarafı, referans fiyat, kullanım oranı |
+| Kredi durumu | Borcunuz, teminatınız, sağlık |
+
+Üçü de sağ üst köşedeki `▾` ile kapatılabilir.
 
 ---
 
-## 5. Ana ekrandaki üç kartı okumak
+## 5. Üç kart nasıl okunur
 
-Kilit açıldıktan sonra en üstte üç kart vardır. **Bu üçünü anlarsanız gerisi kolaydır.**
+### 5.1 Varlık özeti
 
-### 5.1 Varlıklar
-
-| Gösterilen | Anlamı |
+| Öğe | Anlamı |
 |---|---|
-| **HAC** | Zincirde ne kadar HAC tutuyorsunuz |
-| **HACD elmasları** | Kaç elmasınız var |
-| **Beklenen hacds** | Bu elmaslar çevrilse yaklaşık kaç hacds eder |
-| **Bekleyen hacds** | Elmaslar kontrata yatırıldı; kontratın size borcu (kaydi değer) |
-| **Elde tutulan hacds** | Alınmış ve serbestçe transfer edilebilen hacds |
-| **Kontrat içi HAC puanı** | Kontrata yatırdığınız HAC (takas ve kredinin kullandığı bakiye) |
+| HAC | Cüzdanınızdaki doğrudan harcanabilir HAC |
+| HACD | Elindeki elmas adedi |
+| hacds (kota) | **Kontrat içindeki** hacds, henüz zincire alınmamış |
+| hacds (zincirde) | Kendi adresinizde zaten duran standart varlık |
 
-hacds için şu çizgiyi hatırlamanız yeterli:
-
-```
-elinizde elmas  →(yatır)→  kontrat size borçlu (bekleyen)  →(al)→  elinize geçen hacds
-```
-
-**"Beklenen" ile "elde tutulan" iki farklı şeydir**, karıştırmayın. İlki bir tahmin, ikincisi harcayabileceğiniz para.
+**Gerçekten sahip olduğunuz miktar iki hacds rakamının toplamıdır.**
 
 ### 5.2 Protokol durumu
 
-Havuzda ne kadar var, payınız ne, kredi durumunuz ne. Günlük olarak şunlara bakarsınız:
-
-- **Havuz HAC / Havuz hacds**: havuzun büyüklüğü, takas fiyatını belirler
-- **Havuz fiyatı**: şu anda 1 hacds kaç HAC eder
-- **LP'm / Borcum / Teminatım**: size ait olanlar
+| Öğe | Anlamı |
+|---|---|
+| Havuz HAC / havuz hacds | AMM havuzunun iki tarafındaki rezervler |
+| Referans fiyat | Kontratın tasfiye değerlemesinde kullandığı düzleştirilmiş fiyat |
+| Kullanım | Borç verilen / verilebilir; %50 üzerinde yeni borç yok |
 
 ### 5.3 Kredi durumu
 
-**Bu kart deneme yanılma yapmayasınız diye var.** Sürekli şunları gösterir:
+**En önemli alan sağlık değeridir**:
 
-- Borcunuz, teminatınız ve teminatın kaç HAC ettiği
-- **Kullanılabilir borç limitim** — şu anda daha ne kadar borç alabilirsiniz
-- Tasfiye durumu: Güvenli / Tasfiye edilebilir / Borç yok
+| Gösterim | Durum | Ne olur |
+|---|---|---|
+| > 10000 | Güvenli | Hiçbir şey |
+| = 10000 | Tehlikeli | Tam tasfiye çizgisinde |
+| < 10000 | Tasfiye edilebilir | Herkes her an sizi tasfiye edebilir |
+| < 9000 | Derin su | Tüm borç tek seferde kapatılabilir |
 
-**Borç almadan önce bu karta bakın**; o zaman tekrar tekrar hata alarak öğrenmek zorunda kalmazsınız.
+**Ödemesiz süre yoktur.** %160 teminat oranının altında, önceden bildirim
+yapılmadan her an tasfiye edilebilirsiniz.
 
 ---
 
-## 6. Her işlem aynı beş adımdır
+## 6. Her işlem aynı adımları izler
 
-Hangi sayfada olursanız olun, akış aynıdır:
+Ne yaparsanız yapın akış aynıdır:
 
 ```
-Parametreleri gir  →  [İşlem oluştur]  →  önizleme çıkar  →  [Doğrula]  →  [Yayınla]
+Parametreleri doldur → "İşlem oluştur" → gözden geçir → "Yayınla" → onay bekle
 ```
 
-**① İşlem oluştur**: yerelde imzalanır. Bu adımda hiçbir şey harcanmaz ve zincire çıkmaz.
+**Önizleme gösterir**: eylem, bayt boyutu, ücret, imza özeti.
 
-**② Önizleme alanı**: bir panel ve birkaç düğme görünür:
+**Yayından sonra üç olası sonuç**:
 
-| Düğme | Ne yapar |
+| Sonuç | Anlamı |
 |---|---|
-| **hex kopyala** | İşlemin ham halini kopyalar |
-| **Kaydet…** | Dosyaya kaydeder |
-| **Doğrula** | Düğümden işlem biçiminin geçerli olup olmadığını sorar (ağ gerekir) |
-| **Çevir** | Düğümden işlemin ne yaptığını sade bir dille açıklamasını ister |
-| **Yayınla** | Gerçekten gönderir |
+| `ret:0` | Belleğe ulaştı, **henüz zincirde değil** |
+| Onaylandı | Bakiyeler değişir |
+| Hata | Günlüğe bakın; sade dille açıklanır |
 
-**③ Şiddetle önerilir: önce "Çevir" düğmesine basın.** İşlemin ne yaptığını sade bir dille listeler, örneğin "Transfer 1 HAC from … to …". Doğru olduğunu onayladıktan sonra yayınlayın.
-
-**④ Yayınladıktan sonra** günlük başarıyı ve işlem hash'ini gösterir.
-
-**⑤ Blok bekleyin.** Hacash yaklaşık **5 dakikada** bir blok üretir. Başarılı yayın yalnızca bekleyen kuyruğa girdiği anlamına gelir — **ancak bir sonraki blokta yürürlüğe girer**. Yani "Yenile" düğmesine basıp sayıların değişmediğini görmek normaldir. Cüzdan 15, 45, 90, 180 ve 320 saniye sonra otomatik olarak tekrar tazeler.
+**Bloklar yaklaşık 300 saniye sürer.** Başarılı yayın anında etki demek değildir;
+cüzdan otomatik olarak yeniden yoklar (15/45/90/180/320 saniye).
 
 ---
 
-## 7. Sık yapılan işler
+## 7. Yaygın işlemler
 
-### 7.1 Elması hacds'e çevirmek (en sık)
+### 7.1 Elmasları hacds'e çevirme (en sık kullanılan)
 
-**"Takas / Yatır"** sayfasına gidin ve **"HACD → hacds (yatır)"** öğesini bulun.
+1. "HACD" sekmesini açın
+2. "Elmaslarımı yükle"ye tıklayın
+3. **Yatırmak istediğiniz elmasları seçin** — çok sayıda birden, en fazla 200
+4. "Toplu yatır"a tıklayın
 
-1. "Elmas adları (virgülle ayrılmış)" alanına elmas adlarını virgülle ayırarak yazın, örneğin `MVUUBA,HYXYHY`
-2. "İşlem oluştur" → "Çevir" ile bakın → "Yayınla"
+**Tek işlem, tek imza, en fazla 200 elmas.** Bu sürümün en büyük değişikliği: eski
+sürüm işlem başına yalnızca bir taneye izin veriyordu.
 
-**⚠ İşlem başına en fazla bir elmas.**
+Arayüz beklenen hacds'i gösterir: **1 puan = 100 milyon hacds**.
 
-Bu bir yazılım sınırı değil, zincirdeki katı bir sınırdır. Her elmasın sertifikasını doğrulamak puanın yeniden hesaplanmasını gerektirir ve yaklaşık 3.000 birim hesaplama kaynağı tüketir; bir işlemin kaynak sınırı 6.100'dür. İki elmas 6.101 eder — azıcık üstünde — ve işlem doğrudan başarısız olur.
+> **Not**: aldığınız şey **kontrat içinde bir kota (due)**, henüz zincir üstü
+> varlık değil. Cüzdanınıza almak için 7.2'ye bakın.
 
-**Bir seferde birkaç tane yatırmak isterseniz**: **"HACD Galeri"** sayfasına gidin, birkaçını seçin ve "Toplu yatır" düğmesine basın — cüzdan bunları işlem başına bir elmas olacak şekilde böler ve tek tek yayınlar.
+### 7.2 hacds'inizi alın
 
-Yatırdıktan sonra hacds "Bekleyen hacds" altında kaydedilir; henüz elinize geçmemiştir.
+"Fon" sekmesi → "hacds al" → tutarı girin → oluştur → yayınla.
 
-### 7.2 hacds'i elinize almak
+**Bu adım hacds'i gerçekten adresinize taşır.** Sonrasında herhangi bir Hacash
+varlık cüzdanına veya borsaya gönderilebilen standart bir zincir üstü varlıktır.
 
-Yine **"Takas / Yatır"** sayfasında **"hacds al (kontrat → ben)"** öğesini bulun.
+### 7.3 Kontrata HAC yatırma / çekme
 
-Miktarı girin (**birim atoms**, bkz. 9. bölüm), sonra oluştur, çevir, yayınla.
+"Fon" sekmesinde:
 
-Sonrasında "Elde tutulan hacds" artar. Ancak o zaman hacds serbestçe transfer edilebilir.
+| İşlem | Ne yapar |
+|---|---|
+| HAC yatır | Cüzdan HAC → kontrat içi HAC kredisi (likidite, geri ödeme) |
+| HAC çek | Kontrat kredisi → cüzdan |
+| hacds yatır | Zincirdeki hacds → kontrat içi kota (likidite, teminat) |
+| hacds al | Kontrat kotası → zincire |
 
-### 7.3 Kontrata HAC yatırmak / çekmek
-
-- **"HAC yatır (HAC → kontrat, puan kazandırır)"**: cüzdandaki HAC'i kontrata gönderir, kontrat bunu "HAC puanı" olarak kaydeder. **AMM takası ve kredi bu bakiyeyi kullanır**, dolayısıyla bunları kullanmak istiyorsanız önce yatırın.
-- **"HAC çek (kontrat → ben)"**: puanı zincirdeki HAC'e geri çeker.
-
-Miktar için **birim HAC'tir** — 10 HAC için `10` yazın.
+**Ayrımı koruyun**: kontrat içindeki "kredi", zincirdeki "varlık"tır. Aynı şey
+değiller. AMM ve kredi **kontrat içi** kısım üzerinde çalışır.
 
 ### 7.4 Havuzda takas (AMM)
 
-**"AMM & Likidite"** sayfasına gidin.
+"Takas" sekmesi, iki yön:
 
-**HAC → hacds**:
-- "Giren HAC puanı (HAC)" ve "Min çıkış (atoms, 0 = sınırsız)" alanlarını doldurun
-- Altındaki panel hemen ne kadar alacağınızı, güncel havuz fiyatını ve komisyonu gösterir
-- Uygunsa oluşturup yayınlayın
-
-**hacds → HAC**: aynı şekilde, giren hacds (atoms) ve min çıkış (HAC).
-
-**"Min çıkış" kayma korumasıdır.** 0 yazmak sınır koymamak demektir. Takas sırasında fiyat çok oynar ve elinize geçecek miktar yazdığınız sayının altına düşerse işlem otomatik olarak başarısız olur (para kaybetmezsiniz). **0 yerine kabul edebileceğiniz bir taban yazın.**
-
-### 7.5 Likidite ekleyip komisyon kazanmak
-
-**"AMM & Likidite"** sayfasına gidin ve **"Likidite ekle"** öğesini bulun.
-
-Likidite eklemek, havuza aynı anda hem HAC hem hacds koyup karşılığında LP payı almaktır; sonra bu pay komisyondan pay alır.
-
-**Kullanımı basittir: yalnızca bir tarafı doldurun, diğerini cüzdan sizin için hesaplar.**
-
-- "HAC tarafı (HAC)" alanına bir miktar yazın, hacds tarafı hemen eşleşen miktarla doldurulur
-- hacds yazmak da ters yönde aynı şekilde çalışır
-
-**Neden otomatik hesaplanıyor**: kontrat, iki tarafın oranının havuzdakiyle aynı olmasını şart koşar. Oran tutmazsa fazla koyduğunuz taraf **size hiç pay kazandırmaz — doğrudan havuza bağışlanır**. Bu yüzden cüzdan oranı zorla hizalar.
-
-Doldurduktan sonra altındaki panel "Tahmini LP payı: X" gösterir. İki taraf oranlı değilse (örneğin birini elle değiştirdiyseniz) kırmızı bir uyarı çıkar ve sayının ne olması gerektiğini söyler.
-
-**Havuzda ne HAC ne hacds varken** (ilk yatırım) istisnadır: hizalanacak oran yoktur, iki tarafı da siz belirlersiniz ve pay `√(HAC × hacds)` olur.
-
-**Likidite çıkarma**: yakılacak LP payını girin, iki varlık oranlı olarak geri döner.
-
-**LP ödülü alma**: "LP ödülü al" düğmesine basın, biriken komisyonlar bakiyenize geçer. Basmasanız da kaybolmaz.
-
-### 7.6 Teminatla borç almak
-
-**"Kredi"** sayfasına gidin. **Sıra önemlidir: önce teminat, sonra borç.**
-
-**① Teminat ekle**
-
-"Teminat ekle" kartına hacds miktarını girin (**birim atoms**).
-
-Altında canlı olarak şunu söyler: bu teminat kaç HAC eder ve toplamda ne kadar borç alabilirsiniz.
-
-**② HAC borç al**
-
-"HAC borç al" kartına ne kadar istediğinizi girin (**birim HAC**).
-
-Altında canlı olarak şunlar görünür:
-- Mevcut borç limitiniz
-- Bu kredinin gerektirdiği teminat (`≥ X atoms`)
-- Yeterli mi (✔ veya ✘)
-
-**✘ görünüyorsa ve yine de gönderirseniz, hata ile başarısız olur.** Bu yüzden önce uyarıya bakın.
-
-**③ Geri ödeme**
-
-"Geri öde" kartına miktarı girin ve HAC puanının hazır olduğundan emin olun. Ödeme tamamlanınca teminat otomatik olarak serbest kalır.
-
-**Faiz hakkında**: oran yıllık %5'tir, ancak arayüz ne kadar faiz borcunuz olduğunu ayrıca göstermez — kontrat faizi içine katmıştır. **Geri ödemede zincirde kapanır; cüzdanın gösterdiği tutarı ödemeniz yeterlidir.**
-
-**Tasfiye hakkında**: teminatınızın değeri çok düşerse (teminat oranı %200'ün altına inerse) herkes gelip pozisyonunuzu tasfiye edebilir; teminatınız alınır ve tasfiye edene prim verilir. **Ana ekrandaki "Kredi durumu" kartının tasfiye durumunu takip edin** — "Güvenli" yazıyorsa sorun yok.
-
-### 7.7 Başkasına coin göndermek
-
-**"Transferler"** sayfasına gidin.
-
-| Ne göndereceksiniz | Hangi öğe |
+| İşlem | Ne girilir |
 |---|---|
-| HAC | "HAC transferi" — tutarı `1:248` biçiminde yazın, 1 HAC demektir |
-| hacds | "Başkasına hacds" — miktarı **atoms** olarak girin |
-| hacds kontrata geri | "Kontrata hacds" |
-| Diğer varlıklar (CARAT, HACP, …) | "Diğer varlık transferi" — serial, adres, miktar girin |
-| **HACD elmasları** | **"HACD gönder" — elmas adlarını ve alıcı adresini girin** |
+| HAC → hacds | Giren HAC (birim: HAC) |
+| hacds → HAC | Giren hacds (birim: adet) |
 
-**"HACD gönder"** (elmasları başkasına vermek): elmas adlarını (virgülle ayrılmış, örn. `KWTVSH,VHUSMI`) ve hedef adresi girin.
+Girdikten sonra arayüz **ne kadar alacağınızı** ve **güncel havuz fiyatını**
+gerçek zamanlı gösterir.
 
-- **Bir işlemde en fazla 200 elmas**; "takas için yatır" birer birer yapılır — eşten eşe transfer kontrattan geçmediği için o hesaplama sınırı geçerli değildir
-- Ücret kutusu `0.0002 HAC × adet` ile önceden doldurulur. **Daha az ödemek için temizleyin** — cüzdan düğüm oranından hesaplar (çok elmas gönderirken belirgin tasarruf)
-- Bu öğe **kontrata dokunmaz**; elmaslarınızı doğrudan alıcının adresine taşır
+**Kayma koruması**: `min_out` kabul edeceğiniz en az miktardır; `0` = sınırsız.
+Piyasa oynakken önden koşmayı önlemek için bir sayı girin.
 
-**"Diğer varlık transferi" için serial düz sayıdır**, örneğin `1111`. `#` ile de çalışır ama gerekmez.
+### 7.5 Likidite ekleyip ücret kazanma
 
-### 7.8 HACD Galeri: elmasları görme, toplu işlemler
+"Likidite" sekmesi.
 
-**"HACD Galeri"** sayfasında solda tüm elmasların küçük resimleri vardır; birine tıklayınca sağda detay görünür (görsel, ad, numara, puan, beş boyut, yazıtlar).
+HAC tarafını girin; **hacds tarafı havuz oranından otomatik hesaplanır.** Bu, oranı
+kaçırıp para kaybetmenizi önler.
 
-Üstten şekle, stile ve minimum puana göre filtreleyebilirsiniz.
+| Öğe | Not |
+|---|---|
+| Ücret payı | İşlem ücretlerinin **%80'i LP'lere**, %20'si hazineye |
+| Geri alma ücreti payı | Geri alma ücretlerinin **%80'i de LP'lere** |
+| Geçici kayıp | Var. Her AMM'in doğasında |
+| Kredi riski | Havuz HAC'inin %30'u borç verilir; en kötü durumda o %30'u kaybedersiniz |
 
-**Toplu işlemler**:
-- Bir karta `Ctrl` basılı tutup tıklayın = seçime bir tane ekler
-- `Shift` basılı tutup tıklayın = o karta kadar aralık seçer
-- Sonra "Toplu yatır" veya "Toplu geri al" düğmesine basın
-- Cüzdan "N işleme bölünecek, her birinde 1 elmas" diyen bir pencere açar; onaylayınca tek tek yayınlar
+**Likidite çekmek iki adımdır**: önce "LP ödüllerini al", sonra "likiditeyi çek".
+Cüzdan bunu sizin için iki işleme böler; siz bir kez tıklarsınız.
 
-Ayrıca seçili elmas adlarını virgülle birleştirip kopyalayan bir **"Adları kopyala"** düğmesi vardır; başka yere yapıştırmak için kullanışlıdır.
+> Neden bölünüyor? Tek işlem ana ağdaki `resource` kova sınırına çarpıyor
+> (6.102 > 6.100). Bu gerçek testte bulundu; kontrat değiştirilemez, bu yüzden
+> cüzdan bölüyor.
+
+### 7.6 Teminatla borç alma
+
+"Kredi" sekmesi.
+
+1. Önce "Teminat ekle" — teminat **kontrat içindeki hacds kotasıdır**
+2. Sonra "Borç al", en fazla teminat değerinin yarısı kadar
+
+**Girişin altında gerçek zamanlı ipuçları görünür**: mevcut borç limitiniz, bu
+işlemin gerektirdiği teminat ve güncel teminat değeri. Tahmin yok.
+
+**Faiz dalgalıdır**: kullanım %0 → %2, %35 → %6, %50 → %46.
+
+**Geri ödeyememek tasfiye demektir.** Ödemesiz süre yok. Öneriler:
+- Maksimuma kadar borç almayın (%30–%40 çok daha rahat)
+- Sağlık %150'ye yaklaşınca teminat ekleyin
+- "Kredi durumu" kartındaki sağlığı izleyin; zincir üstü tasfiye ile **aynı fiyatı** kullanır
+
+### 7.7 Başkasına coin gönderme
+
+"Transfer" sekmesi, dört tür:
+
+| Tür | Not |
+|---|---|
+| HAC gönder | Zincirdeki HAC |
+| hacds gönder | Zincirdeki hacds varlığı |
+| HACD gönder | Elmaslar, birden fazla |
+| Diğer varlık | Serial + tutar girin |
+
+### 7.8 HACD sekmesi: elmasları görme, toplu işlemler
+
+"HACD" sekmesinin iki yarısı vardır:
+
+**Üst: yatırma**
+- Elmaslarımı yükle → seç → toplu yatır
+- İşlem başına en fazla 200
+
+**Alt: geri alma**
+- Havuz elmaslarını yükle → birini seç → geri al
+- **Geri alma seferde bir elmas**
+
+> Neden toplu geri alma yok? Her elmas kendi "kiraz toplama primi"ni gerektirir
+> (yüksek puanlı elmaslar daha pahalı) ve toplu işlem yarıda başarısız olursa geri
+> alma mantığı yükseltilemeyen bir kontratta çok risklidir. Cüzdan seçiminizi
+> birden fazla işleme böler; siz bir kez tıklarsınız.
 
 ---
 
-## 8. İleri özellikler (okumasanız da olur)
+## 8. Gelişmiş özellikler (isteğe bağlı)
 
-### 8.1 Salt-okunur sorgular
+### 8.1 Salt okunur sorgu
 
-**"Salt-okunur"** sayfasında bir düğme sırası vardır. Birine basmak zincirden sorgular — işlem yok, ücret yok. HAC puanı, bekleyen hacds, havuz fiyatı, havuz rezervleri, borcunuz ve teminatınız, LP payınız ve daha fazlasını kapsar.
-
-"Para hareket ettirmek istemiyorum, sadece durumu görmek istiyorum" diyenler için.
+"Araçlar" sekmesi → "Salt okunur sorgu". Herhangi bir salt okunur kontrat
+fonksiyonunu doğrudan çağırıp dönüş değerini inceleyin. Sorun gidermede çok
+faydalıdır.
 
 ### 8.2 Atomik işlemler
 
-**"Atomik işlem"** sayfası. Birkaç işlemi **tek** işlemde birleştirebilirsiniz: hepsi başarılı ya da hepsi başarısız — asla "yarısı oldu" durumu olmaz.
-
-Nasıl: herhangi bir işlem kartında **"Komboya ekle"** düğmesine basıp işlemleri biriktirin, sonra bu sayfaya gelip "Atomik işlem oluştur" düğmesine basın.
-
-**Not: birleştirmek "işlem başına bir elmas" sınırını aşamaz.** Bir işlem tek bir hesaplama bütçesini paylaşır, dolayısıyla iki elmas yine taşar. Elmas için toplu işlevi kullanın.
+Tek işlemde birden fazla eylem, ya hep ya hiç. Protokol sınırı 200 eylem.
 
 ### 8.3 Çevrimdışı imzalama (soğuk/sıcak ayrımı)
 
-**"Çevrimdışı imza"** sayfası, güvenliğe önem veren kullanıcılar için.
+"Araçlar" sekmesi → "Çevrimdışı imzalama":
 
-Fikir şu: **özel anahtar ağa bağlı bir makinede hiç durmaz**.
+1. Soğuk makine (asla çevrimiçi olmayan): parametreleri gir, oluştur, imzala
+2. QR kod veya dosya çıkar
+3. Sıcak makine (çevrimiçi): tara veya dosyayı yükle, yayınla
 
-1. Çevrimiçi bir makinede işlemi doldurup **imzasız** işlem gövdesini oluşturun; dosyaya kaydedin veya metni not edin
-2. Çevrimdışı bir makineye götürün (uçak modu, ağ kablosu çıkarılmış), bu sayfada yapıştırın ve "İmzasız gövdeyi mevcut cüzdanla imzala" düğmesine basın
-3. İmzalanmış işlem metnini çevrimiçi makineye geri götürüp "İmzalı işlemi yayınla" düğmesine basın
+**Özel anahtar ağa hiç dokunmaz.** Hacash işlemlerinde nonce ve zaman damgası
+süresi yoktur, bu yüzden çevrimdışı imzalanmış bir işlem ne kadar beklerse
+beklesin geçerlidir.
 
-Böylece özel anahtarı tutan makine baştan sona ağa hiç çıkmaz. Hacash işlemlerinde zaman aşımı yoktur, dolayısıyla çevrimdışı imzalayıp günler sonra yayınlamak sorun olmaz.
+### 8.4 Tasfiye / kapatma
 
-**İmzalamadan önce "İmzasız gövdeyi doğrula" ve "İşlemi çevir"** ile işlemin istediğiniz işlem olduğunu doğrulayın.
+"Araçlar" sekmesi → "Tasfiye". Tasfiye edilebilir tüm adresleri ve sağlıklarını
+listeler.
 
-### 8.4 Tasfiye / kapanış
+Tasfiye kârlıdır: birinin borcunu ödersiniz ve "geri ödeme + %5" değerinde teminat
+alırsınız. Normal tasfiye seferde en fazla borcun yarısını işler.
 
-**"Tasfiye"** sayfasında üç blok vardır:
+### 8.5 Depolama anahtarı yenileme (operasyon)
 
-1. **LP ödüllerim** — tek tıkla kapanış
-2. **Hazine süpürme** — biriken komisyonları hazineye aktarma
-3. **Tasfiye konsolu** — tasfiye edilebilir tüm pozisyonları listeler; herkes yürütebilir ve prim vardır
+"Araçlar" sekmesi → "Yenile".
 
-İlk ikisi sıradan kullanıcıları ilgilendirir. Üçüncüsü ileri kullanıcılar içindir: **başkasının pozisyonunu tasfiye etmek prim kazandırır**, ama riski kendiniz değerlendirirsiniz.
+Hacash kontrat durumu kira öder ve anahtarların süresi dolar. **Herkes yenileyebilir ve ödül kazanabilir (anahtar başına 0,07 HAC)**. Keeper böyle çalışır.
 
-"Defteri eşitle" düğmesine basmak indeksleyiciden veri çeker (indeksleyici yoksa blokları yerel tarar, bu çok daha yavaştır).
+Sıradan kullanıcılar bunu yok sayabilir — projenin keeper'ı otomatik yeniler.
 
 ---
 
-## 9. ⚠ Sayıları okumak (en çok para kurtaran bölüm)
+## 9. ⚠ Sayılar nasıl okunur (hata yapılması en kolay yer)
 
-**hacds ile HAC tamamen farklı birimler kullanır. Yanlış girerseniz yüz milyon kat sapma olur.**
+### 9.1 hacds yalnızca bir adettir
 
-### 9.1 hacds atoms cinsindendir
+**Bu sürümde hacds ondalık 0'dır — 1 bir demektir, kesir yok.**
 
-hacds'in en küçük birimi **atom**'dur. Cüzdanda **her hacds sayısı atoms cinsindendir** — bakiyeler, havuzlar, giriş kutuları, hepsi.
+Bakiyeler, havuzlar, teminat, giriş alanları aynı sayıyı gösterir.
 
 ```
-1 hacds = 100.000.000 atoms
+70 hacds göndermek için → 70 girin
 ```
 
-Yani bir giriş kutusunda gördüğünüz varsayılan değer `100000000` ise bu **1 hacds**'tir.
+> **Eski sürümden farklı!** Eski sürüm (#2000) ondalık 8'di; atom giriyordunuz ve
+> 70 için `7000000000` gerekiyordu. **Burada 1e8 ile çarpmayın.**
 
-**Asla adedi yazmayın.** Örneğin 70 hacds göndermek için `70` yazmamalısınız — bu 70 atoms'tır, bir hacds'in milyonda birinden az. `7000000000` yazmalısınız.
+### 9.2 HAC de bir adettir
 
-**Nasıl hatırlanır**: giriş etiketi `(atoms)` yazıyorsa atoms girin. `(HAC)` yazıyorsa doğrudan HAC adedini girin.
+Etiket "(HAC)" diyorsa, 10 HAC yatırmak için `10` girin.
 
-### 9.2 HAC doğrudan adet alır
+**İstisna**: zincir üstü transfer sayfasında HAC tutarları `1:248` biçimindedir
+(`1:248` = 1 HAC). Bu Hacash'in tutar gösterimidir; alandaki varsayılan değerin
+biçimini izleyin.
 
-HAC basittir. Etiketi "(HAC)" olan yerde 10 HAC yatırmak için `10` yazın.
+> `a:b` = a × 10^(b−248). Yani `5:249` = 50 HAC, 5,0038 değil.
 
-**Bir istisna**: Transferler sayfasında HAC tutarı `1:248` biçiminde yazılır (`1:248` = 1 HAC). Bu Hacash'in tutar yazımıdır — girişin varsayılan değerinin biçimine uyun.
+### 9.3 Hızlı tablo
 
-### 9.3 Hızlı başvuru
-
-| Ne yapıyorsunuz | Girilecek birim | Örnek |
+| Yaptığınız işlem | Girilecek birim | Örnek |
 |---|---|---|
 | Likidite ekle — HAC tarafı | HAC | `1` |
-| Likidite ekle — hacds tarafı | atoms | `33183372` |
+| Likidite ekle — hacds tarafı | adet | `33183372` |
 | Takas — giren HAC | HAC | `1` |
-| Takas — giren hacds | atoms | `100000000` |
-| Teminat ekle | atoms | `100000000` |
+| Takas — giren hacds | adet | `100000000` |
+| Teminat ekle | adet | `100000000` |
 | Borç al / geri öde | HAC | `0.5` |
-| hacds gönder | atoms | `100000000` |
-| Diğer varlık gönder | atoms | `100000000` |
+| hacds gönder | adet | `100000000` |
+| HAC gönder (zincirde) | `değer:mantis` | `1:248` |
+
+**Tek cümle**: hacds adet alır, HAC HAC adedi alır (zincir üstü transferler
+hariç).
+
+### 9.4 Bu neden kolayca karışır
+
+HAC ve hacds farklı ölçeklerdedir:
+
+- **HAC** zincirde zhu'dur, 1 HAC = 1e8 zhu; arayüzler HAC kullanır
+- **hacds** zincirde adedin kendisidir, 1 = bir
+
+Dolayısıyla `add_liquidity(hac_amt, ds_amt)` farklı ölçeklerde iki parametre alır:
+bir tarafta zhu, diğerinde hacds adedi. 1e8 kat hata yapmanın en kolay olduğu yer
+burasıdır — ilk yatırımda biz de yaptık.
 
 ---
 
-## 10. Bir şey ters giderse
+## 10. Sorun giderme
 
-### 10.1 Önce günlük alanına bakın
+### 10.1 Önce günlüğe bakın
 
-Her işlemin sonucu ve her hatanın nedeni alttaki günlük alanına yazılır. **Hata mesajları yerelleştirilmiştir**: ne olduğunu, sonra ne yapılacağını söyler.
+Her işlemin sonucu ve başarısızlık nedeni alttaki günlük alanında görünür.
+**Hatalar sade dille yazılır**: ne oldu, sonra ne yapmalı.
 
-### 10.2 Sık görülen hatalar
+### 10.2 Yaygın hatalar
 
 | Gördüğünüz | Anlamı | Ne yapmalı |
 |---|---|---|
-| **Düğüm/oracle erişilemiyor** | Servise ulaşılamıyor | "Kontrol" düğmesine basın; ağı doğrulayın; üstteki adresleri doğrulayın |
-| **Adres boş veya biçimi hatalı** | Adres tam girilmemiş | Alıcı adresini baştan tamamen kopyalayın |
-| **Adres sağlama basamağı hatalı** | Kopyalarken karakter düşmüş | Yeniden kopyalayın |
-| **Bakiye yetersiz** | Adreste ücret/gaz için HAC yok | O adrese biraz HAC gönderin |
-| **resource gaz kovası aşıldı** | Bir işlemde birden fazla elmas var | İşlem başına bir tane yapın veya "Toplu yatır" kullanın. **Gazı artırmak işe yaramaz** |
-| **Borç limiti aşıldı** | Teminat yetersizken borç alınıyor | Önce "Teminat ekle" |
-| **Bekleyen hacds yetersiz** | Kontratın borcundan fazlasını istiyorsunuz | "Bekleyen hacds" değerine bakın, üstüne çıkmayın |
-| **Geri alım için hacds yetersiz, otomatik tamamlama başarısız** | Elmas geri alınırken kota yetmiyor; kontrat HAC ile tamamlamayı denedi ve olmadı | Önce HAC yatırın veya biraz hacds takas edin |
-| **Kontrat duraklatıldı** | Yönetici kontratı duraklattı | Devam etmesini bekleyin; operatöre sorun |
-| **Durum değişti, tekrar deneyin** | Bu arada zincir değişti | Yenileyip tekrar yapın |
-| **İstek zaman aşımı / sunucu hatası** | Sunucu yavaş veya geçici olarak kullanılamaz | Biraz bekleyip tekrar deneyin veya düğüm değiştirin |
+| Yetersiz bakiye | Kontrat kredisi düşük | Önce "Fon" sekmesinden yatırın |
+| `resource gas limit exceeded` | Tek kova sınırı aştı | Birden fazla işleme bölün; **gas_max artırmak işe yaramaz** |
+| `compute gas limit exceeded` | Aynı | Birden fazla işleme bölün |
+| `CallNotExist(51)` | Kontratta bu fonksiyon yok | Yönetici fonksiyonları kaldırıldı; tıklamayı bırakın |
+| `NotFindContract` | O adreste kontrat yok | Kontrat dağıtılmamış veya adres yanlış |
+| `StorageNotActive` | Depolama anahtarının süresi doldu | "Araçlar" sekmesinden yenileyin |
+| `state changed` | Zincir üstü durum değişti | Yeniden deneyin |
+| `sandbox_per_ip_concurrency_exceeded` | Eşzamanlılık aşıldı | Birkaç saniye bekleyip yeniden deneyin (düğüm IP başına 2) |
+| Ağ hatası | Servise ulaşılamıyor | Düğüm adresini ve ağınızı kontrol edin |
 
 ### 10.3 Yayın başarılı ama bakiye değişmedi
 
-**Normal.** Blok bekleyin (yaklaşık 5 dakika). Cüzdan birkaç kez otomatik tazeler; beklemeniz yeterli.
+Normal. Bloklar yaklaşık 300 saniye sürer. Bekleyip "Varlıkları yenile"ye tıklayın.
 
-### 10.4 Arayüz yazısı çok küçük / çok büyük
+### 10.4 Yazı çok küçük / çok büyük
 
-Üstteki `+` ve `−` ile ayarlayın; `⟲` %100'e döndürür.
+Üstteki `−` / `+` ile ayarlayın; `⟲` sıfırlar.
 
-### 10.5 Üç kart katlanabilir
+### 10.5 Üç kart kapatılabilir
 
-"Varlıklar", "Protokol durumu" veya "Kredi durumu" başlığının solundaki küçük üçgene basarak o kartı katlayabilir ve alttaki işlem alanına ekran alanı kazandırabilirsiniz.
+Sağ üstlerindeki `▾` ile.
 
 ---
 
 ## 11. Güvenlik notları
 
-**Parolanızı kimseye söylemeyin ve "Anahtarı dışa aktar" sonucunu kimseye göstermeyin.** Özel anahtar tüm bakiyenizdir — kim alırsa her şeyi taşıyabilir.
-
-**"Anahtarı dışa aktar" özel anahtarı düz metin olarak gösterir** ve cüzdan iki kez onay ister. Dışa aktardıktan sonra çevrimdışı olarak yazın. Ekran görüntüsü almayın, bulut depolamaya koymayın.
-
-**İşiniz bittiğinde "Kilitle / Çık" düğmesine basın.**
-
-**Cüzdanınızı ortak kullanılan bir bilgisayarda içe aktarmayın.**
-
-**Zincir üstü işlemler geri alınamaz.** Yayınlamadan önce her zaman "Çevir" düğmesine basıp alıcı adresini ve tutarı kontrol edin. Yanlış yere gönderirseniz kimse geri getiremez.
-
-**Göndermeden önce adresi okuyun.** Elle yazmak yerine kopyalama düğmesini tercih edin.
+1. **Anımsatıcıyı ve parolayı çevrimdışı saklayın.** Kurtarma yok, destek yok.
+2. **Tüm birikiminizi içine koymayın.** Kontrat yükseltilemez; sonradan bulunan
+   bir hata düzeltilemez.
+3. **Hazine anahtarı tek noktadır.** Kontratta çekim fonksiyonu yok, dolayısıyla
+   kimse varlıklarınızı alamaz; ancak hazinedeki protokol geliri projenin soğuk
+   cüzdanının kontrolündedir — onlara güvendiğiniz tek yer.
+4. **Yönetici yok.** Kimse kontratı durduramaz, parametre değiştiremez veya
+   hesabınızı donduramaz. Bu, fonksiyon listesinden doğrudan doğrulanabilir.
+5. **Ekip size asla önce yazmaz.** "Cüzdanınızı doğrulayın" veya "anımsatıcınızı
+   gönderin" diyen herkes dolandırıcıdır.
+6. **Çevrimdışı imzalamada özel anahtar ağa hiç dokunmaz.** Soğuk makine ideal
+   olarak kalıcı olarak bağlantısız olmalıdır.
 
 ---
 
-## 12. Sade dille terimler
+## 12. Sade dille sözlük
 
-| Terim | Sade anlatım |
+| Terim | Sade anlamı |
 |---|---|
-| **HAC** | Ana zincirin yerel coin'i |
-| **HACD** | Elmaslar. Değerlidir ve hacds'e çevrilebilir |
-| **hacds** | Elmaslardan elde edilen varlık; serbestçe transfer edilir, işlem görür, teminat olur |
-| **atoms** | hacds'in en küçük birimi; 1 hacds = 100 milyon atoms |
-| **LP payı** | Havuza koyduğunuz paranın makbuzu; komisyondan pay kazandırır |
-| **Havuz / AMM** | Otomatik takas yapan bir fon havuzu; fiyat, içindeki iki coin miktarından gelir |
-| **Kayma koruması** | Gerçekleşme fiyatı belirlediğiniz tabandan kötü olamaz, yoksa otomatik iptal olur |
-| **Teminat oranı** | Aldığınız borç ile rehin verdiğiniz değer arasındaki ilişki; çok düşerse tasfiye edilir |
-| **Tasfiye** | Teminat yetersizse başkası borcu kapatmak için zorla satabilir |
-| **gaz** | Zincir üstü işlemin tükettiği hesaplama kaynağı, HAC ile ödenir |
-| **Yayınlama** | İşlemi zincire gönderme |
-| **Blok** | Zincirde onay, yaklaşık 5 dakikada bir |
-| **Soğuk cüzdan / çevrimdışı imza** | İmzalayan makine ağa bağlı değildir; özel anahtar için en güvenli düzen |
-| **Oracle** | Elmasları puanlayan servis; hacds'e çevirmek için imzalı sertifikası gerekir |
-| **İndeksleyici** | Hangi kredilerin tasfiye edilmesi gerektiğini hesaplayan arka plan servisi |
+| **hacds** | Elmasları kontrata yatırınca aldığınız token; 1 puan elmas = 100 milyon |
+| **HAC** | Hacash ana parası — harcayabileceğiniz para |
+| **HACD** | Elmaslar; yatırınca hacds alırsınız |
+| **due / kota** | Kontrat içinde sizin için kaydedilen hacds, henüz zincire alınmamış |
+| **AMM** | Otomatik piyasa yapıcılığı: tek havuz, herkes işlem yapar, fiyat kendi ayarlanır |
+| **LP** | Likidite sağlayıcı — havuza para koyup ücret kazanan kişi |
+| **Kayma** | İşleminizin fiyatı ne kadar ittiği; büyük işlemlerde daha fazla |
+| **Teminat oranı** | Teminat değeri ÷ borç; %200 borç çizgisi, %160 tasfiye çizgisi |
+| **Sağlık** | Teminat oranının başka bir gösterimi; 10000 = tam çizgide |
+| **Tasfiye** | Geri ödeyemiyorsunuz, biri sizin için öder ve teminatınızın bir kısmını alır |
+| **Derin su** | Teminat oranı %105 altında; tüm borç tek seferde kapatılabilir |
+| **hcut** | Aşırı batık borçta küresel küçülme faktörü; yalnızca azalır |
+| **keeper** | Kontratın depolama kirasını ödül karşılığında yenileyen kişi; herkes çalıştırabilir |
+| **Referans fiyat** | Kontratın değerlemede kullandığı düzleştirilmiş fiyat; spot'tan farklı, manipülasyona dayanıklı |
+| **Atomik işlem** | Birkaç eylemin tek işlemde paketlenmesi, ya hep ya hiç |
 
 ---
 
 ## 13. Bir dakikalık özet (yanınızda tutun)
 
 ```
-Cüzdan oluştur  → Cüzdan oluştur → parola belirle
-Durum sorgula   → "Yenile" düğmesine bas
-hacds al        → Takas/Yatır → HACD→hacds → işlem başına bir elmas
-hacds'i al       → Takas/Yatır → hacds al
-HAC yatır       → Takas/Yatır → HAC yatır (AMM/krediden önce yapın)
-Takas           → AMM & Likidite → bir tarafı doldur → fiyata bak → yayınla
-Likidite ekle   → AMM & Likidite → Likidite ekle → bir tarafı doldur, diğeri otomatik
-Borç al         → Kredi → önce "Teminat ekle" → sonra "HAC borç al"
-Coin gönder     → Transferler
-Her işlem       → Oluştur → Çevir → Yayınla → 5 dakika bekle
+Elmas yatır:      HACD sekmesi → elmaslarımı yükle → seç (en fazla 200) → toplu yatır
+hacds al:         Fon sekmesi → hacds al → tutar → yayınla
+Takas:            Takas sekmesi → yön seç → tutar → oluştur → yayınla
+Likidite ekle:    Likidite sekmesi → HAC tarafını gir → hacds otomatik → oluştur → yayınla
+Borç al:          Kredi sekmesi → teminat ekle → borç al → oluştur → yayınla
+Transfer:         Transfer sekmesi → tür seç → adres ve tutar → oluştur → yayınla
 
-Birimler: hacds atoms alır (1 hacds = 100000000)
-          HAC doğrudan adet alır (10 demek 10)
+Birimler:  hacds adet alır (1 bir demek)
+           HAC HAC adedi alır (zincir üstü transferlerde 1:248)
+           1e8 ile çarpmayın!
+
+Tasfiye:   %160 teminat oranı, ödemesiz süre yok
+Sağlık:    10000 = tehlikeli, > 10000 güvenli
+Bloklar:   yaklaşık 300 saniye
 ```
+
+---
+
+*Bu belge, `HacdsDeFi3000.fitsh` kontratının 2026-11-11 tarihli kesinleşmiş
+sürümüne karşılık gelir.*
