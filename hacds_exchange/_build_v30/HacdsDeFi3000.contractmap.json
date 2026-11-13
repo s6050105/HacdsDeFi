@@ -3570,10 +3570,6 @@
           "sig": "60d7aa55"
         },
         {
-          "name": "rent_low",
-          "sig": "a05ade5e"
-        },
-        {
           "name": "providers",
           "sig": "bba06710"
         },
@@ -3603,23 +3599,6 @@
       ],
       "vars": [
         0
-      ]
-    },
-    {
-      "lets": [
-        0,
-        1,
-        2
-      ],
-      "name": "rent_low",
-      "param_prelude_count": 1,
-      "params": [
-        "k"
-      ],
-      "slots": [
-        "k",
-        "st",
-        "live"
       ]
     },
     {

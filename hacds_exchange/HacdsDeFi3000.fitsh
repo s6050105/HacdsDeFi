@@ -2360,16 +2360,15 @@ contract HacdsDeFi {
         return 0
     }
 
-    // 自检：返回不变量检查位（0=通过，非0=异常码；多位可叠加）。
+    // 自检：返回不变量检查位（0=通过，非0=异常码）。
     // 钱包/索引器可定期调用，任何一位非 0 都应该告警。
-    //   位值与实现一一对应（2026-11-12 校正：补上 bit6 租期告警）：
+    //   位值与实现一一对应（2026-10-26 校正：删去未实现的 bit0/bit6 说明，
+    //   补上已实现但漏注的 bit8/bit9）：
     //   bit1(2)   : hcut 越界（< HCUT_MIN 或 > HCUT_SCALE，都不该发生）
     //   bit2(4)   : lcut 越界
     //   bit3(8)   : def > providers×5%（阈值硬编码 500 万分比，赤字告警）
     //   bit4(16)  : 覆盖率 < 100%
     //   bit5(32)  : 利用率 > U_MAX
-    //   bit6(64)  : 核心账本键（tot:ds: / tot:hac: / amm:ds）剩余租期
-    //               < RENT_THRESHOLD，需要 keeper 立即续租
     //   bit7(128) : borrow:paused == 1（坏账瀑布触发的借款暂停）
     //   bit8(256) : 总量键异常归零——total_sub 的饱和兜底触发过
     //               （tot:hac/tot:ds: 归零但对应侧仍有余额）
@@ -2378,8 +2377,9 @@ contract HacdsDeFi {
     //   ⚠ 未实现的位（不要调用方去查）：
     //     bit0 —— Σbal 与 tot:hac 的一致性无法在链上枚举（合约不能遍历地址），
     //             只能靠索引器离线核对。
-    //   （原 bit6「lpr:hac 超发」判定不成立：lpr 是名义值，有效量 = lpr×lcut/S，
-    //     与 lcut 联动后没有独立上界，判据应另立。bit6 现改为租期告警。）
+    //     bit6 —— 「lpr:hac 超发」在当前模型下不构成可判定的异常：lpr 是名义值，
+    //             其有效量 = lpr×lcut/S，与 lcut 联动后没有独立的上界。
+    //             若将来要查，判据应是 lpr_eff > 总资产而非「名义上限」。
     function external self_check() -> u128 {
         var r = 0u128
         var hc = self.hcut_of()
@@ -2412,28 +2412,7 @@ contract HacdsDeFi {
             if self.ld_u128("tre:ds:") > 0 { r = r + 256 }
             if self.ld_u128("lpr:ds:") > 0 { r = r + 256 }
         }
-        // bit6（64）：核心账本键的租期即将耗尽。
-        // 为什么需要：Hacash 的合约状态要付租金，键过期会变成 recoverable，
-        // 之后任何读写都要先 recover，核心功能整笔回滚。合约不可升级、无管理员，
-        // 一旦全过期就没人能救 —— 只能靠 keeper 提前续。
-        //
-        // ⚠ 部署体积上限 16,384 B，这里只探**一个**键（tot:ds:）。
-        //   它是 hacds 侧的核心账本键，与 amm:ds / tot:hac: 同一批次续租
-        //   （rent_keys 按长度分组，keeper 一轮全续），所以探一个就够。
-        //   探三个会多占 4 B，直接超限（实测 16,388）。
-        if self.ld_u128("tot:ds:") > 0 and self.rent_low("tot:ds:") { r = r + 64 }
         return r
-    }
-
-    // 键的剩余租期是否低于告警线（100 块，与 RENT_THRESHOLD 同值）。
-    // 键不存在 / recoverable（live == 0）时返回 false —— 那种情况由 bit8 报，
-    // 这里只负责"还活着但快到期"。
-    function rent_low(k: bytes) -> bool {
-        var st = storage_stat(k)
-        if st is nil { return false }
-        var live = item_get(st, 0)
-        if live == 0 { return false }
-        return live < RENT_THRESHOLD
     }
 
     // HACD 池：总分数 / 颗数 / 均分 / 覆盖率
