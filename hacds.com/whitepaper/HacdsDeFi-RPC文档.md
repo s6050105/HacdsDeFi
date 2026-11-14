@@ -610,13 +610,13 @@ GET /query/block/intro?height={H}&tx_hash_list=true
 
 ```bash
 hacds_txbuild transfer {main} {ts} asset-from-to {from} {to} 3000 {amount}
+```
+
 > ⚠ **serial 必须写数字 `3000`，不要写 `hacds` 别名。**
 > `hacds_txbuild` 里的 `hacds` 别名指向旧版 serial `2000`，与 #3000 版合约的
 > `HACDS_SERIAL = 3000` 不一致，链上会被 `PermitAsset` 以 `return 1` 拒绝。
 > 走 `/api/build` 时服务端会把 `hacds` 自动翻成 `3000`，但**命令行直接调用**
 > 不受这层保护。
-
-```
 
 或者走构建服务（`mode=transfer`, `sub=asset-from-to`）。
 

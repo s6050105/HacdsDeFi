@@ -629,14 +629,14 @@ A withdrawal is a standard asset transfer:
 
 ```bash
 hacds_txbuild transfer {main} {ts} asset-from-to {from} {to} 3000 {amount}
+```
+
 > ⚠ **Use the numeric serial `3000`, not the `hacds` alias.**
 > The `hacds` alias inside `hacds_txbuild` still points at the legacy serial
 > `2000`, which does not match `HACDS_SERIAL = 3000` in the #3000 contract;
 > the chain rejects it via `PermitAsset` with `return 1`.
 > The `/api/build` service translates `hacds` to `3000` automatically, but a
 > **direct command-line call** gets no such protection.
-
-```
 
 Or through the build service (`mode=transfer`, `sub=asset-from-to`).
 
