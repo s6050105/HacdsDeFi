@@ -1,5 +1,6 @@
 package com.hacds.defi.ui
 
+import com.hacds.defi.core.AppConfig
 import com.hacds.defi.core.Units
 import java.math.BigDecimal
 
@@ -10,6 +11,16 @@ import java.math.BigDecimal
  * 上链前 ×1e8 转 zhu；未列出的字段保持原量纲（hacds 侧 = atoms；share 无定标）。
  * ⚠ `swap_ds_to_hac` 的输出腿是 HAC，故其滑点保护 `min_out` 也以 HAC 计。
  */
+
+/**
+ * 上链资产 serial。
+ *
+ * ⚠ 必须传**数字**：txbuild 的 `hacds` 别名停在旧版 2000，
+ * 与 #3000 合约的 `HACDS_SERIAL = 3000` 不一致，传别名会被链上 `PermitAsset`
+ * 以 return 1 拒绝。
+ */
+private val SERIAL: String = AppConfig.HACDS_SERIAL.toString()
+
 data class Field(
     val name: String,
     val labelKey: String? = null,
@@ -64,7 +75,7 @@ object Ops {
         // 与 PC 端 `claim` 完全一致：asset-from-to 合约→main，serial=hacds。
         Op("claim", "fund", OpKind.TRANSFER, "op.claim.t", "op.claim.d",
             fields = listOf(Field("atoms", "f.atoms", null, "u128", "100000000")),
-            build = { v, main, contract -> listOf(main, "0", "asset-from-to", contract, main, "hacds", v["atoms"] ?: "") }),
+            build = { v, main, contract -> listOf(main, "0", "asset-from-to", contract, main, SERIAL, v["atoms"] ?: "") }),
         Op("hacIn", "fund", OpKind.TRANSFER, "op.hacIn.t", "op.hacIn.d",
             fields = listOf(Field("hac", "f.hacAmt", null, "text", "1:248")),
             build = { v, main, contract -> listOf(main, "0", "hac-to", contract, v["hac"] ?: "") }),
@@ -127,14 +138,14 @@ object Ops {
         Op("sweepDs", "tools", OpKind.TRANSFER, "op.sweepDs.t", "op.sweepDs.d",
             fields = listOf(Field("atoms", "f.atomsNum", null, "u128", "100000000")),
             build = { v, main, contract -> listOf(main, "0", "asset-from-to", contract,
-                "1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK", "hacds", v["atoms"] ?: "") }),
+                "1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK", SERIAL, v["atoms"] ?: "") }),
         Op("trA2C", "fund", OpKind.TRANSFER, "op.trA2C.t", "op.trA2C.d",
             fields = listOf(Field("atoms", "f.atomsNum", null, "u128", "100000000")),
-            build = { v, main, contract -> listOf(main, "0", "asset-to", contract, "hacds", v["atoms"] ?: "") }),
+            build = { v, main, contract -> listOf(main, "0", "asset-to", contract, SERIAL, v["atoms"] ?: "") }),
         Op("trA2A", "xfer", OpKind.TRANSFER, "op.trA2A.t", "op.trA2A.d",
             fields = listOf(Field("to", "f.toAddr", null, "address"),
                 Field("atoms", "f.atomsNum", null, "u128", "100000000")),
-            build = { v, main, _ -> listOf(main, "0", "asset-from-to", main, v["to"] ?: "", "hacds", v["atoms"] ?: "") }),
+            build = { v, main, _ -> listOf(main, "0", "asset-from-to", main, v["to"] ?: "", SERIAL, v["atoms"] ?: "") }),
         Op("trHacd", "xfer", OpKind.HACD_TRANSFER, "op.trHacd.t", "op.trHacd.d",
             fields = listOf(Field("names", "f.hacdNames"), Field("to", "f.toAddr", null, "address"))),
         Op("trOther", "xfer", OpKind.TRANSFER_OTHER, "op.trOther.t", "op.trOther.d",

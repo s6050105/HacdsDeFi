@@ -22,8 +22,8 @@ android {
         // v0.2.2（2026-11-12 审计）：密码框全部掩码（keystore 口令、口令钱包
         //   passphrase）；默认节点改为 HTTPS 域名，不再硬编码运维 IP。
         // versionCode 必须递增才能覆盖安装。
-        versionCode = 4
-        versionName = "0.2.2"
+        versionCode = 5
+        versionName = "0.2.3"
 
         // 只保留 arm64-v8a（D-A4）：正式分发。模拟器为 x86_64，构建时通过 -Pabi=x86_64 覆盖。
         ndk {

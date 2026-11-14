@@ -870,7 +870,7 @@
       // from-to 形态需要显式 from = 合约
       if (cfg.sub.endsWith('from-to')) req.from = CFG.contract;
       if (cfg.unit === 'hac') req.hac = raw;
-      else { req.serial = 'hacds'; req.atoms = String(Math.floor(Number(raw))); }
+      else { req.serial = '3000'; req.atoms = String(Math.floor(Number(raw))); }
 
       const res = await TX.transfer(cfg.sub, req);
       await sendTx(res, cfg.label);
@@ -908,7 +908,7 @@
       if (!amt || Number(amt) <= 0) return log(t('fund.needAmt'), 'warn');
       // 我 → 他人：用 asset-to（发送方隐含为交易主地址），不需要 from
       sub = 'asset-to';
-      req = { main: S.addr, to, serial: 'hacds', atoms: String(Math.floor(Number(amt))) };
+      req = { main: S.addr, to, serial: '3000', atoms: String(Math.floor(Number(amt))) };
       label = t('xfer.doDs');
 
     } else if (kind === 'other') {

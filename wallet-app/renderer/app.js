@@ -366,6 +366,14 @@ async function loadPoolHacd(silent) {
   if (S.tab === 'hacd') renderHacdPanel();
 }
 
+// ===================== 资产 serial =====================
+// ⚠ 必须传**数字** serial，不能传 'hacds' 别名。
+//   hacds_txbuild 内部的 `HACDS_SERIAL` 常量仍停在旧版 2000，
+//   而 #3000 版合约的 `HACDS_SERIAL` 是 3000；传别名会被 txbuild 拼成
+//   serial=2000 的动作，链上 PermitAsset 校验 `serial != 3000` 直接 return 1。
+//   （2026-11-15 测试网实测复现，详见 测试报告-v2.md 附三）
+const HACDS_SERIAL = '3000';
+
 // ===================== 操作目录 =====================
 const OPS = [
   { id:'redeem', tab:'hacd', kind:'redeem', titleKey:'op.redeem.t',
@@ -375,7 +383,7 @@ const OPS = [
   { id:'claim', tab:'fund', kind:'transfer', titleKey:'op.claim.t',
     descKey:'op.claim.d',
     fields:[{name:'atoms',labelKey:'f.atoms',type:'u128',default:'100000000'}],
-    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',S.cfg.contract,main,'hacds',v.atoms]}) },
+    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',S.cfg.contract,main,HACDS_SERIAL,v.atoms]}) },
   { id:'hacIn', tab:'fund', kind:'transfer', titleKey:'op.hacIn.t',
     descKey:'op.hacIn.d',
     fields:[{name:'hac',labelKey:'f.hacAmt',type:'text',default:'1:248'}],
@@ -459,15 +467,15 @@ const OPS = [
   { id:'sweepDs', tab:'tools', kind:'transfer', titleKey:'op.sweepDs.t',
     descKey:'op.sweepDs.d',
     fields:[{name:'atoms',labelKey:'f.atomsNum',type:'u128',default:'100000000'}],
-    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',S.cfg.contract,'1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK','hacds',v.atoms]}) },
+    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',S.cfg.contract,'1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK',HACDS_SERIAL,v.atoms]}) },
   { id:'trA2C', tab:'fund', kind:'transfer', titleKey:'op.trA2C.t',
     descKey:'op.trA2C.d',
     fields:[{name:'atoms',labelKey:'f.atomsNum',type:'u128',default:'100000000'}],
-    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-to',S.cfg.contract,'hacds',v.atoms]}) },
+    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-to',S.cfg.contract,HACDS_SERIAL,v.atoms]}) },
   { id:'trA2A', tab:'xfer', kind:'transfer', titleKey:'op.trA2A.t',
     descKey:'op.trA2A.d',
     fields:[{name:'to',labelKey:'f.toAddr',type:'address'},{name:'atoms',labelKey:'f.atomsNum',type:'u128',default:'100000000'}],
-    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',main,v.to,'hacds',v.atoms]}) },
+    build:(v,[main])=>({mode:'transfer', args:[main,'0','asset-from-to',main,v.to,HACDS_SERIAL,v.atoms]}) },
 
   // HACD 点对点转账（D63）——链上一级转账，不碰合约、无需证书；由官方 hacash_sdk.wasm 本地签名
   { id:'trHacd', tab:'xfer', kind:'hacdTransfer', titleKey:'op.trHacd.t',
@@ -1794,7 +1802,7 @@ function renderXferPage(host) {
     const to = ($w('#xferDsTo').value || '').trim();
     const amt = ($w('#xferDsAmt').value || '').trim();
     if (!needAddr(to) || !needAmt(amt)) return;
-    build('asset-to', [to, 'hacds', String(Math.floor(Number(amt)))]);
+    build('asset-to', [to, HACDS_SERIAL, String(Math.floor(Number(amt)))]);
   };
 
   $w('#btnXferHacd').onclick = () => {
@@ -1894,7 +1902,7 @@ function renderFundPanel(host) {
       if (cfg.sub.endsWith('from-to')) args.push(S.cfg.contract);          // from = 合约
       args.push(kind.endsWith('-in') ? S.cfg.contract : S.addr);           // to
       if (cfg.unit === 'hac') args.push(raw);
-      else { args.push('hacds'); args.push(String(Math.floor(Number(raw)))); }
+      else { args.push(HACDS_SERIAL); args.push(String(Math.floor(Number(raw)))); }
 
       const res = await window.api.buildTx({
         mode: 'transfer', args, keyPath: S.keyPath, fee: null, gasMax: null,
@@ -2143,8 +2151,8 @@ function renderOfflinePanel(host) {
       mode = 'transfer';
       if (tt === 'hac-to') args = [main, '0', 'hac-to', to, amt];
       else if (tt === 'hac-from-to') args = [main, '0', 'hac-from-to', main, to, amt];
-      else if (tt === 'asset-to') args = [main, '0', 'asset-to', to, 'hacds', amt.replace('hacds', '').trim()];
-      else args = [main, '0', 'asset-from-to', main, to, 'hacds', amt.replace('hacds', '').trim()];
+      else if (tt === 'asset-to') args = [main, '0', 'asset-to', to, HACDS_SERIAL, amt.replace('hacds', '').trim()];
+      else args = [main, '0', 'asset-from-to', main, to, HACDS_SERIAL, amt.replace('hacds', '').trim()];
     }
     const r = await window.api.buildUnsigned({ mode: mode, args: args, contract: S.cfg.contract });
     if (!r.ok) return logErr(t('common.buildFail'), r);

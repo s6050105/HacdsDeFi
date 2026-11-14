@@ -1,6 +1,6 @@
 {
   "name": "hacds-defi-wallet",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "HacdsDeFi 可视化控制台 —— HACD 兑换 hacds、AMM、借贷、HAC 存取",
   "main": "main.js",
   "author": "HacdsDeFi",
@@ -26,12 +26,16 @@
       "keccak.js",
       "hacd-transfer.js",
       "vendor/**/*",
-      "renderer/**/*"
+      "renderer/*.js",
+      "renderer/*.css",
+      "renderer/*.html",
+      "renderer/assets/**/*",
+      "renderer/vendor/**/*"
     ],
     "extraResources": [
       {
-        "from": "bin",
-        "to": "bin"
+        "from": "bin/hacds_txbuild.exe",
+        "to": "bin/hacds_txbuild.exe"
       }
     ],
     "win": {

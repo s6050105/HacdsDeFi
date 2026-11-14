@@ -627,7 +627,14 @@ saniyedir ama dalgalanır.
 Çekim standart bir varlık transferidir:
 
 ```bash
-hacds_txbuild transfer {main} {ts} asset-from-to {from} {to} hacds {amount}
+hacds_txbuild transfer {main} {ts} asset-from-to {from} {to} 3000 {amount}
+> ⚠ **`hacds` takma adı yerine sayısal serial `3000` kullanın.**
+> `hacds_txbuild` içindeki `hacds` takma adı hâlâ eski serial `2000` değerine
+> işaret eder ve #3000 sözleşmesindeki `HACDS_SERIAL = 3000` ile uyuşmaz;
+> zincir bunu `PermitAsset` içinde `return 1` ile reddeder.
+> `/api/build` servisi `hacds` değerini otomatik olarak `3000` yapar, ancak
+> **doğrudan komut satırı çağrısı** bu korumadan yararlanmaz.
+
 ```
 
 Ya da oluşturma servisi üzerinden (`mode=transfer`, `sub=asset-from-to`).

@@ -100,6 +100,23 @@ TRANSFER_FORMS = {
 # 不依赖 from 参数，所以上述 from 限制不影响任何转账功能。
 ALLOWED_SERIALS = {"hacds", "3000"}   # 保留这两个别名，另允许任意数字 serial
 
+# ⚠ `hacds` 别名必须由**本服务**翻成数字 serial 再交给 txbuild。
+#   `testkit` 的 `hacds_txbuild` 内部常量 `HACDS_SERIAL` 是 2000（旧版值），
+#   而 #3000 版合约的 `HACDS_SERIAL` 已是 3000（见 HacdsDeFi3000.fitsh:168）。
+#   若把 "hacds" 原样转发，txbuild 会拼出 serial=2000 的转账动作，
+#   合约 PermitAsset 校验 `serial != HACDS_SERIAL` 直接 return 1 —— 用户侧
+#   表现为「转账失败但不知道原因」。
+#   2026-11-15 测试网实测复现：用 'hacds' 别名报 asset is insufficient，
+#   换成数字 serial 立刻成功。
+HACDS_SERIAL_MAINNET = "3000"
+
+
+def normalize_serial(sr: str) -> str:
+    """把 `hacds` 别名翻成链上真实 serial；数字原样返回。"""
+    if sr == "hacds":
+        return HACDS_SERIAL_MAINNET
+    return sr
+
 # 数字 serial 的合法范围
 SERIAL_RE = re.compile(r"^\d{1,20}$")
 
@@ -409,7 +426,7 @@ class Handler(BaseHTTPRequestHandler):
             atoms = req.get("atoms")
             if not isinstance(atoms, str) or not re.match(r"^\d{1,32}$", atoms):
                 return "bad_atoms", None
-            argv.append(sr)
+            argv.append(normalize_serial(sr))
             argv.append(atoms)
 
         if "names" in fields:
