@@ -65,6 +65,7 @@ WHITELIST=(
   "hacds_exchange/AMM种子流动性设计-v1.md"
   "hacds_exchange/借贷模块设计-v1.md"
   "hacds_exchange/fuzz_vectors.txt"
+  "hacds_exchange/测试报告-v2.md"
   "hacds_exchange/assets"
 
   # 服务端
