@@ -814,9 +814,42 @@
     } finally { S.busy = false; }
   }
 
+  /**
+   * 签名前确认框（2026-11-15 审计 H-5）。
+   *
+   * 用原生 confirm() 而不是自绘弹窗：签名前的确认必须**同步阻塞**，
+   * 自绘异步弹窗一旦被绕过（比如脚本注入点直接调 sendTx）就形同虚设。
+   * 原生 confirm 由浏览器保证阻塞主线程。
+   */
+  function confirmDialog(title, body) {
+    return Promise.resolve(window.confirm(title + '\n\n' + body));
+  }
+
   /* ---------- 发送 ---------- */
 
   async function sendTx(res, label, extra) {
+    // ⚠ 2026-11-15 审计 H-5：签名前**必须**让用户看到这笔交易要做什么。
+    //
+    //   原流程：build → 直接 signTx(autosubmit:true) → 进内存池。
+    //   用户从未看到任何"这笔交易做什么"的信息，等于盲签。
+    //
+    //   现在：若服务端返回了 description（结构化摘要），先展示并要用户确认；
+    //   没有 description 时至少显示 label 与 txbody 前 32 字符。
+    const desc = (res && res.description) || null;
+    let summary;
+    if (desc && desc.summary) {
+      summary = desc.summary;
+    } else {
+      summary = (label || '') + '\n\n交易体（前 32 字符）：' +
+        String((res && res.txbody) || '').slice(0, 32) + '…';
+    }
+    if (!(await confirmDialog(t('log.confirmSign') || '确认签名并广播这笔交易？', summary))) {
+      log(t('log.signCancelled') || '已取消签名', 'warn');
+      const e = new Error('user_cancelled');
+      e.code = 'user_cancelled';
+      throw e;
+    }
+
     log(t('log.signing'));
     const opts = Object.assign({ autosubmit: true }, extra || {});
     try {
@@ -1000,7 +1033,10 @@
         return;
       }
       list.innerHTML = _rentBatches.map((b, i) =>
-        `<div class="info-row"><span>#${i + 1}</span><span class="mono">klen=${b.klen} · ${b.count} ${t('tools.rentKeys')}</span></div>`).join('');
+        // ⚠ 2026-11-15 审计 H-3：b.klen / b.count 来自**索引器响应**（外部数据），
+        //   原实现裸拼 innerHTML —— 索引器被攻破或被中间人篡改时直接 XSS。
+        //   这是要用户签名的站点，XSS 的代价就是丢币。
+        `<div class="info-row"><span>#${i + 1}</span><span class="mono">klen=${esc(String(b.klen))} · ${esc(String(b.count))} ${esc(t('tools.rentKeys'))}</span></div>`).join('');
       hint.textContent = t('tools.rentReady', { n: _rentBatches.length });
       $('#btnRentDo').disabled = false;
     } catch (e) {

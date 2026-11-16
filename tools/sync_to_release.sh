@@ -91,6 +91,13 @@ WHITELIST=(
   # 编译产物：审计方要能核对"这份源码编译出这个字节码"
   "hacds_exchange/_build_v30/HacdsDeFi3000.deploy.json"
   "hacds_exchange/_build_v30/HacdsDeFi3000.contractmap.json"
+  # 部署产物的唯一权威清单（2026-11-15 审计 B-1）。
+  # 记录 action 字节数 / 各文件 SHA256 / 编译器版本 —— 审计方靠它确认
+  # 「这份源码编译出这个字节码」，缺了就无法复现验证。
+  "hacds_exchange/_build_v30/manifest.json"
+  "hacds_exchange/_build_v30/score_sum.calc.manifest.json"
+  "hacds_exchange/_test/gen_manifest.py"
+  "hacds_exchange/_test/verify_build.py"
   "hacds_exchange/score_sum_opt.hcf1"
   "hacds_exchange/build-v3000.sh"
   "hacds_exchange/_test"
@@ -140,12 +147,45 @@ EXCLUDES=(
 )
 
 should_exclude() {
-  local rel="/$1" pat
+  # ⚠ 2026-11-15 审计 M-10：原实现 `case "$rel" in *"$pat"*` 是无差别子串匹配，
+  #   语义含混：排除项里有目录名、有路径前缀、有扩展名，全靠"碰巧不撞车"。
+  #
+  #   现在按 EXCLUDES 的**写法**分三类，各用各的匹配方式：
+  #
+  #     /xxx/   带尾斜杠  → 目录段，匹配任意层级（node_modules、build、dist…）
+  #     /xxx    无尾斜杠  → 路径段前缀，匹配任意层级的"以该名字开头"的段
+  #                        （/_dist_stale_ → /_dist_stale_20261027/、
+  #                          /tmp_        → /tmp_analysis/、
+  #                          /local.properties → 精确结尾）
+  #     .xxx    扩展名    → 只比文件名后缀
+  #
+  #   这样每一种排除项的含义都是明确的，不再依赖子串巧合。
+  local rel="/$1" pat base
+  base="${rel##*/}"
   for pat in "${EXCLUDES[@]}"; do
-    case "$rel" in *"$pat"*) return 0 ;; esac
+    case "$pat" in
+      /*/)
+        case "$rel" in *"$pat"*) return 0 ;; esac
+        ;;
+      /*)
+        # 完整段（/dist/ 已由上面处理）或段前缀
+        case "$rel" in *"$pat"/*) return 0 ;; esac
+        # 结尾精确匹配（/local.properties、/verify.txt）
+        case "$rel" in *"$pat") return 0 ;; esac
+        # 段前缀匹配：/tmp_ 命中 /tmp_analysis/，/_dist_stale_ 命中 /_dist_stale_2026/
+        case "$rel" in *"$pat"*) return 0 ;; esac
+        ;;
+      .*)
+        case "$base" in *"$pat") return 0 ;; esac
+        ;;
+      *)
+        case "$rel" in *"$pat"*) return 0 ;; esac
+        ;;
+    esac
   done
   return 1
 }
+
 
 # ---------------------------------------------------------------------------
 # 收集文件并映射目标路径

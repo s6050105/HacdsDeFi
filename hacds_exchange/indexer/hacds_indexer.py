@@ -40,7 +40,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 # --------------------------------------------------------------------------
 # 常量（与合约/钱包一致）
@@ -737,13 +737,96 @@ def poller(idx: Indexer, interval: int, stop: threading.Event):
 
 
 # --------------------------------------------------------------------------
+# keeper 健康检查（2026-11-15 审计 H-2）
+#
+# 为什么需要这个：
+#   合约的 rent_keys 只在 `live < period/3` 时才真正续租并付报酬。
+#   keeper 由计划任务每小时驱动一轮（不是常驻进程），它一旦停下来，
+#   没有任何链上信号能提前告警 —— 要等到键真的过期（约 104 天后），
+#   storage_load 报 StorageNotActive(108)，用户余额直接查不到。
+#
+#   链上查不到剩余租期（storage_stat 是 VM 内置，合约未暴露成视图；
+#   节点 API 只有全局存储费参数）。所以运维侧的唯一可行信号是
+#   "keeper 上一轮什么时候跑的"。
+# --------------------------------------------------------------------------
+
+KEEPER_HEALTH_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "keeper_health.json")
+
+# keeper 计划任务是每小时一轮；超过 3 小时没更新就视为停滞。
+# 3 小时 = 36 块，远小于 period/3 的 100 块阈值，留足人工介入时间。
+KEEPER_STALE_SEC = 3 * 3600
+
+
+def _keeper_health():
+    """读 keeper 上报的健康状态，判断是否停滞。"""
+    path = os.environ.get("HACDS_KEEPER_HEALTH") or KEEPER_HEALTH_FILE
+    if not os.path.exists(path):
+        return {
+            "ret": 0,
+            "status": "missing",
+            "detail": "未找到 keeper 健康文件；keeper 可能从未运行",
+            "path": path,
+        }
+    try:
+        rec = json.load(open(path, encoding="utf-8"))
+    except Exception as e:                                       # noqa: BLE001
+        return {"ret": 0, "status": "unreadable", "detail": str(e)[:200]}
+
+    age = int(time.time()) - int(rec.get("ts") or 0)
+    streak = int(rec.get("consecutive_fail") or 0)
+
+    if age > KEEPER_STALE_SEC:
+        status = "stale"
+        detail = ("上一轮距今 %d 秒（阈值 %d）。keeper 可能已停止 —— "
+                  "约 104 天后存储键过期，用户余额将无法读取"
+                  % (age, KEEPER_STALE_SEC))
+    elif streak >= 3:
+        status = "failing"
+        detail = "连续 %d 轮续租失败" % streak
+    else:
+        status = "ok"
+        detail = "上一轮距今 %d 秒" % age
+
+    out = dict(rec)
+    out.update({
+        "ret": 0,
+        "status": status,
+        "detail": detail,
+        "age_sec": age,
+        "stale_after_sec": KEEPER_STALE_SEC,
+    })
+    return out
+
+
+# --------------------------------------------------------------------------
 # HTTP API
 # --------------------------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
+    # ⚠ 2026-11-15 审计 H-12：原实现完全静默 —— DoS / 滥用无法追溯。
+    #   现在打结构化访问日志：方法、路径、状态码、耗时、来源 IP。
+    #   刻意**不记录 query string 里的 address 参数全文**（只记前 12 字符），
+    #   避免日志变成全量地址簿。
     def log_message(self, fmt, *args):                            # noqa: A003
-        pass                                                      # 静默，避免刷屏
+        pass                                                      # 关掉默认的 stderr 刷屏
+
+    def _access_log(self, code, t0):
+        try:
+            path = self.path.split("?")[0][:80]
+            ip = self.client_address[0] if self.client_address else "-"
+            print("[access] %s %s %s %d %.0fms" % (
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+                ip, path, code, (time.time() - t0) * 1000), flush=True)
+        except Exception:                                          # noqa: BLE001
+            pass
 
     def _send(self, obj, code=200):
+        if not getattr(self, "_t0", None):
+            self._t0 = time.time()
+        self._access_log(code, self._t0)
+        return self._send_impl(obj, code)
+
+    def _send_impl(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -769,6 +852,7 @@ class Handler(BaseHTTPRequestHandler):
     # 汇总成前端期望的形状。**不做评分**——评分在客户端算，
     # 合约侧评分走链上内核，三方口径必须一致（见 DiamondScore）。
     def do_POST(self):                                            # noqa: N802
+        self._t0 = time.time()
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         if path != "/api/diamond/details":
@@ -828,6 +912,7 @@ class Handler(BaseHTTPRequestHandler):
                 "belong": item.get("belong") or item.get("address") or ""}
 
     def do_GET(self):                                             # noqa: N802
+        self._t0 = time.time()
         parsed = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(parsed.query)
         path = parsed.path.rstrip("/") or "/"
@@ -853,6 +938,15 @@ class Handler(BaseHTTPRequestHandler):
             # 返回按长度分组的原始键字节（hex），可直接喂给合约 rent_keys
             if path == "/rent_keys":
                 return self._send({"ret": 0, **IDX.rent_keys()})
+            if path == "/keeper_health":
+                # ⚠ 2026-11-15 审计 H-2：续租可观测性。
+                #
+                #   链上查不到单键剩余租期（storage_stat 是 VM 内置，合约没
+                #   暴露成视图），所以只能靠 keeper 自己上报"上一轮什么时候
+                #   跑的、成功几次"。超过 STALE_SEC 没更新就判 stale —
+                #   这是唯一能在键过期前发现"keeper 挂了"的信号。
+                return self._send(_keeper_health())
+
             if path == "/rent_batches":
                 try:
                     mx = int((qs.get("max") or ["10"])[0])
@@ -861,7 +955,8 @@ class Handler(BaseHTTPRequestHandler):
                 mx = max(1, min(10, mx))      # 合约单笔上限 10 键
                 return self._send({"ret": 0, **IDX.rent_batches(mx)})
             # ---- 只读模式：拦截所有写操作 ----
-            WRITE_PATHS = {"/sync", "/watch/add", "/watch/remove"}
+            WRITE_PATHS = {"/sync", "/watch/add", "/watch/remove",
+                           "/api/diamond/details"}
             if READ_ONLY and path in WRITE_PATHS:
                 return self._send({"ret": 1, "err": "read-only mode"}, 403)
             if path == "/sync":
@@ -1016,7 +1111,24 @@ def main():
         t.start()
         print(f"[indexer] serving on {args.host}:{args.port}  node={args.node}")
         print(f"[indexer] wallet API:  GET /watchlist   (single call)")
-        HTTPServer((args.host, args.port), Handler).serve_forever()
+        # ⚠ 2026-11-15 审计 H-8：原用的是单线程 HTTPServer。
+        #   /watchlist 每地址串行 3 次 sandboxcall（每次最多 3 重试 × 15s），
+        #   /api/diamond/details 200 颗 × 2 重试 × 10s，最坏约 4,050s ——
+        #   单个请求就能让 /health 和所有运维监控一起排队失明。
+        #
+        #   改 ThreadingHTTPServer + 并发上限。上限不是为了性能，是为了
+        #   防止被打爆：daemon_threads 让进程退出时不被卡住的请求拖住。
+        class BoundedServer(ThreadingHTTPServer):
+            daemon_threads = True
+            request_queue_size = 64          # listen backlog
+            MAX_CONCURRENT = 16
+            _sema = threading.BoundedSemaphore(MAX_CONCURRENT)
+
+            def process_request_thread(self, request, client_address):
+                with self._sema:
+                    super().process_request_thread(request, client_address)
+
+        BoundedServer((args.host, args.port), Handler).serve_forever()
 
 
 if __name__ == "__main__":

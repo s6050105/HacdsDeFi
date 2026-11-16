@@ -49,10 +49,14 @@ object Keystore {
         }
     }
 
-    /** 由口令派生私钥：sha2_256(utf8(password))（与 Hacash create_by 一致）。 */
-    fun secretFromPassword(password: String): ByteArray =
-        java.security.MessageDigest.getInstance("SHA-256")
-            .digest(password.toByteArray(Charsets.UTF_8))
+    // ⚠ 2026-11-15 审计 B-3：已删除 secretFromPassword()。
+    //
+    //   原实现把 sha2_256(口令) 直接当私钥（无 salt、无迭代），可离线枚举
+    //   常见口令 → 派生地址 → 查链上余额 → 命中即盗币。现在私钥一律由
+    //   newSecret() 随机生成，口令只用于 Scrypt 派生的 AES 加密密钥。
+    //
+    //   与 PC 端 wallet-app/keystore.js 同心处理，两端保持一致。
+    //   旧格式钱包仍可打开：decrypt() 不受影响。
 
     /** 加密一个 32B 私钥 → keystore JSON 字符串（与 PC 格式一致）。 */
     fun encrypt(secret32: ByteArray, password: String, address: String): String {

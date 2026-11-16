@@ -43,7 +43,7 @@ fun WalletScreen(vm: AppViewModel) {
     var label by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var importText by remember { mutableStateOf("") }
-    var createdKind by remember { mutableStateOf("random") }
+    // 2026-11-15 审计 B-3：createdKind 已删 —— 创建钱包只剩「随机私钥」一种方式。
     val ctx = androidx.compose.ui.platform.LocalContext.current
     // M-11 P0：生物识别开关改为**持久化 + 默认开启**。
     // 原实现 `remember { mutableStateOf(false) }` 默认关且重启复位，
@@ -97,16 +97,40 @@ fun WalletScreen(vm: AppViewModel) {
                             // vault 型无需密码；PC 型需密码
                             val pw = if (w.kind == "pc") password else null
                             val act = ctx as? androidx.fragment.app.FragmentActivity
-                            if (useBio && act != null &&
-                                com.hacds.defi.wallet.Biometric.isAvailable(ctx)
-                            ) {
-                                com.hacds.defi.wallet.Biometric.prompt(act,
-                                    onOk = {
-                                        vm.openWallet(w, pw).onSuccess { msg = tr("x_switched", it) }
-                                            .onFailure { msg = tr("x_openFail", it.message ?: "") }
-                                    },
-                                    onFail = { msg = tr("x_bioFail", it) })
+                            val sealed = vm.vaultSealedOf(w)
+
+                            // ⚠ 2026-11-15 审计 H-11：vault 型钱包**必须**先过
+                            //   生物识别拿到被解锁的 Cipher，才能解密。
+                            //   原来 useBio=false 时会直接 openWallet —— 那等于
+                            //   完全跳过认证。现在没有 Cipher 就开不了。
+                            if (sealed != null) {
+                                if (act == null) {
+                                    msg = tr("x_openFail", "需要生物识别界面")
+                                } else {
+                                    val cipher = try {
+                                        com.hacds.defi.wallet.AndroidKeyVault
+                                            .prepareDecrypt(sealed)
+                                    } catch (e: Exception) {
+                                        msg = tr("x_openFail", e.message ?: "")
+                                        null
+                                    }
+                                    if (cipher != null) {
+                                        com.hacds.defi.wallet.Biometric.prompt(act,
+                                            cipher = cipher,
+                                            onOk = { unlocked ->
+                                                if (unlocked == null) {
+                                                    msg = tr("x_openFail", "认证未返回 Cipher")
+                                                } else {
+                                                    vm.openWallet(w, pw, unlocked)
+                                                        .onSuccess { msg = tr("x_switched", it) }
+                                                        .onFailure { msg = tr("x_openFail", it.message ?: "") }
+                                                }
+                                            },
+                                            onFail = { msg = tr("x_bioFail", it) })
+                                    }
+                                }
                             } else {
+                                // PC 型（scrypt + 口令）不需要硬件认证
                                 vm.openWallet(w, pw).onSuccess { msg = tr("x_switched", it) }
                                     .onFailure { msg = tr("x_openFail", it.message ?: "") }
                             }
@@ -142,32 +166,25 @@ fun WalletScreen(vm: AppViewModel) {
             title = { Text(tr("acct.create")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { createdKind = "random" }) {
-                            Text(if (createdKind == "random") tr("x_randKey") else tr("x_randKey"))
-                        }
-                        Button(onClick = { createdKind = "password" }) {
-                            Text(if (createdKind == "password") tr("x_pwDerived") else tr("x_pwDerived"))
-                        }
-                    }
-                    // ⚠ 口令钱包模式下这个框填的是**派生私钥的 passphrase**，
-                    //   等同私钥本身，必须掩码（2026-11-12 审计 C-M2，M-13 的遗漏）。
-                    //   普通钱包模式下它只是备注，掩码也无害（少一点信息泄漏）。
+                    // ⚠ 2026-11-15 审计 B-3：删掉了「口令派生」按钮。
+                    //   原界面让用户在「随机私钥」和「口令当私钥」之间二选一，
+                    //   后者是 sha2_256(口令)，可离线枚举盗币，已彻底移除。
+                    //   现在**只有一种创建方式**：私钥随机生成，口令只用于加密文件。
+                    Text(tr("x_createRandOnly"), style = MaterialTheme.typography.bodyMedium)
                     OutlinedTextField(value = label, onValueChange = { label = it },
-                        label = { Text(if (createdKind == "password") tr("x_passphrase") else tr("x_note")) },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true,
-                        visualTransformation = if (createdKind == "password")
-                            PasswordVisualTransformation() else VisualTransformation.None)
+                        label = { Text(tr("x_note")) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true)
                     OutlinedTextField(value = password, onValueChange = { password = it },
                         label = { Text(tr("x_pwEnc")) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                        // M-13：同上，掩码显示
+                        // M-13：掩码显示
                         visualTransformation = PasswordVisualTransformation())
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (createdKind == "password" && password.length < 6) { msg = tr("x_pwMin"); return@TextButton }
-                    vm.createWallet(createdKind, password, label)
+                    // 口令现在只是加密口令，至少 12 位（审计 B-3 的强度下限）
+                    if (password.length < 12) { msg = tr("x_pwMin"); return@TextButton }
+                    vm.createWallet("random", password, label)
                         .onSuccess { msg = tr("x_created", it); dialog = null; password = ""; label = "" }
                         .onFailure { msg = tr("x_createFail", it.message ?: "") }
                 }) { Text(tr("btn_ok")) }

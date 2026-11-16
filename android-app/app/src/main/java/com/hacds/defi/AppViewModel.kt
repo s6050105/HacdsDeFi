@@ -47,11 +47,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshWallets() { _wallets.value = walletStore.list() }
 
     fun createWallet(kind: String, password: String, label: String): Result<String> = runCatching {
-        require(password.length >= 6) { "密码至少 6 位" }
-        val secret = if (kind == "password") {
-            require(label.isNotEmpty()) { "口令钱包需要填写口令" }
-            Keystore.secretFromPassword(label)
-        } else Keystore.newSecret()
+        // ⚠ 2026-11-15 审计 B-3：私钥一律**随机生成**，不再由口令派生。
+        //
+        //   原实现 kind == "password" 时走 Keystore.secretFromPassword(label)，
+        //   即 sha2_256(口令) 当私钥（无 salt、无迭代），可离线枚举口令盗币。
+        //   口令现在是**纯粹的加密口令**，只参与 scrypt 派生 AES 密钥。
+        //
+        //   kind 参数保留只为兼容旧调用点，取值不再影响私钥生成。
+        require(password.length >= 12) { "密码至少 12 位（它用于加密私钥，请足够长）" }
+        val secret = Keystore.newSecret()
         val addr = TxBuilder.addressOf(Keystore.hex(secret)) ?: error("无法派生地址")
         walletStore.saveWithVault(secret, addr, label)
         WalletSession.unlock(addr, Keystore.hex(secret), label)
@@ -71,11 +75,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         addr
     }
 
-    fun openWallet(w: WalletStore.WalletInfo, password: String?): Result<String> = runCatching {
-        val secret = walletStore.open(w, password)
+    /**
+     * 打开钱包。
+     *
+     * ⚠ 2026-11-15 审计 H-11：vault 型钱包必须带 [cipher]（来自
+     *   `AndroidKeyVault.prepareDecrypt` + BiometricPrompt 认证）。
+     *   没有它就不能解密 —— 这是硬件层的强制，不是 UI 层的自觉。
+     */
+    fun openWallet(
+        w: WalletStore.WalletInfo,
+        password: String?,
+        cipher: javax.crypto.Cipher? = null,
+    ): Result<String> = runCatching {
+        val secret = walletStore.open(w, password, cipher)
         WalletSession.unlock(w.address, Keystore.hex(secret), w.label)
         w.address
     }
+
+    /** 该钱包是否为需要生物识别解锁的本机 vault 型。 */
+    fun needsBiometric(w: WalletStore.WalletInfo): Boolean =
+        walletStore.vaultSealedOf(w) != null
+
+    /** 读取 vault 密文，交给 AndroidKeyVault.prepareDecrypt 用。 */
+    fun vaultSealedOf(w: WalletStore.WalletInfo): String? =
+        walletStore.vaultSealedOf(w)
 
     fun lock() = WalletSession.lock()
     fun renameWallet(w: WalletStore.WalletInfo, label: String) { walletStore.rename(w, label); refreshWallets() }

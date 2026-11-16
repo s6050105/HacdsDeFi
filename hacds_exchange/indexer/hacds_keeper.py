@@ -67,6 +67,11 @@ RENT_PERIOD = 300          # 续租期（≈104 天）
 RENT_MAX_KEYS = 10         # 合约硬上限（topup_keys/rent_keys 的 n > 10 → return 60）
 RENT_REWARD_HAC = 0.07     # 每键报酬
 
+# keeper 健康状态文件（2026-11-15 审计 H-2）。
+# 链上查不到单键剩余租期，运维只能靠"上一轮什么时候跑的"间接判断。
+DEFAULT_HEALTH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "keeper_health.json")
+
 # 单键 storage 成本 = (值字节 + 20) × period（vm/src/state/state.rs:504，全额计费）
 STORAGE_BUDGET = 111911    # storage 桶上限（storage_limit_byte=99）
 VALUE_BASE = 20
@@ -472,7 +477,64 @@ def _execute(args, jobs, func, reward_per_key):
         time.sleep(args.delay)
 
     print("\n完成：成功 %d / 失败 %d" % (ok, fail))
+
+    # ⚠ 2026-11-15 审计 H-2：写一份健康状态文件，让索引器/监控能判断
+    #   "keeper 到底有没有在跑、上一轮续了什么"。
+    #
+    #   背景：链上**查不到**单个存储键的剩余租期（storage_stat 是 VM 内置，
+    #   合约没有暴露成视图；节点 API 只有全局存储费参数）。所以运维侧
+    #   只能用间接信号判断续租是否正常：
+    #
+    #     · 每轮都成功       → 正常
+    #     · 连续多轮 job=0    → 键都很新，正常（刚续过）
+    #     · 连续多轮 fail>0   → 异常，告警
+    #     · 文件时间戳很旧    → keeper 没在跑，**这是最危险的**
+    #
+    #   索引器的 /keeper_health 读这个文件，超过阈值时长就返回 stale。
+    try:
+        _write_health(args, func, ok, fail, total)
+    except Exception as e:                                       # noqa: BLE001
+        print("（健康状态写入失败，不影响续租：%s）" % str(e)[:80])
+
     return 0 if fail == 0 else 1
+
+
+def _write_health(args, func, ok, fail, total_keys):
+    """写 keeper 健康状态（JSON），供索引器读取。"""
+    health_path = getattr(args, "health", None) or DEFAULT_HEALTH
+    now = int(time.time())
+    rec = {
+        "ts": now,
+        "ts_human": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        "func": func,
+        "batches_ok": ok,
+        "batches_fail": fail,
+        "keys_total": total_keys,
+        "period": args.period,
+        "contract": args.contract,
+        "main": args.main,
+    }
+    # 保留上一轮的时间戳，便于监控算"上一轮到现在隔了多久"
+    prev = None
+    try:
+        if os.path.exists(health_path):
+            prev = json.load(open(health_path, encoding="utf-8"))
+    except Exception:                                            # noqa: BLE001
+        prev = None
+    if prev:
+        rec["prev_ts"] = prev.get("ts")
+        rec["prev_ts_human"] = prev.get("prev_ts_human")
+        # 连续失败轮数：成功后清零，失败累加
+        streak = int(prev.get("consecutive_fail", 0))
+        rec["consecutive_fail"] = (streak + 1) if fail > 0 else 0
+    else:
+        rec["consecutive_fail"] = 1 if fail > 0 else 0
+
+    tmp = health_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rec, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, health_path)
+    print("健康状态已写：%s" % health_path)
 
 
 def cmd_run(args):
@@ -617,6 +679,8 @@ def main():
     ap.add_argument("--max-keys", type=int, default=RENT_MAX_KEYS)
     ap.add_argument("--period", type=int, default=RENT_PERIOD)
     ap.add_argument("--delay", type=float, default=1.0, help="每批间隔秒数")
+    ap.add_argument("--health", default=None,
+                    help="健康状态文件路径（默认 hacds_exchange/indexer/keeper_health.json）")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--include-addr-keys", action="store_true",
                     help="topup 时连地址键一起补（默认只补固定键）")

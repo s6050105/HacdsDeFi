@@ -516,7 +516,7 @@
     <string name="x_delete">删除</string>
     <string name="x_noWallet">暂无钱包，点上方「创建钱包」</string>
     <string name="x_pwPc">密码（PC 兼容钱包需要）</string>
-    <string name="x_pwEnc">加密密码（≥6 位）</string>
+    <string name="x_pwEnc">加密密码（≥12 位）</string>
     <string name="x_importHint">64 位 hex 私钥，或 PC keystore JSON</string>
     <string name="x_pwKs">口令（导入 keystore 时需要）</string>
     <string name="x_note">备注</string>
@@ -569,7 +569,7 @@
     <string name="x_randKey">随机私钥</string>
     <string name="x_pwDerived">口令派生</string>
     <string name="x_passphrase">口令</string>
-    <string name="x_pwMin">密码至少 6 位</string>
+    <string name="x_pwMin">密码至少 12 位（它用于加密私钥，请足够长）</string>
     <string name="x_created">已创建并解锁：%1$s</string>
     <string name="x_createFail">创建失败：%1$s</string>
     <string name="x_imported">已导入并解锁：%1$s</string>
@@ -610,4 +610,5 @@
     <string name="tab_lp">流动性</string>
     <string name="tab_fund">资金</string>
     <string name="tab_tools">工具</string>
+    <string name="x_createRandOnly">私钥在本机随机生成，密码只用于加密这个文件。请同时备份私钥。</string>
 </resources>

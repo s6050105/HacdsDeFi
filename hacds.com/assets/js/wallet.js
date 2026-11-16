@@ -100,7 +100,16 @@
       const req = {
         txbody,
         chain_id: 0,                    // 主网
-        autosubmit: opts.autosubmit !== false,
+        // ⚠ 2026-11-15 审计 H-5：默认改为 **false**（不自动广播）。
+        //
+        //   原默认是自动提交：用户点一下，交易直接进内存池，中途没有任何
+        //   确认步骤。配合"响应里没有结构化描述"，等于盲签 ——
+        //   链路被篡改时（隧道令牌被接管即可）可以在无提示下签出并广播
+        //   与预期不符的交易。
+        //
+        //   现在必须显式传 autosubmit:true 才自动提交，且调用方应当在
+        //   展示过 build 响应里的 description 之后才这么做。
+        autosubmit: opts.autosubmit === true,
       };
 
       // 让签名页把证书流显示成人类可读的内容，而不是 hex 乱码

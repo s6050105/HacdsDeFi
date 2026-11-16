@@ -62,7 +62,44 @@ class ConfigStore(ctx: Context) {
         )
     }
 
+    /**
+     * 校验端点：必须 https，且不能是环回/内网（2026-11-15 审计 H-10）。
+     *
+     * 返回 null 表示通过，否则返回给用户看的错误说明。
+     * 空串放行 —— 允许"零配置"冷端（见 D-A5）。
+     */
+    fun validateEndpoint(name: String, raw: String): String? {
+        val s = raw.trim()
+        if (s.isEmpty()) return null
+        if (!s.startsWith("https://", ignoreCase = true)) {
+            return "$name 必须以 https:// 开头（当前：${s.take(40)}）"
+        }
+        val host = try {
+            java.net.URI(s).host?.lowercase()
+        } catch (e: Exception) {
+            return "$name 不是合法 URL"
+        } ?: return "$name 缺少主机名"
+        if (host == "localhost" || host.endsWith(".localhost") ||
+            host == "::1" || host.matches(Regex("^127\\..*")) ||
+            host.matches(Regex("^10\\..*")) ||
+            host.matches(Regex("^192\\.168\\..*")) ||
+            host.matches(Regex("^169\\.254\\..*")) ||
+            host.matches(Regex("^172\\.(1[6-9]|2\\d|3[01])\\..*"))
+        ) {
+            return "$name 不能指向内网/环回地址（$host）"
+        }
+        return null
+    }
+
     fun save(cfg: AppConfig) {
+        // ⚠ 2026-11-15 审计 H-10：保存前校验端点，非法值一律不落盘。
+        //   原实现直接写盘，设置页填什么就存什么（含 http:// 与内网地址）。
+        validateEndpoint("节点地址", cfg.node)?.let {
+            throw kotlin.IllegalArgumentException(it)
+        }
+        validateEndpoint("索引器地址", cfg.indexer)?.let {
+            throw kotlin.IllegalArgumentException(it)
+        }
         sp.edit()
             .putString("node", cfg.node)
             .putString("oracle", cfg.oracle)

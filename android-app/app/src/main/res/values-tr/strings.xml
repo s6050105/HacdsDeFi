@@ -516,7 +516,7 @@ Kimsenin izlemediğinden emin olun. Devam?</string>
     <string name="x_delete">Sil</string>
     <string name="x_noWallet">Henüz cüzdan yok; yukarıdan "Cüzdan oluştur"</string>
     <string name="x_pwPc">Parola (PC uyumlu cüzdan için)</string>
-    <string name="x_pwEnc">Şifreleme parolası (≥6)</string>
+    <string name="x_pwEnc">Şifreleme parolası (≥12)</string>
     <string name="x_importHint">64 hex özel anahtar veya PC keystore JSON</string>
     <string name="x_pwKs">Parola (keystore içe aktarmak için)</string>
     <string name="x_note">Not</string>
@@ -569,7 +569,7 @@ Kimsenin izlemediğinden emin olun. Devam?</string>
     <string name="x_randKey">Rastgele anahtar</string>
     <string name="x_pwDerived">Parola türevli</string>
     <string name="x_passphrase">Parola</string>
-    <string name="x_pwMin">Parola en az 6 karakter olmalı</string>
+    <string name="x_pwMin">Parola en az 12 karakter olmalı</string>
     <string name="x_created">Oluşturuldu ve açıldı: %1$s</string>
     <string name="x_createFail">Oluşturma hatası: %1$s</string>
     <string name="x_imported">İçe aktarıldı ve açıldı: %1$s</string>
@@ -610,4 +610,5 @@ Kimsenin izlemediğinden emin olun. Devam?</string>
     <string name="tab_lp">Likidite</string>
     <string name="tab_fund">Fonlar</string>
     <string name="tab_tools">Araclar</string>
+    <string name="x_createRandOnly">Özel anahtar bu cihazda rastgele üretilir. Şifre yalnızca bu dosyayı şifreler. Özel anahtarı da yedekleyin.</string>
 </resources>

@@ -39,6 +39,16 @@ ADDR_TOOL = os.environ.get("HACDS_ADDR", r"D:\hacash_fullnode\target\release\hac
 DEPLOYER = "15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q"
 EXPECT_ADDR = "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"
 
+# 交易大小硬上限（hacash-params/src/lib.rs:162，编译期常量）。
+# ⚠ 2026-11-15 审计 B-1：原脚本只打印长度、从不判断，超限也照样"自检通过"。
+MAX_TX_BYTES = 16384
+
+# 部署协议费的价格单位。u232 = 10⁻¹⁶ HAC（见 hacash-params 里
+# initial_fee_purity_floor 的注释：5×10¹⁰ u232 ≡ 50,000 u238/byte）。
+# ⚠ 2026-11-15 审计 B-1：原脚本 :117 用 1e16、:181 用 1e18，同一份数据
+#   算出两个相差 100 倍的值。统一走这个常量。
+COST_UNIT_DIVISOR = 1e16
+
 
 def check_nonce(ok):
     src = open(SRC, encoding="utf-8").read()
@@ -81,6 +91,101 @@ def check_nonce(ok):
     return nonce, ok
 
 
+ARTIFACT_MANIFEST = os.path.join(OUT, "manifest.json")
+
+
+def check_artifact_manifest(ok):
+    """A-1/A-2：比对 _build_v30/manifest.json 与磁盘实际产物。
+
+    ⚠ 2026-11-15 审计 B-1：此前没有这份清单，`action` 字节数在文档里有
+      16,201 / 16,300 / 16,198 三种说法，谁也没法判定哪个是真的。
+      现在以 manifest.json 为唯一权威，任何不一致都判失败。
+    """
+    import hashlib
+    if not os.path.exists(ARTIFACT_MANIFEST):
+        print("  ✗ 缺少 %s" % ARTIFACT_MANIFEST)
+        print("    请先运行: python _test/gen_manifest.py")
+        return False
+
+    m = json.load(open(ARTIFACT_MANIFEST, encoding="utf-8"))
+
+    def cmp(label, declared, actual):
+        if declared == actual:
+            print(f"  ✓ {label} 与 manifest 一致")
+            return True
+        print(f"  ✗ {label} 与 manifest 不符")
+        print(f"     manifest: {declared}")
+        print(f"     实际    : {actual}")
+        return False
+
+    good = True
+    a = bytes.fromhex(json.load(open(DEPLOY, encoding="utf-8"))["action"])
+    good &= cmp("action_bytes", m.get("action_bytes"), len(a))
+    good &= cmp("source_fitsh_sha256", m.get("source_fitsh_sha256"),
+                hashlib.sha256(open(SRC, "rb").read()).hexdigest())
+
+    if os.path.exists(MAP):
+        good &= cmp("contractmap_sha256", m.get("contractmap_sha256"),
+                    hashlib.sha256(open(MAP, "rb").read()).hexdigest())
+
+    kpath = os.path.join(ROOT, "score_sum_opt.hcf1")
+    if os.path.exists(kpath) and m.get("kernel_hcf1_sha256"):
+        good &= cmp("kernel_hcf1_sha256", m.get("kernel_hcf1_sha256"),
+                    hashlib.sha256(open(kpath, "rb").read()).hexdigest())
+
+    return ok and good
+
+
+def check_artifacts(ok):
+    """A-5：把「要部署的东西」本身纳入 SHA256SUMS 校验。
+
+    ⚠ 2026-11-15 审计 B-1：原 SHA256SUMS.txt 只登记随包二进制与内核，
+      **不含** deploy.json / contractmap / fitsh —— 也就是说部署字节码
+      可以被整份替换，而所有既有自检照过。这里补齐。
+    """
+    import hashlib
+    sums = os.path.join(ROOT, "..", "SHA256SUMS.txt")
+    sums = os.path.abspath(sums)
+    if not os.path.exists(sums):
+        print(f"  ✗ 找不到 SHA256SUMS.txt：{sums}")
+        return ok
+
+    tbl = {}
+    for ln in open(sums, encoding="utf-8"):
+        ln = ln.strip()
+        if not ln or ln.startswith("#"):
+            continue
+        parts = ln.split()
+        if len(parts) >= 2:
+            tbl[parts[-1].lstrip("*")] = parts[0]
+
+    targets = [
+        ("hacds_exchange/HacdsDeFi3000.fitsh", SRC),
+        ("hacds_exchange/_build_v30/HacdsDeFi3000.deploy.json", DEPLOY),
+        ("hacds_exchange/_build_v30/HacdsDeFi3000.contractmap.json", MAP),
+    ]
+    for rel, path in targets:
+        base = os.path.basename(rel)
+        exp = tbl.get(rel) or tbl.get(base)
+        if exp is None:
+            print(f"  ✗ {rel} 未登记在 SHA256SUMS.txt")
+            ok = False
+            continue
+        if not os.path.exists(path):
+            print(f"  ✗ 找不到 {path}")
+            ok = False
+            continue
+        got = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        if got != exp:
+            print(f"  ✗ {base} 哈希不符")
+            print(f"     登记 {exp}")
+            print(f"     实际 {got}")
+            ok = False
+        else:
+            print(f"  ✓ {base} 哈希与 SHA256SUMS 一致 ({exp[:16]}…)")
+    return ok
+
+
 def main():
     ok = True
 
@@ -114,8 +219,13 @@ def main():
         print(f"  · 部署动作 {len(a):,} B 已含内联内核")
         print(f"     （内核源码编译版约 +1,674 B，此处为优化版）")
         print(f"  · 字节码 {len(a):,} 字节")
-        print(f"  · 部署协议费 {int(d['protocol_cost_u232']) / 1e16:.6f} HAC")
+        print(f"  · 部署协议费 {int(d['protocol_cost_u232']) / COST_UNIT_DIVISOR:.6f} HAC")
 
+        # ⚠ 2026-11-15 审计 B-1：这里原本是 `bad = ...; return`，把函数开头累积的
+        #   `ok`（nonce / BURN_ADDR / 地址复算 / ACTVIEW 调用点）全部丢弃了 ——
+        #   实测把字节码末尾改成 deadbeef 后仍然打印"自检通过"。
+        #   现在改用同一个 `ok` 累加，不再另起 `bad`。
+        #
         # H-6（2026-11-12）：预编译内核**必须**与 SHA256SUMS 里登记的哈希一致，
         # 否则任何人都能在构建机上把 hcf1 换掉，让「存入按 A 算分、赎回按 B 扣分」，
         # 而所有既有自检照样通过 —— 这是部署后无法修复的账本 bug。
@@ -132,10 +242,10 @@ def main():
         if exp is None:
             print("  ✗ 内核哈希未登记在 SHA256SUMS.txt —— 拒绝判通过")
             print("    请执行: sha256sum hacds_exchange/score_sum_opt.hcf1 并写入")
-            bad = True
+            ok = False
         elif not os.path.exists(kpath):
             print("  ✗ 找不到 %s" % kpath)
-            bad = True
+            ok = False
         else:
             import hashlib
             got = hashlib.sha256(open(kpath, "rb").read()).hexdigest()
@@ -143,15 +253,31 @@ def main():
                 print("  ✗ 内核哈希不符！")
                 print("    期望 %s" % exp)
                 print("    实际 %s" % got)
-                bad = True
+                ok = False
             else:
                 print("  ✓ 内核哈希与 SHA256SUMS 一致 (%s…)" % exp[:16])
                 print("  ⚠ 仍需人工确认已跑过 _test/diff_test.py（内核 vs 参考实现）")
-                bad = False
-        bad = bad or (not os.path.exists(MAP))
+
+        # A-3：交易大小硬上限。合约无管理员、不可升级，超限部署会直接失败。
+        if len(a) > MAX_TX_BYTES:
+            print(f"  ✗ 部署动作 {len(a):,} B 超过交易上限 {MAX_TX_BYTES:,} B"
+                  f"（超 {len(a) - MAX_TX_BYTES:,} B）")
+            ok = False
+        else:
+            print(f"  ✓ 部署动作 {len(a):,} B ≤ 上限 {MAX_TX_BYTES:,} B"
+                  f"（余量 {MAX_TX_BYTES - len(a):,} B）")
+
+        if not os.path.exists(MAP):
+            print(f"  ✗ 缺少 contractmap：{MAP}")
+            ok = False
+
+        # A-1/A-2/A-5：产物与源码的完整性——不能再只靠内核哈希。
+        ok = check_artifact_manifest(ok)
+        ok = check_artifacts(ok)
+
         print()
-        print("自检通过" if not bad else "自检失败")
-        return 0 if not bad else 1
+        print("自检通过" if ok else "自检失败")
+        return 0 if ok else 1
     if os.path.exists(MANIFEST):
         m = json.load(open(MANIFEST))
         prof = m["profile_byte"]
@@ -177,8 +303,22 @@ def main():
         mp = json.load(open(MAP))
         print(f"  ✓ 函数数 {len(mp['funcs'])}")
     print(f"  · 字节码 {len(a)} 字节")
+
+    # A-3：非 manifest 分支同样要有上限断言
+    if len(a) > MAX_TX_BYTES:
+        print(f"  ✗ 部署动作 {len(a):,} B 超过交易上限 {MAX_TX_BYTES:,} B")
+        ok = False
+    else:
+        print(f"  ✓ 部署动作 {len(a):,} B ≤ 上限 {MAX_TX_BYTES:,} B"
+              f"（余量 {MAX_TX_BYTES - len(a):,} B）")
+
+    # A-4：统一除数（原 :181 用 1e18，与 :117 的 1e16 差 100 倍）
     cost = int(d["protocol_cost_u232"])
-    print(f"  · 部署协议费 {cost / 1e18:.6f} HAC")
+    print(f"  · 部署协议费 {cost / COST_UNIT_DIVISOR:.6f} HAC")
+
+    # A-5：产物完整性
+    ok = check_artifact_manifest(ok)
+    ok = check_artifacts(ok)
 
     print()
     print("自检通过" if ok else "自检失败")

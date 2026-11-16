@@ -62,15 +62,42 @@ class WalletStore(private val ctx: Context) {
         return f
     }
 
-    /** 打开钱包：返回 32B 私钥。vault 型无需密码；PC 型需要密码。 */
-    fun open(w: WalletInfo, password: String?): ByteArray {
+    /**
+     * 打开钱包：返回 32B 私钥。
+     *
+     * vault 型**必须**传入一个由 [AndroidKeyVault.prepareDecrypt] 准备、
+     * 且已经过 BiometricPrompt 认证的 Cipher（2026-11-15 审计 H-11）。
+     * 传 null 会**直接拒绝** —— 这是有意的：没有一次成功的生物识别/设备凭据，
+     * 就不该能解出私钥。root / Frida 绕过 UI 也没用，因为密钥材料在硬件里要求认证。
+     *
+     * PC 型（scrypt + 口令）不需要 Cipher。
+     */
+    fun open(
+        w: WalletInfo,
+        password: String?,
+        cipher: javax.crypto.Cipher? = null,
+    ): ByteArray {
         val j = JSONObject(w.file.readText())
         return if (j.has("vault")) {
-            AndroidKeyVault.open(j.getString("vault"))
+            val sealed = j.getString("vault")
+            if (cipher == null) {
+                throw IllegalStateException(
+                    "本机钱包需要先通过生物识别/设备凭据解锁"
+                )
+            }
+            AndroidKeyVault.finishDecrypt(cipher, sealed)
         } else {
             if (password.isNullOrEmpty()) throw IllegalArgumentException("该钱包需要密码")
             Keystore.decrypt(j.toString(), password)
         }
+    }
+
+    /** 读取钱包的 vault 密文（不解密），供 prepareDecrypt 使用。 */
+    fun vaultSealedOf(w: WalletInfo): String? = try {
+        val j = JSONObject(w.file.readText())
+        if (j.has("vault")) j.getString("vault") else null
+    } catch (e: Exception) {
+        null
     }
 
     fun rename(w: WalletInfo, label: String) {

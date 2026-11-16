@@ -49,7 +49,9 @@ export default {
 
     h.set('X-Content-Type-Options', 'nosniff');
     h.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-    h.set('X-Frame-Options', 'SAMEORIGIN');
+    // 与下方 CSP 的 frame-ancestors 'none' 保持一致（审计 M-5：
+    // 原来写 SAMEORIGIN 而 CSP 写 none，两个策略互相矛盾）。
+    h.set('X-Frame-Options', 'DENY');
     h.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
     h.set('Cross-Origin-Opener-Policy', 'same-origin');
 
@@ -73,19 +75,29 @@ export default {
     //     HACD 钻石图案是 diamondsvgimg.js 生成的 data: URI SVG。
     //   frame-ancestors 'none' + X-Frame-Options
     //     双保险，防点击劫持（老浏览器认 XFO，新的认 CSP）。
+    // ⚠ 2026-11-15 审计 M-5：原 CSP 有两个缺陷：
+    //   ① connect-src 放行了 http://127.0.0.1:8082（生产无意义，纯攻击面），
+    //      却**没放行** https://indexer.hacds.com —— 而 config.js:11 与
+    //      app.js:992 的「续租」功能正是要连它，生产上必被 CSP 拦截。
+    //   ② 缺 HSTS；X-Frame-Options: SAMEORIGIN 与 frame-ancestors 'none' 冲突。
     h.set('Content-Security-Policy', [
       "default-src 'self'",
+      // unsafe-inline 暂时保留：三个文档页用了内联 window.HACDS_DOC。
+      // 彻底移除需要把内联数据外置为 JSON + fetch（见审计 A-36）。
       "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
       "font-src 'self' data:",
-      "connect-src 'self' https://api.hacds.com http://127.0.0.1:8082",
+      "connect-src 'self' https://api.hacds.com https://indexer.hacds.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
       "object-src 'none'",
       "upgrade-insecure-requests",
     ].join('; '));
+
+    // HSTS：一年，含子域。仅 HTTPS 服务生效。
+    h.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 
     return out;
   },

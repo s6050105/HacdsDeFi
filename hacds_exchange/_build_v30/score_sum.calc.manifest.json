@@ -1,0 +1,24 @@
+{
+  "build_dir": null,
+  "cache_hit": false,
+  "cap": {
+    "calc_image_max": 16383,
+    "calc_mem_kib_max": 64,
+    "call_data_size": 5120,
+    "value_size": 1280
+  },
+  "image": {
+    "code": 1804,
+    "id": "789b1f15d6cf5b1d7134abc7b2ebef6fc2e5b4d180fba3de4aaf3d2e448276be",
+    "init": 0,
+    "rodata": 170,
+    "total": 2026
+  },
+  "input_max": 4800,
+  "kernel": "score_sum",
+  "mem_kib": 16,
+  "origin": "prebuilt-container",
+  "output_max": 8,
+  "profile_byte": 2,
+  "source": "score_sum.hcf1"
+}

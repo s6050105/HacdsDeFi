@@ -40,7 +40,31 @@ object Http {
 
     class HttpError(message: String) : Exception(message)
 
-    private fun getRaw(url: String): JSONObject = client.newCall(
+    // ⚠ 2026-11-15 审计 H-10：所有出网请求统一挡在 https 上。
+    //
+    //   原实现只靠 Manifest 的 usesCleartextTraffic 控制，而那个开关当时是
+    //   true（全放行）；且端点可在设置页自由填写，http:// 也能存进去。
+    //   对签名应用来说，明文链路可被中间人篡改查询响应与交易构造数据 ——
+    //   改一个"看起来正常的余额"或"目标合约地址"就是直接盗币。
+    //
+    //   现在在**唯一出口**校验：不是 https 就不发请求。
+    //   接口串是 http:// 时给明确错误，而不是静默失败。
+    private fun requireHttps(url: String) {
+        val u = url.trim()
+        if (!u.startsWith("https://", ignoreCase = true)) {
+            throw HttpError(
+                "只允许 HTTPS 端点（当前：${u.take(40)}…）。" +
+                    "请到设置页把节点/索引器地址改成 https://"
+            )
+        }
+    }
+
+    private fun getRaw(url: String): JSONObject {
+        requireHttps(url)
+        return getRawUnchecked(url)
+    }
+
+    private fun getRawUnchecked(url: String): JSONObject = client.newCall(
         Request.Builder().url(url).get().build()
     ).execute().use { resp ->
         val body = resp.body?.string() ?: ""
@@ -85,7 +109,12 @@ object Http {
     }
 
     /** POST（广播 / 校验），body 为字符串。 */
-    fun post(url: String, body: String): JSONObject = client.newCall(
+    fun post(url: String, body: String): JSONObject {
+        requireHttps(url)
+        return postUnchecked(url, body)
+    }
+
+    private fun postUnchecked(url: String, body: String): JSONObject = client.newCall(
         Request.Builder().url(url)
             .post(body.toRequestBody(TEXT_PLAIN))
             .build()

@@ -2548,24 +2548,18 @@ function modal({ title, fields, okLabel, warn, extraHtml, onMount }) {
 }
 
 $('#btnCreate').onclick = async () => {
-  const kind = confirm(t('w.kindConfirm'));
-  if (kind) {
-    const v = await modal({ title:t('w.createRandTitle'), okLabel:t('w.createBtn'),
-      fields:[{name:'password',label:t('w.createRandLabel'),type:'password'}] });
-    if (!v) return;
-    const r = await window.api.walletCreate({ kind:'random', password:v.password });
-    if (!r.ok) return logErr(t('w.createFail'), r);
-    log(t('w.created')+r.address, 'ok'); log(t('w.keystore')+r.file);
-    setAccount(r.address, true);
-  } else {
-    const v = await modal({ title:t('w.createPwTitle'), okLabel:t('w.createBtn'),
-      fields:[{name:'label',label:t('w.pwLabel2')},{name:'password',label:t('w.pwEncrypt'),type:'password'}],
-      warn:t('w.createWarnPw') });
-    if (!v) return;
-    const r = await window.api.walletCreate({ kind:'password', password:v.password, label:v.label });
-    if (!r.ok) return logErr(t('w.createFail'), r);
-    log(t('w.createdPw')+r.address, 'ok'); setAccount(r.address, true);
-  }
+  // ⚠ 2026-11-15 审计 B-3：删掉了「口令钱包」分支。
+  //   原界面让用户二选一：随机私钥，或「口令当私钥」（sha2_256(口令)）。
+  //   后者可离线枚举口令盗币，已彻底移除。现在**只有一种创建方式**：
+  //   随机私钥 + 口令加密。口令不再决定私钥，只决定能否解开本地文件。
+  const v = await modal({ title:t('w.createRandTitle'), okLabel:t('w.createBtn'),
+    fields:[{name:'password',label:t('w.createRandLabel'),type:'password'}],
+    warn:t('w.createPwNewWarn') });
+  if (!v) return;
+  const r = await window.api.walletCreate({ kind:'random', password:v.password });
+  if (!r.ok) return logErr(t('w.createFail'), r);
+  log(t('w.created')+r.address, 'ok'); log(t('w.keystore')+r.file);
+  setAccount(r.address, true);
 };
 $('#btnImport').onclick = async () => {
   const v = await modal({ title:t('w.import'), okLabel:t('w.importBtn'),
@@ -2640,12 +2634,14 @@ $('#addr').onclick = async () => {
   const rows = r.files.map(f => {
     const cur = (f.address === S.addr);
     return '<tr>' +
-      '<td class="mono">' + (f.address || '?') +
+      // ⚠ 2026-11-15 审计 B-2：address / label / path 来自 keystore 文件，
+      //   是本地数据但仍可能被篡改后注入。全部转义（原实现裸拼 innerHTML 与属性）。
+      '<td class="mono">' + esc(f.address || '?') +
         (cur ? ' <span class="admin-badge">' + t('w.current') + '</span>' : '') + '</td>' +
-      '<td>' + (f.label ? f.label : '<span class="muted">—</span>') + '</td>' +
+      '<td>' + (f.label ? esc(f.label) : '<span class="muted">—</span>') + '</td>' +
       '<td>' + (cur
         ? '<span class="muted">' + t('w.isCurrent') + '</span>'
-        : '<button data-path="' + f.path + '" data-act="open">' + t('w.switch') + '</button>') +
+        : '<button data-path="' + esc(f.path) + '" data-act="open">' + t('w.switch') + '</button>') +
       '</td></tr>';
   }).join('');
   const html = '<table class="wtable"><tr><th>' + t('common.address') + '</th><th>' + t('w.label') +
@@ -2659,11 +2655,12 @@ $('#btnWalletMgr').onclick = async () => {
   const rows = r.files.map(f => {
     const cur = (f.address === S.addr);
     return '<tr>' +
-      '<td class="mono">' + (f.address || '?') + (cur ? ' <span class="admin-badge">' + t('w.current') + '</span>' : '') + '</td>' +
-      '<td>' + (f.label ? f.label : '<span class="muted">—</span>') + '</td>' +
-      '<td><button data-path="' + f.path + '" data-act="open">' + (cur ? t('w.relock') : t('w.switch')) + '</button>' +
-          '<button data-path="' + f.path + '" data-act="rename">' + t('w.rename') + '</button>' +
-          '<button data-path="' + f.path + '" data-act="delete" class="danger">' + t('w.delete') + '</button></td></tr>';
+      // ⚠ 2026-11-15 审计 B-2：同上，全部转义
+      '<td class="mono">' + esc(f.address || '?') + (cur ? ' <span class="admin-badge">' + t('w.current') + '</span>' : '') + '</td>' +
+      '<td>' + (f.label ? esc(f.label) : '<span class="muted">—</span>') + '</td>' +
+      '<td><button data-path="' + esc(f.path) + '" data-act="open">' + (cur ? t('w.relock') : t('w.switch')) + '</button>' +
+          '<button data-path="' + esc(f.path) + '" data-act="rename">' + t('w.rename') + '</button>' +
+          '<button data-path="' + esc(f.path) + '" data-act="delete" class="danger">' + t('w.delete') + '</button></td></tr>';
   }).join('');
   const html = r.files.length
     ? '<table class="wtable"><tr><th>' + t('common.address') + '</th><th>' + t('w.label') + '</th><th>' + t('w.actions') + '</th></tr>' + rows + '</table>'

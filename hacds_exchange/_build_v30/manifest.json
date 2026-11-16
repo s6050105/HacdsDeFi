@@ -1,0 +1,30 @@
+{
+  "_comment": "部署产物的唯一权威清单（2026-11-15 审计 B-1）。由 _test/gen_manifest.py 生成，verify_build.py 强制比对。改 fitsh 或替换内核后必须重跑本脚本，不要手改。",
+  "contract": "HacdsDeFi3000",
+  "expect_address": "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH",
+  "max_tx_bytes": 16384,
+  "action_bytes": 16201,
+  "action_sha256_hex_of_ascii": "c2985cffa1cb0348e07c3eb3e99126a2a49736e0abcca2e03bfab24b7467732c",
+  "action_head16": "0028ee065d323099e6c2000000020000",
+  "action_tail16": "64212710c6ee00000000000000000000",
+  "deploy_json_bytes": 32596,
+  "deploy_json_sha256": "10af8cab21b0534cc44b999511be6b4b209b1771d62c73be846cdf92e2937ea5",
+  "contractmap_sha256": "e569e65f14050091de7ec12f2c0717504eee798a5145f2099a181ed806cc2b26",
+  "source_fitsh_sha256": "990a46a360c9766c336d0e73863bf8a3f7a6a0789609e1246445588285f191bb",
+  "source_fitsh_bytes": 121347,
+  "nonce": null,
+  "storage_periods": 10000,
+  "protocol_cost_basis": "full_price",
+  "protocol_cost_u232": "102470145140418000000",
+  "compiler": {
+    "path": "/d/hacash_v130_build/fitshc.exe",
+    "sha256": null,
+    "reported_version": null,
+    "note": "编译器不在预期路径"
+  },
+  "kernel_hcf1_sha256": "0b02c7dfc88c57edf839280ffd9d4cfc7b332aebc1a3c1262a6b14564c4c9fe8",
+  "kernel_image_bytes": 2026,
+  "kernel_id": "789b1f15d6cf5b1d7134abc7b2ebef6fc2e5b4d180fba3de4aaf3d2e448276be",
+  "kernel_profile_byte": 2,
+  "kernel_mem_kib": 16
+}

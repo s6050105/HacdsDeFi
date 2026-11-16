@@ -16,7 +16,8 @@
         android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.HacdsDeFi"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config">
 
         <!--
           AppCompat 的 per-app language 在 API <33 需要这个 Service 才能自动重建 Activity。

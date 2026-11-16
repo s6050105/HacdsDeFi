@@ -120,6 +120,110 @@ def normalize_serial(sr: str) -> str:
 # 数字 serial 的合法范围
 SERIAL_RE = re.compile(r"^\d{1,20}$")
 
+
+# ---------------------------------------------------------------------------
+# 交易描述（2026-11-15 审计 H-5）
+#
+# 背景：原响应只有 txbody，钱包拿到就 autosubmit。用户不知道自己签了什么，
+#       链路被篡改时可以在无提示下签出与预期不符的交易。
+#
+# 局限（必须说清楚）：
+#   本服务是**无密钥的静态构建服务**，无法提供 MAC / 签名，所以这份
+#   description **不是密码学保证** —— 攻击者若控制了服务，可以同时篡改
+#   txbody 与 description，让两者"自洽"。
+#
+#   真正的防线在钱包侧：**本地解码 txbody 的 action 列表**，与这份描述比对，
+#   不一致就拒绝。description 的作用是给钱包一个人类可读的比对基准，
+#   并让"这笔交易要做什么"在 UI 上无法被忽略。
+# ---------------------------------------------------------------------------
+
+_FN_HUMAN = {
+    "swap_hac_to_ds": "用 HAC 买入 hacds",
+    "swap_ds_to_hac": "卖出 hacds 换回 HAC",
+    "add_liquidity": "add_liquidity: 向 AMM 池注入流动性",
+    "remove_liquidity": "remove_liquidity: 撤出流动性",
+    "lp_harvest": "lp_harvest: 领取 LP 奖励",
+    "loan_add_collateral": "loan_add_collateral: 追加抵押",
+    "loan_borrow": "loan_borrow: 借款",
+    "loan_repay": "loan_repay: 还款",
+    "loan_liquidate": "loan_liquidate: 清算他人仓位",
+    "rent_keys": "rent_keys: 续租合约存储键（领取报酬）",
+    "topup_keys": "topup_keys: 补满合约存储键租期",
+}
+
+
+def build_description(extra, req, contract):
+    """把一次构建请求翻成人类可读的交易摘要。
+
+    返回 dict：
+      kind      —— 'call' | 'transfer'
+      summary   —— 一句话说明（中文）
+      contract  —— 目标合约地址（仅 call）
+      fn        —— 合约函数名（仅 call）
+      params    —— 合约参数串（仅 call）
+      sub       —— 转账子形式（仅 transfer）
+      from/to   —— 转账方向（仅 transfer）
+      asset     —— 资产 serial（仅资产类 transfer）
+      amount    —— 金额（仅资产类 transfer）
+      hac       —— HAC 金额（仅 HAC 类 transfer）
+    """
+    if not isinstance(extra, dict):
+        return {"kind": "unknown", "summary": "无法识别的交易"}
+
+    fn = extra.get("fn")
+    if fn:
+        human = _FN_HUMAN.get(fn, fn)
+        return {
+            "kind": "call",
+            "summary": human,
+            "contract": contract,
+            "fn": fn,
+            "params": (req or {}).get("params") or "",
+        }
+
+    sub = extra.get("sub")
+    if not sub:
+        return {"kind": "unknown", "summary": "无法识别的交易"}
+
+    r = req or {}
+    d = {"kind": "transfer", "sub": sub}
+
+    if sub == "hac-to":
+        d.update(to=r.get("to"), hac=r.get("hac"),
+                 summary="向 %s 转入 %s HAC" % (r.get("to"), r.get("hac")))
+    elif sub == "hac-from":
+        d.update(src=r.get("from"), hac=r.get("hac"),
+                 summary="从 %s 转出 %s HAC" % (r.get("from"), r.get("hac")))
+    elif sub == "hac-from-to":
+        d.update(src=r.get("from"), to=r.get("to"), hac=r.get("hac"),
+                 summary="从 %s 向 %s 转入 %s HAC"
+                         % (r.get("from"), r.get("to"), r.get("hac")))
+    elif sub == "asset-to":
+        d.update(to=r.get("to"), asset=r.get("serial"), amount=r.get("atoms"),
+                 summary="向 %s 转入 %s 个资产 #%s"
+                         % (r.get("to"), r.get("atoms"), r.get("serial")))
+    elif sub == "asset-from":
+        d.update(src=r.get("from"), asset=r.get("serial"), amount=r.get("atoms"),
+                 summary="从 %s 转出 %s 个资产 #%s"
+                         % (r.get("from"), r.get("atoms"), r.get("serial")))
+    elif sub == "asset-from-to":
+        d.update(src=r.get("from"), to=r.get("to"),
+                 asset=r.get("serial"), amount=r.get("atoms"),
+                 summary="从 %s 向 %s 转入 %s 个资产 #%s"
+                         % (r.get("from"), r.get("to"),
+                            r.get("atoms"), r.get("serial")))
+    elif sub == "hacd-to":
+        d.update(to=r.get("to"), names=r.get("names"),
+                 summary="向 %s 转入钻石 %s" % (r.get("to"), r.get("names")))
+    elif sub == "hacd-from-to":
+        d.update(src=r.get("from"), to=r.get("to"), names=r.get("names"),
+                 summary="从 %s 向 %s 转入钻石 %s"
+                         % (r.get("from"), r.get("to"), r.get("names")))
+    else:
+        d["summary"] = "未知转账子形式: %s" % sub
+
+    return d
+
 # HAC 金额：整数或小数（如 "1"、"0.5"、"1:248"）
 HAC_AMT_RE = re.compile(r"^\d{1,18}(\.\d{1,18})?(:\d{1,3})?$")
 
@@ -162,10 +266,43 @@ _rates = defaultdict(deque)
 _rates_lock = threading.Lock()
 
 
+RATE_MAX_KEYS = 20000        # 有界上限，防伪造 IP 把字典撑爆
+
+
+def _is_valid_ip(s):
+    """校验是否为合法 IPv4 / IPv6 字面量。
+
+    ⚠ 2026-11-15 审计 H-7：原实现把 XFF 最右一跳**原样**当限流 key，
+      不校验格式也不限长度 —— 攻击者逐请求塞不同的伪造串，每个都
+      在 _rates 里永久占位。
+    """
+    if not isinstance(s, str) or not s or len(s) > 45:   # IPv6 最长 45 字符
+        return False
+    import ipaddress
+    try:
+        ipaddress.ip_address(s)
+        return True
+    except ValueError:
+        return False
+
+
 def rate_ok(ip):
+    """每 IP 每分钟限流。
+
+    ⚠ 2026-11-15 审计 H-7：原实现只清 deque 不删 key —— 攻击者逐请求伪造
+      不同 IP（配合未校验的 X-Forwarded-For），每个 IP 都在 _rates 里
+      永久占一个条目，内存线性增长直到 OOM。现在做了两件事：
+        ① deque 清空后把 key 一并删掉；
+        ② 字典超过 RATE_MAX_KEYS 时整表清空（比 LRU 简单，且限流本身
+           允许偶发误伤 —— 宁可短暂放宽也不要被打爆）。
+    """
     now = time.time()
     with _rates_lock:
-        q = _rates[ip]
+        q = _rates.get(ip)
+        if q is None:
+            if len(_rates) >= RATE_MAX_KEYS:
+                _rates.clear()
+            q = _rates[ip] = deque()
         while q and now - q[0] > 60:
             q.popleft()
         if len(q) >= RATE_LIMIT_PER_MIN:
@@ -193,11 +330,23 @@ class Handler(BaseHTTPRequestHandler):
           2. 否则用 TCP 源地址。
         """
         if getattr(self.server, 'trust_proxy', False):
+            # ⚠ 2026-11-15 审计 H-7：优先用 Cloudflare 的 CF-Connecting-IP。
+            #   Cloudflare 会**覆盖写入**这个头（不可伪造），比 XFF 更可信。
+            #   实际部署链路是 cloudflared tunnel，不是 nginx —— 原文档里的
+            #   nginx 片段根本没设 XFF，导致 src 永远是隧道出口 IP，
+            #   全站共享一个限流桶。
+            cf = (self.headers.get('CF-Connecting-IP') or '').strip()
+            if cf and _is_valid_ip(cf):
+                return cf
+
             xff = self.headers.get('X-Forwarded-For') or ''
             if xff:
+                # 取最右一跳（紧邻我们的代理写的，客户端伪造不了）。
+                # 校验格式，避免把这个键空间用任意字符串撑爆。
                 last = xff.split(',')[-1].strip()
-                if last:
+                if last and _is_valid_ip(last):
                     return last
+                # 格式不合法 → 直接退回 TCP 源地址，绝不用伪造串当 key
         return self.client_address[0]
 
     # ---- 输出 ----
@@ -261,6 +410,13 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:                                          # noqa: BLE001
             return self._send({"error": "bad_json"}, 400)
 
+        # ⚠ 2026-11-15 审计 S-M2（仍未修）：非对象 JSON 会让 req.get 抛
+        #   AttributeError 而未捕获 → 500 + 堆栈。传 `[]` / `"x"` / `123`
+        #   都是合法 JSON 但不是对象，必须显式挡掉。
+        if not isinstance(req, dict):
+            return self._send({"error": "bad_json",
+                               "detail": "请求体必须是 JSON 对象"}, 400)
+
         # 按 mode 分流：默认 call（合约调用），transfer 走纯转账动作
         mode = req.get("mode") or "call"
 
@@ -285,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
             env = os.environ.copy()
             if fee:
                 env["HACDS_FEE"] = str(fee)
-            return self._run_and_reply(argv, env, {"sub": req["sub"]})
+            return self._run_and_reply(argv, env, {"sub": req["sub"]}, req)
 
         err = self._validate(req)
         if err:
@@ -321,9 +477,9 @@ class Handler(BaseHTTPRequestHandler):
         if gas_max:
             env["HACDS_GAS_MAX"] = str(gas_max)
 
-        return self._run_and_reply(argv, env, {"fn": fn})
+        return self._run_and_reply(argv, env, {"fn": fn}, req)
 
-    def _run_and_reply(self, argv, env, extra):
+    def _run_and_reply(self, argv, env, extra, req=None):
         """执行 txbuild 并解析输出。call / transfer 两条路径共用。"""
         try:
             out = subprocess.run(argv, capture_output=True, text=True, timeout=30, env=env)
@@ -380,7 +536,21 @@ class Handler(BaseHTTPRequestHandler):
         if not tx_hex:
             return self._send({"error": "empty_txbody"}, 500)
 
-        resp = {"txbody": tx_hex, "fee": fee_used, "contract": self.server.contract}
+        # ⚠ 2026-11-15 审计 H-5：返回结构化交易描述，供钱包展示 + 二次确认。
+        #
+        #   原响应只有 {txbody, fee, contract, fn}，钱包拿到就 autosubmit，
+        #   用户根本不知道自己在签什么。链路被篡改时（隧道令牌被接管即可）
+        #   可以在无提示下签出与预期不符的交易。
+        #
+        #   这里把「这笔交易到底做什么」显式写出来，钱包必须展示并让用户确认。
+        #   注意：这不是 MAC/签名 —— 静态站无密钥，**不能**提供密码学完整性。
+        #   真正的防线是钱包侧本地解码 txbody 并与这份 description 比对。
+        resp = {
+            "txbody": tx_hex,
+            "fee": fee_used,
+            "contract": self.server.contract,
+            "description": build_description(extra or {}, req or {}, self.server.contract),
+        }
         resp.update(extra or {})
         return self._send(resp)
 

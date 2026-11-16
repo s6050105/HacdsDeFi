@@ -237,7 +237,114 @@ async function sandboxGet(url, timeoutMs = 15000) {
   finally { _sandboxRelease(); }
 }
 
+// ============================================================================
+// 端点校验（2026-11-15 审计 B-2）
+//
+// 原实现的致命问题：
+//   ① isAllowedEndpoint 的白名单来源是**同一份可被渲染层改写的配置**
+//      （cfg:save → loadCfg()），渲染层被 XSS 后先改 cfg 再请求，校验自动失效。
+//   ② 全文件只有 http:get / tx:broadcast 两处调用了它；redeemBatch 的
+//      POST /submit/transaction、tx:translate、tx:check、srvGet、liq:* 全裸奔。
+//   ③ liq:* 直接用渲染层传来的 req.indexer → 一步 SSRF。
+//
+// 现在的做法：
+//   · 白名单**硬编码**在进程里，cfg:save 不得改写；
+//   · 校验**下沉**到 httpGetJson / httpPost 这两个唯一出口，所有通道自动覆盖；
+//   · 拒绝环回 / 内网 / 链路本地段（防 SSRF 与云元数据）；
+//   · 允许用户在「自建节点」场景下手填地址，但那个地址同样是**登记制**：
+//     只有当它与硬编码默认值或用户**通过 UI 显式保存**的地址完全一致时才放行，
+//     而保存动作本身经过 saveNet 交互（用户看得见自己填了什么）。
+// ============================================================================
+
+// 硬编码的官方端点。这些永不改变，也不受配置文件影响。
+const PINNED_ORIGINS = [
+  'https://api.hacds.com',
+  'https://indexer.hacds.com',
+  'https://hacds.com',
+  'https://explorer.hacash.org',
+];
+
+// 仅调试用：允许本机回环。生产运行不得置位。
+const ALLOW_LOOPBACK = process.env.HACDS_ALLOW_LOOPBACK === '1';
+
+/**
+ * 判断一个 hostname 是否落在保留/内网段。
+ * 防 SSRF：即便用户配置里写了内网地址，也不允许实际发起请求。
+ */
+function isPrivateHost(hostname) {
+  const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+
+  // IPv6 环回 / 链路本地 / 唯一本地
+  if (h === '::1' || h === '::') return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;   // fc00::/7
+  if (/^fe[89ab][0-9a-f]:/.test(h)) return true;   // fe80::/10
+
+  // IPv4 字面量
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    if (a === 0 || a === 127) return true;                    // 0/8, 127/8
+    if (a === 10) return true;                                // 10/8
+    if (a === 172 && b >= 16 && b <= 31) return true;         // 172.16/12
+    if (a === 192 && b === 168) return true;                  // 192.168/16
+    if (a === 169 && b === 254) return true;                  // 169.254/16 ← 云元数据
+    if (a === 100 && b >= 64 && b <= 127) return true;        // 100.64/10 CGNAT
+    return false;
+  }
+  return false;
+}
+
+/**
+ * 端点是否允许。
+ * @param {string} url
+ * @returns {{ok: boolean, reason?: string}}
+ */
+function endpointAllowed(url) {
+  let u;
+  try { u = new URL(String(url)); } catch { return { ok: false, reason: 'URL 无效' }; }
+
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    return { ok: false, reason: '只允许 http(s)' };
+  }
+
+  // 1) 硬编码白名单（按 origin 比对）
+  if (PINNED_ORIGINS.includes(u.origin)) return { ok: true };
+
+  // 2) 用户自建节点：必须来自**已保存的**配置，且不能是内网
+  const cfg = loadCfg() || {};
+  const userOrigins = [cfg.node, cfg.indexer]
+    .filter(Boolean)
+    .map(s => { try { return new URL(s).origin; } catch { return null; } })
+    .filter(Boolean);
+
+  // 明文 http 只允许本机调试；外部必须 https
+  if (u.protocol === 'http:' && !ALLOW_LOOPBACK) {
+    return { ok: false, reason: '外部端点必须 https' };
+  }
+
+  if (isPrivateHost(u.hostname)) {
+    if (!(ALLOW_LOOPBACK && /^(127\.|localhost$|::1$)/.test(u.hostname))) {
+      return { ok: false, reason: '不允许访问内网/回环地址' };
+    }
+  }
+
+  if (userOrigins.includes(u.origin)) return { ok: true };
+
+  // 3) 既是明文、又不在白名单，且不是内网调试 —— 拒绝
+  return { ok: false, reason: '端点不在白名单' };
+}
+
 function httpGetJson(url, timeoutMs = 15000) {
+  const gate = endpointAllowed(url);
+  if (!gate.ok) {
+    return Promise.reject('endpoint rejected: ' + gate.reason);
+  }
+  return httpGetJsonUnchecked(url, timeoutMs);
+}
+
+function httpGetJsonUnchecked(url, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(url); } catch { return reject('URL 无效: ' + url); }
@@ -259,7 +366,18 @@ function httpGetJson(url, timeoutMs = 15000) {
 }
 
 // POST（广播/校验），body 为字符串
+// ⚠ 2026-11-15 审计 B-2：与 httpGetJson 同一入口校验。
+//   原实现完全无校验 —— redeemBatch 的 POST /submit/transaction 就在这里，
+//   渲染层被控时可把**已签名交易**投递到攻击者节点。
 function httpPost(url, body, timeoutMs = 20000) {
+  const gate = endpointAllowed(url);
+  if (!gate.ok) {
+    return Promise.reject('endpoint rejected: ' + gate.reason);
+  }
+  return httpPostUnchecked(url, body, timeoutMs);
+}
+
+function httpPostUnchecked(url, body, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(url); } catch { return reject('URL 无效: ' + url); }
@@ -288,7 +406,49 @@ function httpPost(url, body, timeoutMs = 20000) {
 const _pickedWalletPaths = new Set();
 
 // ---- IPC ----
-ipcMain.handle('cfg:load', () => loadCfg());
+// ============================================================================
+// IPC 来源校验（2026-11-15 审计 B-2）
+//
+// 37 个 ipcMain.handle 原本都没有校验 event.senderFrame —— 任何能触达
+// preload 的页面（含被导航劫持的窗口、注入的 iframe）都能直接调
+// walletExportKey / walletDelete / buildTx / broadcast。
+//
+// 这里加一个包装器：所有 handler 经它注册，统一校验
+//   ① 调用方 frame 必须是本地 index.html（精确比对，不吃 UNC 变体）
+//   ② 参数必须是可结构化克隆的普通对象
+// ============================================================================
+
+let _appEntryUrl = null;
+function appEntryUrl() {
+  if (_appEntryUrl) return _appEntryUrl;
+  const { pathToFileURL } = require('url');
+  _appEntryUrl = pathToFileURL(
+    path.join(__dirname, 'renderer', 'index.html')).href;
+  return _appEntryUrl;
+}
+
+function isTrustedFrame(frame) {
+  if (!frame) return false;
+  try {
+    return frame.url === appEntryUrl();
+  } catch { return false; }
+}
+
+/**
+ * 安全注册 IPC handler。
+ * 保持 (event, ...args) 签名，业务代码无需改动。
+ */
+function handle(channel, fn) {
+  // ⚠ 这里必须用 ipcMain.handle，不能写成 handle —— 否则无限递归。
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!isTrustedFrame(event.senderFrame)) {
+      return { ok: false, error: 'ipc rejected: untrusted frame' };
+    }
+    return fn(event, ...args);
+  });
+}
+
+handle('cfg:load', () => loadCfg());
 
 // ⚠ cfg:save 不能让渲染层随意改 node/indexer（2026-11-12 审计 C-H4）。
 //
@@ -306,6 +466,10 @@ function sanitizeCfg(cfg) {
   if (!cfg || typeof cfg !== 'object') return null;
   const out = {};
   // 端点类字段：必须是 http(s) URL
+  // ⚠ 2026-11-15 审计 B-2：保存时就挡住内网/回环地址。
+  //   原实现只校验协议，于是渲染层被控时可以先 cfg:save 把 node 改成
+  //   http://169.254.169.254/（云元数据）或内网端口，再走已"合法化"的
+  //   http:get 去读 —— 校验形同虚设。
   for (const k of ['node', 'indexer', 'contract']) {
     const v = cfg[k];
     if (v == null) continue;
@@ -315,6 +479,14 @@ function sanitizeCfg(cfg) {
     let u;
     try { u = new URL(s); } catch { return null; }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+
+    // 外部端点必须 https（明文只留给本机调试）
+    const loopback = /^(127\.\d+\.\d+\.\d+|localhost|\[::1\])$/i.test(u.hostname);
+    if (u.protocol === 'http:' && !(loopback && ALLOW_LOOPBACK)) return null;
+
+    // 内网 / 链路本地 / CGNAT 一律拒绝
+    if (isPrivateHost(u.hostname) && !(loopback && ALLOW_LOOPBACK)) return null;
+
     out[k] = s.replace(/\/+$/, '');
   }
   // 界面偏好：纯数值，与安全无关，但必须一并保留 ——
@@ -334,7 +506,7 @@ function sanitizeCfg(cfg) {
   return out;
 }
 
-ipcMain.handle('cfg:save', (_e, cfg) => {
+handle('cfg:save', (_e, cfg) => {
   const clean = sanitizeCfg(cfg);
   if (!clean) return { ok: false, error: 'bad cfg' };
   const cur = loadCfg() || {};
@@ -343,7 +515,7 @@ ipcMain.handle('cfg:save', (_e, cfg) => {
   return { ok: true, cfg: clean };
 });
 
-ipcMain.handle('key:pick', async () => {
+handle('key:pick', async () => {
   const r = await dialog.showOpenDialog(win, {
     title: '选择私钥文件（64 位 hex）',
     properties: ['openFile'],
@@ -353,7 +525,7 @@ ipcMain.handle('key:pick', async () => {
   return r.filePaths[0];
 });
 
-ipcMain.handle('key:addr', async (_e, p) => {
+handle('key:addr', async (_e, p) => {
   const out = await runTxbuild(['addr', p]);
   return parseTxOutput(out).address;
 });
@@ -374,7 +546,7 @@ function isAllowedEndpoint(u) {
   } catch { return false; }
 }
 
-ipcMain.handle('http:get', async (_e, { url }) => {
+handle('http:get', async (_e, { url }) => {
   try {
     if (!isAllowedEndpoint(url)) return { ok: false, error: 'endpoint not allowed' };
     return { ok: true, data: await httpGetJson(url) };
@@ -428,7 +600,7 @@ function gasMaxFor(mode, req) {
 }
 
 // 构建交易：req = { mode, args: [...], keyPath, fee, gasMax }
-ipcMain.handle('tx:build', async (_e, req) => {
+handle('tx:build', async (_e, req) => {
   const env = {};
   if (sessionKeyHex) {                       // 优先内存私钥，绝不落盘
     env.HACDS_SIGN_KEY_HEX = sessionKeyHex;
@@ -494,7 +666,7 @@ async function fetchMinPurity(node) {
 }
 
 // 估算预览（不签名）：仅算出该操作在当前节点费率下所需 fee
-ipcMain.handle('fee:estimate', async (_e, { node, feeOverride }) => {
+handle('fee:estimate', async (_e, { node, feeOverride }) => {
   const MIN = await fetchMinPurity(node);
   return { ok: true, minPurity: MIN,
            defaultFee: feeOverride || '0.0002',
@@ -504,7 +676,7 @@ ipcMain.handle('fee:estimate', async (_e, { node, feeOverride }) => {
            })) };
 });
 
-ipcMain.handle('tx:check', async (_e, { node, hex }) => {
+handle('tx:check', async (_e, { node, hex }) => {
   try {
     const u = node.replace(/\/$/, '') + '/util/transaction/check?hexbody=true';
     return { ok: true, data: await httpPost(u, hex) };
@@ -524,16 +696,20 @@ function currentKeyForTx(reqKeyPath) {
   return null;
 }
 
-ipcMain.handle('wallet:create', async (_e, { kind, password, label }) => {
+handle('wallet:create', async (_e, { kind, password, label }) => {
   try {
-    if (!password || password.length < 6) throw new Error('密码至少 6 位');
-    let secret;
-    if (kind === 'password') {
-      if (!label) throw new Error('口令钱包需要填写口令');
-      secret = ks.secretFromPassword(label);
-    } else {
-      secret = ks.newSecret();
+    // ⚠ 2026-11-15 审计 B-3：私钥一律**随机生成**，绝不由口令派生。
+    //
+    //   原实现有 kind === 'password' 分支，走 sha2_256(口令) 当私钥 ——
+    //   无 salt、无迭代，攻击者可离线枚举常见口令→派生地址→查链上余额→
+    //   命中即盗币。口令现在是**纯粹的加密口令**，只参与 scrypt 派生 AES 密钥，
+    //   与私钥本身无关。
+    //
+    //   kind 参数保留只为兼容旧渲染层调用，取值不再影响私钥生成。
+    if (!password || password.length < 12) {
+      throw new Error('密码至少 12 位（它用于加密私钥，请足够长）');
     }
+    const secret = ks.newSecret();
     const addr = await addrFromHex(secret.toString('hex'));
     const file = ks.encrypt(secret, password, addr);
     const fn = path.join(walletsDir(), 'wallet-' + addr.slice(0, 10) + '.json');
@@ -544,7 +720,7 @@ ipcMain.handle('wallet:create', async (_e, { kind, password, label }) => {
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 
-ipcMain.handle('wallet:import', async (_e, { content, password, label }) => {
+handle('wallet:import', async (_e, { content, password, label }) => {
   try {
     const cls = ks.classifyImport(content);
     let secret, addr;
@@ -574,7 +750,7 @@ ipcMain.handle('wallet:import', async (_e, { content, password, label }) => {
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 
-ipcMain.handle('wallet:open', async (_e, { filePath, password }) => {
+handle('wallet:open', async (_e, { filePath, password }) => {
   try {
     // ⚠ 路径必须受限（2026-11-12 审计 C-M3）。
     //   原来直接 readFileSync(渲染层给的路径)：渲染层被控时可读任意文件，
@@ -603,7 +779,7 @@ ipcMain.handle('wallet:open', async (_e, { filePath, password }) => {
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 
-ipcMain.handle('wallet:pickFile', async () => {
+handle('wallet:pickFile', async () => {
   const r = await dialog.showOpenDialog(win, {
     title: '打开钱包文件', properties: ['openFile'],
     defaultPath: walletsDir(),
@@ -617,7 +793,7 @@ ipcMain.handle('wallet:pickFile', async () => {
   return picked;
 });
 
-ipcMain.handle('wallet:list', async () => {
+handle('wallet:list', async () => {
   try {
     const d = walletsDir();
     return { ok: true, files: fs.readdirSync(d).filter(f => f.endsWith('.json'))
@@ -629,11 +805,11 @@ ipcMain.handle('wallet:list', async () => {
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 
-ipcMain.handle('wallet:lock', async () => {
+handle('wallet:lock', async () => {
   sessionKeyHex = null; sessionAddr = null;
   return { ok: true };
 });
-ipcMain.handle('wallet:status', async () => {
+handle('wallet:status', async () => {
   return sessionAddr ? { unlocked: true, address: sessionAddr } : { unlocked: false };
 });
 
@@ -662,7 +838,7 @@ function addrFromHex(hex) {
 //   存入功能完全不可用。
 //   现在不再取证书，`hacd` 模式不传 certfile（引擎已支持可省略）。
 //   `oracle` 参数已彻底删除（#3000 无预言机，保留只会误导调用方）。
-ipcMain.handle('tx:redeem', async (_e, req) => {
+handle('tx:redeem', async (_e, req) => {
   const { names, node, keyPath, contract, fee, gasMax, mainAddr } = req;
   try {
     var totalScore = 0, detail = [];
@@ -688,7 +864,7 @@ ipcMain.handle('tx:redeem', async (_e, req) => {
   }
 });
 
-ipcMain.handle('tx:broadcast', async (_e, { node, hex }) => {
+handle('tx:broadcast', async (_e, { node, hex }) => {
   try {
     // ⚠ 渲染层传入的 node 必须过白名单（2026-11-12 审计 C-H4）。
     //   原来这里直接拼 URL：渲染层被控时可把**已签名的交易**POST 到任意地址
@@ -711,7 +887,7 @@ ipcMain.handle('tx:broadcast', async (_e, { node, hex }) => {
 // ================= v0.2 新增 =================
 
 // ---- 交易体翻译（D22）：节点 /util/transaction/check?description=true ----
-ipcMain.handle('tx:translate', async (_e, { node, hex }) => {
+handle('tx:translate', async (_e, { node, hex }) => {
   try {
     const u = node.replace(/\/$/, '') + '/util/transaction/check?hexbody=true&description=true&action=true&body=true';
     return { ok: true, data: await httpPost(u, hex) };
@@ -720,7 +896,7 @@ ipcMain.handle('tx:translate', async (_e, { node, hex }) => {
 
 // ---- 离线工作流（D23）----
 // 构建"未签名交易体"：不注入任何密钥；返回 unsigned_tx_hex + sign_digest。
-ipcMain.handle('tx:buildUnsigned', async (_e, req) => {
+handle('tx:buildUnsigned', async (_e, req) => {
   const env = {};
   const gm = req.gasMax || gasMaxFor(req.mode, req);
   if (gm) env.HACDS_GAS_MAX = String(gm);
@@ -743,7 +919,7 @@ ipcMain.handle('tx:buildUnsigned', async (_e, req) => {
 });
 
 // 对给定的未签名交易体签名（离线机调用；用当前会话密钥或外部密钥文件）
-ipcMain.handle('tx:signRaw', async (_e, { unsignedHex, keyPath }) => {
+handle('tx:signRaw', async (_e, { unsignedHex, keyPath }) => {
   const env = {};
   if (sessionKeyHex) {
     env.HACDS_SIGN_KEY_HEX = sessionKeyHex;
@@ -762,7 +938,7 @@ ipcMain.handle('tx:signRaw', async (_e, { unsignedHex, keyPath }) => {
 
 // ---- 原子交易 combo（D24）----
 // req = { specPath? 或 specObject, mainAddr, contract?, node, fee?, gasMax?, keyPath? }
-ipcMain.handle('tx:combo', async (_e, req) => {
+handle('tx:combo', async (_e, req) => {
   const env = {};
   if (sessionKeyHex) {
     env.HACDS_SIGN_KEY_HEX = sessionKeyHex;
@@ -798,7 +974,7 @@ ipcMain.handle('tx:combo', async (_e, req) => {
 
 // ---- HACD 赎回（D9）：hacds -> HACD 实物流出 ----
 // ⚠ D-1：#3000 不再需要证书，直接 TransferHacdFromTo 驱动 PermitHACD。
-ipcMain.handle('tx:redeemHacd', async (_e, req) => {
+handle('tx:redeemHacd', async (_e, req) => {
   const { names, node, keyPath, contract, toAddr, fee, gasMax, mainAddr } = req;
   try {
     var totalScore = 0, detail = [];
@@ -827,12 +1003,12 @@ ipcMain.handle('tx:redeemHacd', async (_e, req) => {
 // 实测：同 timestamp 的多笔交易 hash 不同，可各自独立进 mempool，互不冲突。
 // kind='in'  → TransferHacdTo  （我的钻石 → 合约，记 due 配额）
 // kind='out' → TransferHacdFromTo（合约 → toAddr，扣 due 配额）
-ipcMain.handle('tx:redeemBatch', async (_e, req) => redeemBatchCore(req));
+handle('tx:redeemBatch', async (_e, req) => redeemBatchCore(req));
 
 // ---- HACD 点对点转账（D63）----
 // 链上一级转账（kind 6 TransferHacdFromTo），不碰合约、不需要证书。
 // 构建/签名由官方 hacash_sdk.wasm 在主进程本地完成，只把 tx_body 交给节点广播。
-ipcMain.handle('tx:hacdTransfer', async (_e, req) => hacdTransferCore(req));
+handle('tx:hacdTransfer', async (_e, req) => hacdTransferCore(req));
 
 async function hacdTransferCore(req) {
   const { toAddr, names, node, fee } = req;
@@ -998,14 +1174,23 @@ function getIndexer(node, contract) {
 // 扫链既慢又耗流量；把索引放服务端，钱包只调一次 API。
 function indexerUrl(cfg) {
   const u = (cfg && cfg.indexer) ? String(cfg.indexer).trim() : '';
-  return u ? u.replace(/\/$/, '') : '';
+  if (!u) return '';
+  // ⚠ 2026-11-15 审计 B-2：liq:sync / snapshot / watch / probe 直接把渲染层传来的
+  //   req.indexer 塞进这里（:1143/:1159/:1175/:1193），完全不经过白名单 ——
+  //   一步 SSRF。校验下沉到 httpGetJson 之后已经挡住实际请求，这里再加一道
+  //   显式判断，让调用方拿到明确的失败原因而不是模糊的网络错误。
+  const gate = endpointAllowed(u);
+  if (!gate.ok) {
+    throw new Error('indexer 端点被拒绝：' + gate.reason);
+  }
+  return u.replace(/\/$/, '');
 }
 async function srvGet(base, path) {
   return httpGetJson(base + path, 12000);
 }
 
 // 同步索引：优先服务端，失败回退本地扫块
-ipcMain.handle('liq:sync', async (_e, { node, contract, progress, indexer }) => {
+handle('liq:sync', async (_e, { node, contract, progress, indexer }) => {
   const base = indexerUrl({ indexer });
   if (base) {
     try {
@@ -1021,7 +1206,7 @@ ipcMain.handle('liq:sync', async (_e, { node, contract, progress, indexer }) => 
 });
 
 // 台账快照（服务端优先）
-ipcMain.handle('liq:snapshot', async (_e, { node, contract, indexer }) => {
+handle('liq:snapshot', async (_e, { node, contract, indexer }) => {
   const base = indexerUrl({ indexer });
   if (base) {
     try {
@@ -1037,7 +1222,7 @@ ipcMain.handle('liq:snapshot', async (_e, { node, contract, indexer }) => {
 });
 
 // 手工增删观察地址（同步到服务端）
-ipcMain.handle('liq:watch', async (_e, { node, contract, action, address, note, indexer }) => {
+handle('liq:watch', async (_e, { node, contract, action, address, note, indexer }) => {
   const base = indexerUrl({ indexer });
   if (base) {
     try {
@@ -1055,7 +1240,7 @@ ipcMain.handle('liq:watch', async (_e, { node, contract, action, address, note, 
 });
 
 // 探测服务端索引器是否可用（UI 显示用）
-ipcMain.handle('liq:probe', async (_e, { indexer }) => {
+handle('liq:probe', async (_e, { indexer }) => {
   const base = indexerUrl({ indexer });
   if (!base) return { ok: true, up: false, reason: 'not-configured' };
   try {
@@ -1065,7 +1250,7 @@ ipcMain.handle('liq:probe', async (_e, { indexer }) => {
 });
 
 // 金库待清扫额（tre:hac / tre:ds）
-ipcMain.handle('liq:treasury', async (_e, { node, contract, caller }) => {
+handle('liq:treasury', async (_e, { node, contract, caller }) => {
   try {
     const base = (node || '').replace(/\/$/, '');
     const c = caller || contract;
@@ -1084,7 +1269,7 @@ ipcMain.handle('liq:treasury', async (_e, { node, contract, caller }) => {
 // ⚠ #3000 无管理员：admin:probe 已删除（原实现 sandbox 调 set_paused，该函数不存在）
 
 // ---- 单个只读查询（通用，供渲染层批量调用）----
-ipcMain.handle('contract:call', async (_e, { node, contract, fn, caller, params }) => {
+handle('contract:call', async (_e, { node, contract, fn, caller, params }) => {
   try {
     const q = new URLSearchParams();
     q.set('contract', contract);
@@ -1102,7 +1287,7 @@ ipcMain.handle('contract:call', async (_e, { node, contract, fn, caller, params 
 });
 
 // ---- 资产总览（D10/D17）：HAC / HACD / hacds(三态) / SAT / 其它资产 ----
-ipcMain.handle('asset:overview', async (_e, { node, contract, address }) => {
+handle('asset:overview', async (_e, { node, contract, address }) => {
   try {
     const base = node.replace(/\/$/, '');
     // 1) 链上余额（含钻石名 + 全部资产元数据）
@@ -1132,7 +1317,7 @@ ipcMain.handle('asset:overview', async (_e, { node, contract, address }) => {
 });
 
 // ---- HACD 批量详情（供收藏视图：visual_gene 等）----
-ipcMain.handle('hacd:details', async (_e, { node, names }) => {
+handle('hacd:details', async (_e, { node, names }) => {
   try {
     const base = node.replace(/\/$/, '');
     const out = [];
@@ -1148,7 +1333,7 @@ ipcMain.handle('hacd:details', async (_e, { node, names }) => {
 });
 
 // ---- 协议状态总览（D19）----
-ipcMain.handle('protocol:overview', async (_e, { node, contract, address }) => {
+handle('protocol:overview', async (_e, { node, contract, address }) => {
   try {
     const base = node.replace(/\/$/, '');
     // 经并发闸门 + 重试；失败返回 null（UI 显示 —），但不再随机丢字段
@@ -1195,7 +1380,7 @@ function safeWalletPath(filePath) {
   return safe;
 }
 
-ipcMain.handle('wallet:rename', async (_e, { filePath, label }) => {
+handle('wallet:rename', async (_e, { filePath, label }) => {
   try {
     const fp = safeWalletPath(filePath);
     const j = JSON.parse(fs.readFileSync(fp, 'utf8'));
@@ -1204,7 +1389,7 @@ ipcMain.handle('wallet:rename', async (_e, { filePath, label }) => {
     return { ok: true };
   } catch (e) { return { ok: false, error: String(e) }; }
 });
-ipcMain.handle('wallet:delete', async (_e, { filePath }) => {
+handle('wallet:delete', async (_e, { filePath }) => {
   try {
     const fp = safeWalletPath(filePath);
     if (sessionAddr) {
@@ -1217,7 +1402,7 @@ ipcMain.handle('wallet:delete', async (_e, { filePath }) => {
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 // 批量查钱包余额（HAC + hacds due）
-ipcMain.handle('wallet:balances', async (_e, { node, contract, addresses }) => {
+handle('wallet:balances', async (_e, { node, contract, addresses }) => {
   try {
     const base = node.replace(/\/$/, '');
     const out = {};
@@ -1237,7 +1422,7 @@ ipcMain.handle('wallet:balances', async (_e, { node, contract, addresses }) => {
 // ---- 导出私钥明文（D1）：返回当前会话私钥 ----
 // 2026-10-22 审计加固：原实现仅由渲染层 confirm() 把关，渲染层一旦被脚本注入即可静默导出。
 // 现改为**主进程级确认对话框**（不依赖渲染层），用户必须在系统原生弹窗上确认后才返回。
-ipcMain.handle('wallet:exportKey', async () => {
+handle('wallet:exportKey', async () => {
   if (!sessionKeyHex) return { ok: false, error: '钱包未解锁' };
   try {
     const wc = win && !win.isDestroyed() ? win : null;
@@ -1277,8 +1462,20 @@ function createWindow() {
       nodeIntegration: false,
       // 2026-10-22 审计加固：开启渲染沙箱（preload 只用 require('electron')，兼容）
       sandbox: true,
+      // 2026-11-15 审计 B-2：显式声明安全开关，不依赖 Electron 默认值。
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
+      // 本应用不需要任何浏览器权限（摄像头/麦克风/地理位置/通知…）
+      // 2026-11-15 审计 B-2：统一 deny，避免渲染层主动索取。
+      experimentalFeatures: false,
     },
   });
+  // 一律拒绝权限申请（审计 B-2）
+  try {
+    win.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+    win.webContents.session.setPermissionCheckHandler(() => false);
+  } catch (e) { /* 旧版本 Electron 无此 API 时忽略 */ }
   win.setMenuBarVisibility(false);
 
   // ⚠ H-4（上线前审计）：必须阻止主窗口被导航到非本地页面。
@@ -1288,8 +1485,16 @@ function createWindow() {
   //
   // 触发路径真实存在：明文 HTTP 拉取的 HACD/余额数据拼进 innerHTML，
   // MITM 注入 <meta http-equiv="refresh"> 即可导航；CSP 只挡内联脚本，挡不住 meta。
+  //
+  // ⚠ 2026-11-15 审计 B-2：原判断是 `url.startsWith('file://')`，
+  //   放行了 UNC 形式的 `file://host/share/...` —— 窗口仍会被导航到
+  //   远端 SMB 上的页面，那里同样继承 window.api。现在改为**精确比对**
+  //   本地 index.html 的 file URL，其余一律拒绝。
+  const { pathToFileURL } = require('url');
+  const APP_ENTRY = pathToFileURL(
+    path.join(__dirname, 'renderer', 'index.html')).href;
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('file://')) e.preventDefault();
+    if (url !== APP_ENTRY) e.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // 禁止 webview 内嵌（本应用不需要）

@@ -43,18 +43,36 @@ object Biometric {
             .edit().putBoolean(KEY_ENABLED, on).apply()
     }
 
-    /** 弹出生识别提示；[onOk] 认证通过时回调，[onFail] 取消/失败时回调。 */
+    /**
+     * 弹出生物识别提示。
+     *
+     * ⚠ 2026-11-15 审计 H-11：新增 [cipher] 参数，把 Cipher 绑进 CryptoObject。
+     *
+     *   原实现 `bp.authenticate(info)` **不传 CryptoObject** —— 内部的
+     *   `setUserAuthenticationRequired(false)` 主密钥根本不看认证结果，
+     *   任何能调用 [AndroidKeyVault.open] 的代码（root / Frida / 注入）
+     *   都能直接解密，指纹只是 UI 上的装饰。
+     *
+     *   现在：调用方必须先 `AndroidKeyVault.prepareDecrypt(sealed)` 拿到
+     *   Cipher，再传进来。认证通过后 [onOk] 收到的 `result.cryptoObject`
+     *   里才是**被硬件解锁**的那个 Cipher，只有它能解出私钥。
+     *
+     * @param cipher 必须来自 [AndroidKeyVault.prepareDecrypt]；
+     *               传 null 只用于"确认操作"类场景（不涉及解密）。
+     */
     fun prompt(
         activity: FragmentActivity,
         title: String = "解锁钱包",
         subtitle: String = "验证指纹 / 面容",
-        onOk: () -> Unit,
+        cipher: javax.crypto.Cipher? = null,
+        onOk: (javax.crypto.Cipher?) -> Unit,
         onFail: (String) -> Unit,
     ) {
         val executor = ContextCompat.getMainExecutor(activity)
         val bp = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                onOk()
+                // 把被解锁的 Cipher 交回调用方，而不是只给一个布尔结果
+                onOk(result.cryptoObject?.cipher)
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -69,6 +87,11 @@ object Biometric {
                         BiometricManager.Authenticators.DEVICE_CREDENTIAL
             )
             .build()
-        bp.authenticate(info)
+
+        if (cipher != null) {
+            bp.authenticate(info, BiometricPrompt.CryptoObject(cipher))
+        } else {
+            bp.authenticate(info)
+        }
     }
 }

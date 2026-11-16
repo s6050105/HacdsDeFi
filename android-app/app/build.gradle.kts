@@ -48,8 +48,32 @@ android {
         val ksPass: String? = props.getProperty("storePassword") ?: System.getenv("HACDS_KS_PASS")
         val ksAlias: String = props.getProperty("keyAlias") ?: System.getenv("HACDS_KEY_ALIAS") ?: "hacds"
 
+        // ⚠ 2026-11-15 审计 H-1：签名私钥库**必须**放在项目树之外。
+        //
+        //   原来路径硬编码成 `keystore/hacds-release.jks`，而
+        //   `sync_to_release.sh` 的白名单含整个 `android-app/` 目录 ——
+        //   只要有人把 android-app 加进同步白名单，私钥就进公开仓库了。
+        //   （实测：目前未泄露，本地全历史与远端都没有。）
+        //
+        //   现在按优先级取：
+        //     ① HACDS_KEYSTORE 环境变量（推荐，CI/本地构建都走这个）
+        //     ② keystore.properties 里的 storeFile
+        //     ③ 回退到旧的树内路径（仅为兼容，会打印警告）
+        val envKs = System.getenv("HACDS_KEYSTORE")
+        val propKs = props.getProperty("storeFile")
+        val ksFile: File = when {
+            !envKs.isNullOrBlank() -> File(envKs)
+            !propKs.isNullOrBlank() -> File(propKs)
+            else -> rootProject.file("keystore/hacds-release.jks").also {
+                logger.warn(
+                    "⚠ 使用树内签名密钥（${it}）。建议移到项目树外并用 " +
+                    "HACDS_KEYSTORE 环境变量指定 —— 见审计 H-1。"
+                )
+            }
+        }
+
         create("release") {
-            storeFile = rootProject.file("keystore/hacds-release.jks")
+            storeFile = ksFile
             storePassword = ksPass
             keyAlias = ksAlias
             keyPassword = ksPass

@@ -516,7 +516,7 @@ Make sure nobody is watching or recording. Continue?</string>
     <string name="x_delete">Delete</string>
     <string name="x_noWallet">No wallets yet; tap "Create wallet" above</string>
     <string name="x_pwPc">Password (needed for PC-compatible wallet)</string>
-    <string name="x_pwEnc">Encryption password (≥6 chars)</string>
+    <string name="x_pwEnc">Encryption password (≥12 chars)</string>
     <string name="x_importHint">64-hex private key, or PC keystore JSON</string>
     <string name="x_pwKs">Passphrase (needed to import keystore)</string>
     <string name="x_note">Note</string>
@@ -569,7 +569,7 @@ Make sure nobody is watching or recording. Continue?</string>
     <string name="x_randKey">Random key</string>
     <string name="x_pwDerived">Passphrase-derived</string>
     <string name="x_passphrase">Passphrase</string>
-    <string name="x_pwMin">Password must be at least 6 chars</string>
+    <string name="x_pwMin">Password must be at least 12 chars</string>
     <string name="x_created">Created &amp; unlocked: %1$s</string>
     <string name="x_createFail">Create failed: %1$s</string>
     <string name="x_imported">Imported &amp; unlocked: %1$s</string>
@@ -610,4 +610,5 @@ Make sure nobody is watching or recording. Continue?</string>
     <string name="tab_lp">Liquidity</string>
     <string name="tab_fund">Funds</string>
     <string name="tab_tools">Tools</string>
+    <string name="x_createRandOnly">The private key is generated randomly on this device. The password only encrypts this file. Back up the private key as well.</string>
 </resources>

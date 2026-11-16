@@ -27,3 +27,10 @@ a7e754da55536cf0eb2a4c69eb916cc0c60496a1838e45761806826bddca74da  wallet-app/ren
 #   改 score_sum.rs 或替换 hcf1 后必须重跑 _test/diff_test.py 并更新这两行。
 0b02c7dfc88c57edf839280ffd9d4cfc7b332aebc1a3c1262a6b14564c4c9fe8  hacds_exchange/score_sum_opt.hcf1
 2253b693809959c30857a74740e3bbb222ae700dc91945311faa2dbdbbc8c49e  hacds_exchange/score_sum.rs
+
+# 部署产物与源码（2026-11-15 审计 B-1：此前 deploy.json / contractmap / fitsh
+#   都不在校验范围内 —— 部署字节码可被整份替换而所有既有自检照过）。
+#   改 fitsh 后必须重跑 fitSHc 并更新这三行；verify_build.py 会强制校验。
+990a46a360c9766c336d0e73863bf8a3f7a6a0789609e1246445588285f191bb  hacds_exchange/HacdsDeFi3000.fitsh
+10af8cab21b0534cc44b999511be6b4b209b1771d62c73be846cdf92e2937ea5  hacds_exchange/_build_v30/HacdsDeFi3000.deploy.json
+e569e65f14050091de7ec12f2c0717504eee798a5145f2099a181ed806cc2b26  hacds_exchange/_build_v30/HacdsDeFi3000.contractmap.json

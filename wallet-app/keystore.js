@@ -32,10 +32,17 @@ function newSecret() {
   }
 }
 
-/** 由口令派生私钥：sha2_256(utf8(password))（与 Hacash create_by 一致）。 */
-function secretFromPassword(password) {
-  return crypto.createHash('sha256').update(Buffer.from(password, 'utf8')).digest();
-}
+// ⚠ 2026-11-15 审计 B-3：已删除 secretFromPassword()。
+//
+//   原实现把 sha2_256(口令) 直接当私钥（无 salt、无迭代），可离线枚举
+//   常见口令 → 派生地址 → 查链上余额 → 命中即盗币。现在私钥一律由
+//   newSecret() 随机生成，口令只用于 scrypt 派生的 AES 加密密钥。
+//
+//   旧格式钱包仍可打开：decrypt() 不受影响（它解的本来就是加密过的随机私钥）。
+//   但**新建**钱包不再有任何口令派生路径。
+//
+//   若必须为外部工具保留调用点，请显式使用 crypto.createHash('sha256')，
+//   并清楚那等于把私钥暴露在口令空间里。
 
 /**
  * 加密一个 32B 私钥。
@@ -90,4 +97,4 @@ function classifyImport(text) {
   throw new Error('既不是 64 位 hex 私钥，也不是 keystore JSON');
 }
 
-module.exports = { newSecret, secretFromPassword, encrypt, decrypt, classifyImport, SCRYPT };
+module.exports = { newSecret, encrypt, decrypt, classifyImport, SCRYPT };
