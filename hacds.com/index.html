@@ -15,13 +15,9 @@
 </head>
 <body>
 
-<!-- 横幅 -->
-<!--
-  ⚠ 合约上线后改回 banner.mainnet（见 assets/js/i18n.js:18）。
-  #4000 需等 Hacash 主网 HVM 升级后才可部署，当前必须如实标「待部署」。
--->
+<!-- 横幅：合约已于 2026-11-18 部署主网，改用 banner.mainnet -->
 <div class="banner" id="banner">
-  <span data-i18n="banner.testnet"></span>
+  <span data-i18n="banner.mainnet"></span>
   <button class="close" id="bannerClose" aria-label="close">×</button>
 </div>
 
@@ -74,13 +70,17 @@
       <div class="stat">
         <div class="stat-label" data-i18n="stat.contract"></div>
         <!-- home.js 会用 CFG.contract 覆盖，这里写正确的值，
-             避免 JS 未执行（慢网/禁用脚本）时露出 #2000 的旧地址 -->
-        <div class="stat-value dim"><a href="#" id="statContract" class="mono-sm">T1A8kae…BdECyH</a></div>
+             避免 JS 未执行（慢网/禁用脚本）时露出旧地址。
+             ⚠ 2026-11-20：这里曾写第一轮 #3000 的 T1A8kae…BdECyH，
+             该地址已随 issuer 事故作废。静态回退值必须与 config.js 同步维护 —— -->
+        <div class="stat-value dim"><a href="#" id="statContract" class="mono-sm">bw2sRCNP…NJ37h</a></div>
         <div class="stat-sub" data-i18n="stat.contract.sub"></div>
       </div>
       <div class="stat">
         <div class="stat-label" data-i18n="stat.serial"></div>
-        <div class="stat-value" id="statSerial">3000</div>
+        <!-- 静态回退值，home.js 会用 CFG.asset.serial 覆盖。
+             必须与 config.js 的 serial 一致，否则 JS 未执行时露出旧值。 -->
+        <div class="stat-value" id="statSerial">4000</div>
         <div class="stat-sub" data-i18n="stat.serial.sub"></div>
       </div>
       <div class="stat">
@@ -107,7 +107,7 @@
         <table class="spec-table">
           <tr>
             <th>serial</th>
-            <td>3000</td>
+            <td>4000</td>
           </tr>
           <tr>
             <th>ticket / name</th>
@@ -123,7 +123,7 @@
           </tr>
           <tr>
             <th>issuer</th>
-            <td>T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH</td>
+            <td>15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q<br><span class="faint">（部署者地址，不是合约 —— 见白皮书 §5.2）</span></td>
           </tr>
           <tr>
             <th>contract</th>
@@ -253,12 +253,13 @@
   └── 无 admin / 无 pause / 无 upgrade</div>
 
         <div class="note mt-4" style="font-size:12.5px">
-          <b>源码状态</b>　<b>#4000 源码与两轮上线前安全审计报告已在
-          <a href="https://github.com/s6050105/HacdsDeFi/tree/v4000" target="_blank" rel="noopener">v4000 分支公开</a>。</b><br>
-          尚未部署的原因：评分依赖 Hacash 主网 VM 的 HACD 基因只读视图
-          （<code>hacd_visual_gene_batch</code> 等，随 v1.3.0 引入）。
-          需节点升级到 v1.3.0 且块高 ≥ 800,000 后才可用。
-          <b>合约侧已按官方 ABI 写好并编译通过，条件满足即可部署。</b>
+          <b>源码状态</b>　<b>#4000 源码与全部上线前安全审计报告已在
+          <a href="https://github.com/s6050105/HacdsDeFi" target="_blank" rel="noopener">GitHub 仓库公开</a>。</b><br>
+          <b>合约已于 2026-11-18 部署主网。</b>部署的两个前置条件均已满足：
+          节点为 v1.3.0（提供 HACD 基因只读视图 <code>hacd_visual_gene_batch</code> /
+          <code>hacd_number_batch</code>），主网块高已过 800,000。
+          合约 A（nonce 5，<code>bw2sRCNP…NJ37h</code>）与金库分红合约 B（nonce 4，
+          <code>duEkx1E3…pjZXm4</code>）均已上链，评分全部由合约直接读基因自算。
         </div>
 
         <div class="mt-4">

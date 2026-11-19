@@ -15,12 +15,15 @@ window.HACDS_CONFIG = {
   localIndexer: 'http://127.0.0.1:8124',
   useLocal: location.hostname === 'localhost' || location.hostname === '127.0.0.1',
 
-  // 合约地址：#4000 部署后替换
-  // 当前链上是 #2000（VKNw...），#4000 未部署。
-  // 官网按 #4000 规格构建，部署后改这一行即可。
+  // 合约地址：主网已部署（2026-11-18，nonce 5）。
+  // ⚠ 改这里时同步改 index.html 里的静态回退值（#statContract / #statSerial），
+  //   否则 JS 未执行时首页会露出旧值。
   contract: 'bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h',
 
-  // hacds 资产（2026-11-18：serial 从 3000 改为 4000）
+  // 金库分红合约 B（nonce 4）。index.html 的 app.js 里另有 VAULT_ADDR 常量。
+  vault: 'duEkx1E3owCP2VhTq6LzvLUGeMJpjZXm4',
+
+  // hacds 资产（serial 4000，主网已发行；股权 HACDS-SHARE serial 4001）
   asset: {
     serial: 4000,
     // decimal=0：1 个最小单位 = 1 个 hacds

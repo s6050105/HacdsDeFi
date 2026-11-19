@@ -57,7 +57,7 @@
     try {
       const st = await API.protocolState();
       // 协议状态可用时，把 Hero 的静态数字换成实时值
-      // （#4000 未部署时这些会是 null，保持静态值即可）
+      // （节点不可达时这些会是 null，保持静态值即可）
       if (st && st.poolPrice != null && Number(st.poolPrice) > 0) {
         // 池子有流动性时展示实时价格
         const el = document.getElementById('statSerial');

@@ -152,9 +152,19 @@
           <tr><th>name</th><td><code>hacds</code></td></tr>
           <tr><th>decimal</th><td><code>0</code></td></tr>
           <tr><th>总供给</th><td><code>5,963,298,700,000,000</code> atoms（decimal=0：1 atom = 1 hacds，即 5,963,298,700,000,000 个）</td></tr>
-          <tr><th>issuer</th><td><code>bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h</code>（合约 A）</td></tr>
+          <tr><th>issuer</th><td><code>15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q</code>（部署者地址，<b>不是合约</b>）</td></tr>
         </tbody>
       </table>
+
+      <div class="callout warn">
+        <b>关于 issuer：它不回答"谁管理"</b>
+        <p><code>AssetCreate</code> 把 supply <b>直接记到 issuer 地址名下，不触发任何合约钩子</b>。
+        所以 <code>issuer</code> 回答的是<b>"这批资产诞生在哪里"</b>，不是"归谁管理"。</p>
+        <p>股权资产（serial 4001）必须发行到<b>能自由转出的普通地址</b>，由持有人自己决定是否质押进合约。
+        <b>金库合约永远不发行、也不持有自己的股权资产。</b></p>
+        <p class="dim">第一轮部署正是把 issuer 填成了合约地址 —— 链上余额 10,000 而合约
+        <code>sh:</code> 账本为 0，<code>PermitAsset</code> 永远不放行，份额永久锁死。详见白皮书 §5.2。</p>
+      </div>
 
       <div class="callout warn">
         <b>注意 serial 识别</b>

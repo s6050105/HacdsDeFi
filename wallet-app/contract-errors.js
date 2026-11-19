@@ -122,7 +122,7 @@ const CONTRACT_CODES = {
 
   // ===== 钩子：资产 =====
   PermitAsset: {
-    1:  '资产序列号不符（本合约只收/发 serial=2000 的 hacds）',
+    1:  '资产序列号不符（本合约只收/发 serial=4000 的 hacds）',
     10: '金库待结算额不足（金库清扫失败）',
     11: '待领取 hacds（due 配额）不足',
     20: '流动性池为空（自动补足无法进行）',
@@ -133,7 +133,7 @@ const CONTRACT_CODES = {
     32: '自动补足兑换失败',
   },
   PayableAsset: {
-    1: '合约已暂停，或资产序列号不符（只收 serial=2000）',
+    1: '合约已暂停，或资产序列号不符（只收 serial=4000）',
   },
 
   // ===== 钩子：HAC =====
@@ -174,7 +174,7 @@ const NODE_ERRORS = [
   { match: /contract address (format|version)/i,
     text: '合约地址格式错误', hint: '请核对合约地址（配置项）' },
   { match: /asset is insufficient/i,
-    text: '资产余额不足', hint: '该地址的对应 serial 资产不足；核对数量与 serial（hacds=2000/3000）。' },
+    text: '资产余额不足', hint: '该地址的对应 serial 资产不足；核对数量与 serial（hacds=4000，股权=4001）。' },
   { match: /balance .* is insufficient/i,
     text: 'HAC 余额不足', hint: 'Type-3 交易会按 gas_max 预扣 HAC（99≈0.56 HAC、50≈0.0203 HAC、1≈0.000735 HAC，执行后退回）。纯 HAC/HACD 转账可用 1；hacds 资产转账约 50；涉及合约的转账/调用需 99。' },
   { match: /insufficient|is insufficient/i,

@@ -864,7 +864,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     data class OtcPay(
         val on: Boolean = false,
         val kind: String = "hac",       // hac | asset | hacd
-        val serial: String = "3000",
+        // ⚠ 默认值取 AppConfig.HACDS_SERIAL，不要写字面量。
+        //   这里曾写死 "3000"（第一轮已作废的 serial）—— 用户在 OTC 里
+        //   选「付资产」时，默认付出的就是这个错编号的资产。
+        val serial: String = AppConfig.HACDS_SERIAL.toString(),
         val amount: String = "",
         val names: String = "",
     )

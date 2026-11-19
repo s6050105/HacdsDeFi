@@ -429,8 +429,8 @@ async function loadPoolHacd(silent) {
 // ===================== 资产 serial =====================
 // ⚠ 必须传**数字** serial，不能传 'hacds' 别名。
 //   hacds_txbuild 内部的 `HACDS_SERIAL` 常量仍停在旧版 2000，
-//   而 #4000 版合约的 `HACDS_SERIAL` 是 3000；传别名会被 txbuild 拼成
-//   serial=2000 的动作，链上 PermitAsset 校验 `serial != 3000` 直接 return 1。
+//   而 #4000 版合约的 `HACDS_SERIAL` 是 4000；传别名会被 txbuild 拼成
+//   serial=2000 的动作，链上 PermitAsset 校验 `serial != 4000` 直接 return 1。
 //   （2026-11-15 测试网实测复现，详见 测试报告-v2.md 附三）
 const HACDS_SERIAL = '4000';
 
@@ -542,7 +542,7 @@ const OPS = [
     descKey:'op.trHacd.d',
     fields:[{name:'names',labelKey:'f.hacdNames'},{name:'to',labelKey:'f.toAddr',type:'address'}] },
 
-  // 其它资产（排除 serial 2000）
+  // 其它资产（排除 hacds / 股权本身）
   { id:'trOther', tab:'xfer', kind:'transferOther', titleKey:'op.trOther.t',
     descKey:'op.trOther.d',
     fields:[{name:'serial',labelKey:'f.serialNum',type:'u128'},{name:'to',labelKey:'f.toAddr',type:'address'},{name:'atoms',labelKey:'f.atomsNum2',type:'u128'}],
@@ -2080,7 +2080,7 @@ function otcState() {
       // 对价（最多 3 种）
       pay: [
         { on: true,  kind: 'hac',   amount: '' },
-        // 默认给 hacds（3000）—— 最常见的对价；用户可改成任意 serial
+        // 默认给 hacds（serial 见 HACDS_SERIAL，当前 4000）—— 最常见的对价；用户可改成任意 serial
         { on: false, kind: 'asset', serial: HACDS_SERIAL, amount: '' },
         { on: false, kind: 'hacd',  names: '' },
       ],
