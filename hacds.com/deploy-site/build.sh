@@ -75,6 +75,20 @@ FILES=(
   assets/img/hacd.svg
   assets/img/hacds_icon_32.png
   assets/img/hacds_icon_64.png
+
+  # 文章（2026-11-20）
+  # 两篇技术复盘，三语 md 由 docview.js 在线渲染。
+  # ⚠ 新增/改名文章时**必须同步改这里** —— build.sh 是白名单，
+  #   漏加不会报错，只会静默地 404。
+  articles/index.html
+  articles/ai-agent-scope-creep/index.html
+  articles/mainnet-postmortem/index.html
+  articles/AI-Agent越权反思.md
+  articles/AI-Agent-Scope-Creep.en.md
+  articles/AI-Agent-Scope-Creep.tr.md
+  articles/主网部署事故复盘.md
+  articles/Mainnet-Deployment-Postmortem.en.md
+  articles/Mainnet-Deployment-Postmortem.tr.md
 )
 
 missing=0

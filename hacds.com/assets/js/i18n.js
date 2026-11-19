@@ -12,6 +12,7 @@
       'nav.verify': '验证',
       'nav.features': '功能',
       'nav.docs': '文档',
+      'nav.articles': '文章',
       'nav.app': '进入应用',
 
       // 横幅
@@ -409,6 +410,7 @@
       'nav.verify': 'Verify',
       'nav.features': 'Features',
       'nav.docs': 'Docs',
+      'nav.articles': 'Articles',
       'nav.app': 'Launch App',
 
       'banner.mainnet': '<b>Live on mainnet</b> — The contract is deployed on Hacash HVM. Every operation is verifiable on-chain.',
@@ -792,6 +794,7 @@
       'nav.verify': 'Dogrula',
       'nav.features': 'Ozellikler',
       'nav.docs': 'Belgeler',
+      'nav.articles': 'Yazılar',
       'nav.app': 'Uygulamayi Ac',
 
       'banner.mainnet': '<b>Ana agda calisiyor</b> — Sozlesme Hacash HVM uzerinde yayinda. Her islem zincir uzerinde dogrulanabilir.',

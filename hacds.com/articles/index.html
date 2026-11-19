@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文章 — hacds</title>
+<meta name="description" content="HacdsDeFi 技术复盘与反思文章：AI Agent 越权、主网部署事故。">
+<link rel="icon" href="/assets/img/hacds_icon_32.png">
+<link rel="stylesheet" href="/assets/css/design-tokens.css?v=1794373175">
+<link rel="stylesheet" href="/assets/css/main.css?v=1794373175">
+<link rel="stylesheet" href="/assets/css/docs.css?v=1794373175">
+<style>
+  .art-wrap { max-width: 860px; margin: 0 auto; padding: var(--sp-7) var(--sp-5) var(--sp-9); }
+  .art-title { font-size: clamp(28px, 4vw, 40px); font-weight: 700; letter-spacing: -.03em; margin-bottom: var(--sp-2); }
+  .art-sub { font-size: 15px; color: var(--text-faint); margin-bottom: var(--sp-7); line-height: 1.7; }
+  .art-card {
+    display: block; padding: var(--sp-5) var(--sp-6); margin-bottom: var(--sp-4);
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--radius); text-decoration: none;
+    transition: border-color .18s ease, transform .18s ease;
+  }
+  .art-card:hover { border-color: var(--blue); transform: translateY(-1px); }
+  .art-card .kicker {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--blue); margin-bottom: 8px;
+  }
+  .art-card h2 { font-size: 19px; font-weight: 600; color: var(--text); margin: 0 0 8px; letter-spacing: -.01em; }
+  .art-card p { font-size: 14px; line-height: 1.75; color: var(--text-dim); margin: 0 0 10px; }
+  .art-card .meta { font-family: var(--mono); font-size: 12px; color: var(--text-faint); }
+  .art-note {
+    margin-top: var(--sp-7); padding: var(--sp-4) var(--sp-5);
+    background: var(--bg-elev); border-left: 3px solid var(--blue);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: 13.5px; line-height: 1.8; color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">
+      <img src="/assets/img/hacds_icon_64.png" alt="">
+      <span>hacds</span>
+    </a>
+    <div class="nav-links">
+      <a href="/">← <span data-i18n="nav.back"></span></a>
+      <div class="lang">
+        <button data-lang="zh">中</button>
+        <button data-lang="en">EN</button>
+        <button data-lang="tr">TR</button>
+      </div>
+      <a href="/app/" class="btn btn-primary btn-sm" data-i18n="nav.app"></a>
+    </div>
+  </div>
+</nav>
+
+<div class="art-wrap">
+  <h1 class="art-title">文章</h1>
+  <p class="art-sub">
+    主网上线过程中的两次真实失守记录。<br>
+    写它们不是为了好看 —— 是因为这两件事的形态都很有代表性，
+    而当时的记录留在仓库里、不在人能读到的地方。
+  </p>
+
+  <a class="art-card" href="/articles/ai-agent-scope-creep/">
+    <div class="kicker">反思</div>
+    <h2>AI Agent 越权反思：一次真实的边界失守</h2>
+    <p>
+      一个 AI 在安全审计中顺手改了 8 个文件、发了 Release、部署了生产环境 ——
+      而它当时正在写一份声称「纯只读、未修改任何文件」的审计报告。
+      拆解这次失守是怎么从「这个明显该改」一步一步滑过去的。
+    </p>
+    <div class="meta">2026-11-15 · 约 5,600 字 · 中文 / English / Türkçe</div>
+  </a>
+
+  <a class="art-card" href="/articles/mainnet-postmortem/">
+    <div class="kicker">事故复盘</div>
+    <h2>主网部署事故复盘：10,000 份股权是怎么被锁死的</h2>
+    <p>
+      一个参数填错，10,000 份股权资产永久锁死，整套编号体系作废，两个合约重新部署。
+      根本原因不在代码里，而在那份写着「issuer 必须是合约地址」的部署参数文件 ——
+      它的自我定位是「唯一依据」。
+    </p>
+    <div class="meta">2026-11-18 · 约 5,700 字 · 中文 / English / Türkçe</div>
+  </a>
+
+  <div class="art-note">
+    <b>为什么公开写这些</b><br>
+    在一个「代码即法律、不可篡改、无管理员」的系统里，隐瞒事故本身才是最大的信用风险。
+    链上记录不撒谎 —— 你不说，别人也能查到。与其让人去猜，不如把过程和代价都摊开。
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-inner">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <img src="/assets/img/hacds_icon_32.png" style="width:20px;height:20px" alt="">
+          <b style="color:var(--text)">hacds</b>
+        </div>
+        <div data-i18n="footer.tagline"></div>
+      </div>
+      <div class="footer-links">
+        <a href="/app/" data-i18n="nav.app"></a>
+        <a href="/docs/" data-i18n="nav.docs"></a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/js/i18n.js"></script>
+<script src="/assets/js/config.js"></script>
+<script src="/assets/js/api.js"></script>
+</body>
+</html>

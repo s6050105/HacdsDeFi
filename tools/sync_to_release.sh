@@ -130,6 +130,12 @@ WHITELIST=(
   "安全审计/主网部署清单-2026-11-18.md"              # 主网部署执行清单
   "安全审计/发布前准备-2026-11-18.md"                # 发布前最终核对
   "安全审计/工作底稿"
+
+  # 文章（2026-11-20）：两篇技术复盘，三语源稿。
+  #   官网 hacds.com/articles/ 下有同样的副本供在线渲染 —— 两处必须同版本，
+  #   改文章时两个目录都要更新（本次由 sync 自动处理 hacds.com/ 整目录）。
+  #   仓库根 articles/ 是源稿，供不看官网的人直接读 md。
+  "articles"
   # 编译产物：审计方要能核对"这份源码编译出这个字节码"
   "hacds_exchange/_build_v30/HacdsDeFi3000.deploy.json"
   "hacds_exchange/_build_v30/HacdsDeFi3000.contractmap.json"
