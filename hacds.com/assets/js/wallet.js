@@ -144,7 +144,7 @@
    * 证书流（tx_message 126B × n）在钱包签名页的人类可读布局。
    *
    * ⚠ 这是 **#2000 遗留**：结构 name(6) + visual_gene(10) + number(8)
-   *   + score(4) + version(1) + sign(97)。#3000 已删除证书流
+   *   + score(4) + version(1) + sign(97)。#4000 已删除证书流
    *   （改为合约链上直读 `hacd_visual_gene_batch` / `hacd_number_batch` 自算分），
    *   官网的 mintHacd/redeemHacd
    *   也是「明确不支持」的桩，这个布局实际上永远不会被用到。

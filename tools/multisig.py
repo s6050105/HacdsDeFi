@@ -693,7 +693,7 @@ def cmd_selftest(a) -> int:
             ok = False
 
     print("=== 1. base58check ===")
-    known = "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1"  # #3000 合约地址
+    known = "VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1"  # #4000 合约地址
     raw = addr_decode(known)
     chk("解码合约地址", len(raw) == 21 and raw[0] == ADDR_VERSION_CONTRACT, "v=%d" % raw[0])
     chk("重编码一致", addr_encode(raw) == known)

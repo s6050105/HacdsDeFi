@@ -77,7 +77,7 @@ Cloudflare Pages / GitHub Pages / 任意静态托管：
 
 ```js
 apiBase: 'https://api.hacds.com',   // 对应 Worker 域名
-contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH',  // #3000 部署后替换
+contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH',  // #4000 部署后替换
 ```
 
 ## 设计要点
@@ -115,17 +115,17 @@ MoneyNex.signtx({
 
 ### 版本探测
 
-`api.js` 的 `detectVersion()` 用 `hcut()` 视图是否存在来区分 #2000 / #3000：
+`api.js` 的 `detectVersion()` 用 `hcut()` 视图是否存在来区分 #2000 / #4000：
 
-- #3000 有 `hcut()` → `v3000`
+- #4000 有 `hcut()` → `v4000`
 - #2000 没有 → `v2000`
 
-这样 #3000 上线那天官网不用改代码就能切换。
+这样 #4000 上线那天官网不用改代码就能切换。
 
 ## 已知限制
 
-1. **#3000 未部署** — 合约依赖 HVM 新增的 `hacd_info` 内置。当前链上是 #2000，
-   官网按 #3000 规格构建交易，实际调用会失败，直到部署完成。
+1. **#4000 未部署** — 合约依赖 HVM 新增的 `hacd_info` 内置。当前链上是 #2000，
+   官网按 #4000 规格构建交易，实际调用会失败，直到部署完成。
 2. **验证器是简化版** — 主页的发行量验证器只实现了 5 维评分中的部分逻辑，
    用于演示可复算性。完整复算请用 `hacds_exchange/oracle/score_census.py`。
 3. **交易构建依赖后端** — `/api/build` 需要在 Worker 里转发到 txbuild 服务，

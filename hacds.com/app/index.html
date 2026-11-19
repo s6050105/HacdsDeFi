@@ -92,6 +92,8 @@
       <button class="tab" data-tab="loan" data-i18n="app.tabLoan"></button>
       <button class="tab" data-tab="fund" data-i18n="app.tabFund"></button>
       <button class="tab" data-tab="xfer" data-i18n="app.tabXfer"></button>
+      <!-- 金库分红：动态显示（持有 3001 或已质押 > 0 时才出现），见 app.js vaultVisible() -->
+      <button class="tab vault hidden" data-tab="vault" data-i18n="app.tabVault"></button>
       <button class="tab" data-tab="tools" data-i18n="app.tabTools"></button>
     </div>
 
@@ -392,6 +394,57 @@
     </section>
 
     <!-- 工具：查询 / 续租 / 二维码 -->
+    <!-- ==================== 金库分红 ====================
+         语义（详见 hacds_exchange/钱包-金库分红页签-设计.md）：
+           · 待结算 = 尚未 claim 的增量
+           · 待提现 = 已 claim、还在合约里的 due
+           · 总计可提取 = 两者之和
+         ⚠ get_claimable 返回「总计」，claim 之后数值不变 —— 不要写成"可领取"
+    -->
+    <section class="panel hidden" data-panel="vault">
+      <div class="vault-wrap">
+        <!-- 数据过期提示（网络失败时保留上次数据 + 标记），见设计文档 §9 -->
+        <div class="vault-stale hidden" id="vaultStale"></div>
+
+        <!-- ① 我的权益 -->
+        <div class="card vault-card">
+          <div class="card-hd" data-i18n="vault.holdings"></div>
+          <div class="proto-grid" id="vaultHoldings">
+            <span class="muted" data-i18n="vault.loading"></span>
+          </div>
+        </div>
+
+        <!-- 未质押提示（有未质押份额时才显示） -->
+        <div class="vault-warn hidden" id="vaultWarn">
+          <span id="vaultWarnText"></span>
+          <button class="gold-btn" id="btnVaultStakeNow" data-i18n="vault.stakeNow"></button>
+        </div>
+
+        <!-- ② 分红 -->
+        <div class="card vault-card dividend" id="vaultDividend">
+          <div class="card-hd" data-i18n="vault.dividend"></div>
+          <div id="vaultDividendBody">
+            <span class="muted" data-i18n="vault.loading"></span>
+          </div>
+        </div>
+
+        <!-- ③ 全局 -->
+        <div class="card vault-card">
+          <div class="card-hd" data-i18n="vault.global"></div>
+          <div class="proto-grid" id="vaultGlobal">
+            <span class="muted" data-i18n="vault.loading"></span>
+          </div>
+        </div>
+
+        <!-- 操作区 -->
+        <div class="vault-ops">
+          <button class="gold-btn" id="btnVaultStake" data-i18n="vault.stake"></button>
+          <button class="btn btn-ghost" id="btnVaultUnstake" data-i18n="vault.unstake"></button>
+          <button class="btn btn-ghost" id="btnVaultRefresh" data-i18n="vault.refresh"></button>
+        </div>
+      </div>
+    </section>
+
     <section class="panel hidden" data-panel="tools">
       <div class="card">
         <div class="card-hd" data-i18n="tools.query"></div>

@@ -77,6 +77,14 @@ fun AppRoot() {
         // 首次进入加载钱包列表 + 公开协议状态 + 清算台账
         remember { vm.refreshWallets(); vm.refreshProtocolPublic(); vm.refreshLiquidation(); true }
 
+        // 账户切换 / 解锁后重新探测金库（设计文档 §6.3：判定条件变了要重算）
+        androidx.compose.runtime.LaunchedEffect(session.address) {
+            if (session.address != null) {
+                vm.refreshAssets()
+                vm.refreshVault(force = true)
+            }
+        }
+
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -144,13 +152,18 @@ private fun PrimaryTabs(sel: Int, onSelect: (Int) -> Unit) {
  */
 @Composable
 private fun ToolsTab(vm: AppViewModel) {
+    // OTC 原子交易放在工具页里（2026-11-18）：
+    //   一级导航已经 7 项，手机窄屏再加会挤成一团；OTC 是低频但需要双签的交易，
+    //   和「离线签名」同属"手工处理交易体"的场景，归到这里最自然。
     val titles = listOf(
-        tr("tab_query"), tr("tab_liq"), tr("tab_offline"), tr("tab_wallet"),
+        tr("tab_query"), tr("tab_liq"), tr("tab_offline"), tr("otc_title"), tr("tab_wallet"),
     )
     var idx by remember { mutableIntStateOf(0) }
+    val session by vm.session.collectAsState()
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(horizontal = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             titles.forEachIndexed { i, title ->
@@ -158,7 +171,6 @@ private fun ToolsTab(vm: AppViewModel) {
                     selected = idx == i,
                     onClick = { idx = i },
                     label = { Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 1) },
-                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -166,6 +178,7 @@ private fun ToolsTab(vm: AppViewModel) {
             0 -> QueryScreen(vm)
             1 -> LiquidationScreen(vm)
             2 -> OfflineScreen(vm)
+            3 -> com.hacds.defi.ui.screens.OtcScreen(vm, unlocked = session.unlocked)
             else -> WalletScreen(vm)
         }
     }

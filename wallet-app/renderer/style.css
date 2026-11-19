@@ -96,17 +96,88 @@ main[hidden]{display:none}
 .qval{font-size:15px; color:var(--ok); font-family:Consolas,monospace}
 .qerr{color:var(--err)} .qhint{color:var(--warn); font-size:11px}
 
-/* HACD 收藏 */
-.hacd-panel{flex:1; display:flex; overflow:hidden; padding:14px; gap:12px}
+/* HACD 收藏
+ *
+ * ⚠ 2026-11-18：钻石多时列表无法滚动、卡片撑破面板（用户实测反馈）。
+ *
+ *   原样式的意图是「.hacd-grid 固定高度、内部滚动」，但高度链是断的：
+ *
+ *     .hacd-panel (flex, overflow:hidden)
+ *       └ .grid-2            ← 不是 flex 容器
+ *           └ .card          ← 不是 flex 容器
+ *               └ .hacd-grid (flex:1, overflow:auto)
+ *
+ *   `.hacd-grid` 的 `flex:1` 只在**父级是 flex 容器**时才有意义。
+ *   它父级是 `.card`（普通 block），所以 flex:1 完全无效；
+ *   而 `overflow:auto` 又必须有确定高度才会出滚动条 —— 没有高度，
+ *   元素就按内容撑开，200 颗钻石铺成一长条，把整个面板顶破。
+ *
+ *   修法：让这条链上每一层都成为 flex 容器并传递高度约束。
+ *   关键在 `min-height:0` —— flex 子项的 min-height 默认是 auto，
+ *   不写它，子项仍会被内容撑到自然高度，overflow:auto 照样不触发
+ *   （这是 flexbox 最经典的坑之一）。
+ */
+/* ⚠ 父级 main{flex:1; overflow:auto} 本身是滚动容器 → 它不会给子项
+ *   确定高度，`.hacd-panel{flex:1}` 又会退化成"按内容撑开"。
+ *   所以 HACD 页需要把 main 切成"不滚动 + 子项自己滚"的模式：
+ *   给 body 打 data-tab="hacd" 时，main 变成 flex 容器且 overflow:hidden，
+ *   面板才能拿到真正可计算的剩余高度。
+ *   （由 renderPanels() 里设置 document.body.dataset.tab 驱动，见 app.js）  */
+body[data-tab="hacd"] main{overflow:hidden; display:flex; flex-direction:column}
+/* ⚠ 2026-11-19 回归修复：上面这条 `display:flex` 的选择器权重（0,1,2）
+ *   高于浏览器默认的 `[hidden]{display:none}`，导致 HACD 页下
+ *   `main[hidden]` **隐藏了却仍占满 flex 剩余空间**（实测 301px），
+ *   把 HACD 面板整个往下推 —— 用户看到"顶部空 1/3"。
+ *   必须显式把它关掉。 */
+body[data-tab="hacd"] main[hidden]{display:none !important}
+/* HACD 页把日志区压到最小：日志固定 96px + 头部约 30px = 147px，
+ * 对"看钻石"这个场景没有价值，却能多给网格两排卡片的空间。
+ * 用户点日志标题仍可展开（.ov-collapsed 的切换逻辑在 app.js 里照常工作）。 */
+body[data-tab="hacd"] .logwrap .log{height:64px}
+.hacd-panel{flex:1; display:flex; overflow:hidden; padding:14px; gap:12px; min-height:0}
 .hacd-panel[hidden]{display:none}
-.hacd-left{flex:1; display:flex; flex-direction:column; min-width:0}
+/* 让 grid-2 这一层也传递高度 */
+.hacd-panel > .grid-2{width:100%; display:grid;
+  /* 2026-11-18：原来是 1:1 等分，但右栏（合约池）内容远少于左栏（我的钻石），
+   * 等分会让左栏钻石网格被迫变窄、排更多行、显得零碎。
+   * 改成 1.7:1，把空间让给钻石网格。 */
+  grid-template-columns:1.7fr 1fr; gap:var(--sp-4); min-height:0; overflow:hidden}
+@media (max-width:820px){
+  .hacd-panel > .grid-2{grid-template-columns:1fr; overflow:visible}
+}
+/* 两张卡片各自成为纵向 flex 容器，把剩余高度分给列表区。
+ *
+ * ⚠ 2026-11-18：`.card` 全局有 `max-width:880px`，在全屏（1920px）下
+ *   两栏各被卡在 880px，中间空出 100+ px 的缝，而且每栏内部右侧还有大片空白
+ *   —— 钻石卡片只有 96px 宽，880px 的栏宽能排 8 列，但实际内容区更窄。
+ *   HACD 页是"网格铺满"的布局，必须解除这个宽度限制，让两栏按 1:1 分满。 */
+.hacd-panel > .grid-2 > .card{display:flex; flex-direction:column;
+  min-height:0; overflow:hidden; margin-bottom:0;
+  max-width:none; min-width:0}
+.hacd-left{flex:1; display:flex; flex-direction:column; min-width:0; min-height:0}
 .hacd-filter{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px}
 .hacd-filter select,.hacd-filter input{font-size:12px; padding:4px 7px}
-.hacd-grid{flex:1; overflow:auto; display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:10px; align-content:start}
+/* 列表区：占满剩余高度，超出即内部滚动 */
+.hacd-grid{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:10px;
+  /* ⚠ 2026-11-18：`align-content:start` 会让所有行挤在顶部，底下留一大片空白
+   *   （用户反馈"没有填满界面"）。改成 `stretch` 让行高平均分配剩余空间？不行 ——
+   *   卡片是固定长宽比的，拉伸会让图片变形。
+   *
+   *   正确做法：保持 start（卡片等大、整齐），但让**列数随宽度自适应**，
+   *   并把卡片本身放大一点，让 103 颗能填满更多面积。
+   *   同时给容器留出底部安全边距，滚动到底时最后一排不会贴着边缘。 */
+  align-content:start; padding:0 6px 8px 0; scrollbar-gutter:stable}
 .hacd-card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius);
-  padding:7px; text-align:center; cursor:pointer; transition:border-color .12s; position:relative}
+  padding:8px; text-align:center; cursor:pointer; transition:border-color .12s; position:relative;
+  /* 卡片自身也不设固定高度：SVG 是 width:100% height:auto，
+   * 卡片高度由列宽决定，天然保持正方形比例 */}
 .hacd-card:hover{border-color:var(--accent)}
+/* 加载骨架：占位块，避免"进入页面看到一片空白"（2026-11-18） */
+.hacd-card.hacd-skeleton{height:96px; background:var(--panel2); opacity:.35;
+  animation:hacdPulse 1.2s ease-in-out infinite}
+.hacd-card.hacd-skeleton:hover{border-color:var(--line)}
+@keyframes hacdPulse{0%,100%{opacity:.28}50%{opacity:.5}}
 .hacd-card.on{border-color:var(--gold)}
 .hacd-card.picked{border-color:var(--ok); box-shadow:0 0 0 1px var(--ok) inset}
 .hacd-card.picked.on{border-color:var(--gold); box-shadow:0 0 0 1px var(--ok) inset}
@@ -392,4 +463,140 @@ html[lang="zh-CN"] .modal-box .det-row .k::after { content: '：'; }
 }
 .hacd-card .hc-check.on::after {
   content: '✓'; color: #04281a; font-size: 12px; font-weight: 700; line-height: 1;
+}
+
+/* ============================================================================
+   金库分红页签（2026-11-18）
+   金色高亮，与其它页签区分。色值集中在下面，暗色模式由 [data-theme="dark"] 覆盖。
+   ============================================================================ */
+:root{
+  --vault-gold:#c9982a;
+  --vault-gold-soft:#e8c76a;
+  --vault-gold-bg:rgba(201,152,42,.08);
+  --vault-gold-border:rgba(201,152,42,.35);
+  --vault-gold-text:#8a6512;
+}
+[data-theme="dark"]{
+  --vault-gold:#e8c76a;
+  --vault-gold-soft:#f5e0a0;
+  --vault-gold-bg:rgba(232,199,106,.10);
+  --vault-gold-border:rgba(232,199,106,.30);
+  --vault-gold-text:#f0d78a;
+}
+
+/* ---- 页签按钮：金色 ---- */
+.tabs button.vault{ color:var(--vault-gold-text); position:relative; }
+.tabs button.vault.on{
+  color:var(--vault-gold-text);
+  background:linear-gradient(180deg,var(--vault-gold-bg) 0%,transparent 100%);
+  box-shadow:inset 0 -2px 0 var(--vault-gold);
+}
+/* 有未领取分红：右上角金色圆点 */
+.tabs button.vault.has-reward::after{
+  content:''; position:absolute; top:6px; right:6px;
+  width:6px; height:6px; border-radius:50%;
+  background:var(--vault-gold);
+}
+
+/* ---- 页面 ---- */
+.vault-wrap{ display:flex; flex-direction:column; gap:var(--sp-3); }
+.vault-card{
+  border:1px solid var(--vault-gold-border);
+  background:var(--vault-gold-bg);
+  border-radius:12px;
+}
+.vault-card.dividend{ border-left:3px solid var(--vault-gold); }
+.vault-card.dim{ opacity:.55; }
+
+/* ---- 数字 ---- */
+.vault-wrap b.gold{ color:var(--vault-gold-text); }
+.vault-wrap b.warn{ color:var(--warn,#d08770); }
+.vault-wrap .amount{
+  font-variant-numeric:tabular-nums; letter-spacing:.02em;
+}
+.vault-wrap .amount.primary{
+  font-size:1.5em; font-weight:600; color:var(--vault-gold-text);
+}
+.vault-total{
+  display:flex; align-items:baseline; justify-content:space-between;
+  margin-top:var(--sp-3); padding-top:var(--sp-3);
+  border-top:1px dashed var(--vault-gold-border);
+}
+
+/* ---- 未质押警告条 ---- */
+.vault-warn{
+  display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3);
+  padding:10px 14px; border-radius:10px;
+  background:var(--vault-gold-bg);
+  border:1px solid var(--vault-gold-border);
+  color:var(--vault-gold-text);
+  font-size:.92em;
+}
+
+/* ---- 按钮 ---- */
+.gold-btn{
+  background:var(--vault-gold); color:#1a1a1a;
+  border:none; border-radius:8px; padding:8px 16px;
+  font-weight:600; cursor:pointer;
+}
+.gold-btn:hover{ background:var(--vault-gold-soft); }
+.gold-btn:disabled{ opacity:.4; cursor:not-allowed; }
+.gold-btn.wide{ width:100%; margin-top:var(--sp-3); }
+
+/* ---- 操作区 ---- */
+.vault-ops{ display:flex; gap:var(--sp-3); flex-wrap:wrap; }
+
+/* ============================================================================
+   股权 OTC 原子交易（2026-11-18）
+   ============================================================================ */
+.otc-wrap{ display:flex; flex-direction:column; gap:var(--sp-3); }
+
+/* 股权转让区（2026-11-18 并入金库页）
+ * 与上方分红卡片之间加一条分隔线，视觉上区分"分红"与"转让"两件事，
+ * 但不用另一个页签。 */
+.vault-otc-section{
+  display:flex; flex-direction:column; gap:var(--sp-3);
+  margin-top:var(--sp-4);
+  padding-top:var(--sp-4);
+  border-top:1px solid var(--vault-gold-border);
+}
+.vault-otc-section::before{
+  content:attr(data-title);
+  font-size:13px; font-weight:600;
+  color:var(--vault-gold-text);
+  margin-bottom:2px;
+}
+.otc-pay-row{
+  display:flex; align-items:center; gap:var(--sp-2);
+  margin-top:8px; padding:8px; border-radius:8px;
+  background:var(--panel2, rgba(255,255,255,.03));
+}
+.otc-pay-row input,.otc-pay-row select{
+  background:var(--panel2); border:1px solid var(--line);
+  color:var(--fg); border-radius:6px; padding:6px 8px; font-size:13px;
+}
+.otc-pay-row input[type=checkbox]{ width:16px; height:16px; cursor:pointer; }
+.otc-pay-row input.mono{ flex:1; }
+
+.otc-preview{ margin-top:8px; }
+.otc-line{ padding:6px 0; border-bottom:1px dashed var(--line); font-size:14px; }
+.otc-line:last-child{ border-bottom:none; }
+.otc-out{ color:var(--warn,#d08770); font-weight:600; margin-right:6px; }
+.otc-in{ color:var(--ok,#7fd48a); font-weight:600; margin-right:6px; }
+.otc-ok{ color:var(--ok,#7fd48a); font-size:12px; margin-left:6px; }
+.otc-bad{ color:var(--danger,#e06c75); font-size:12px; margin-left:6px; font-weight:600; }
+
+.otc-warn{
+  padding:10px 14px; border-radius:10px; font-size:13px;
+  background:rgba(224,108,117,.10);
+  border:1px solid rgba(224,108,117,.35);
+  color:var(--danger,#e06c75);
+}
+
+/* 金库数据过期提示（设计文档 §9：网络失败时保留上次数据 + 标记） */
+.vault-stale{
+  padding:8px 14px; border-radius:8px; font-size:13px;
+  background:rgba(208,135,112,.12);
+  border:1px solid rgba(208,135,112,.35);
+  color:var(--warn,#d08770);
 }

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""#3000 构建产物自检。
+"""#4000 构建产物自检。
 
 在部署前跑一遍，确认：
   1. fitsh 源码里的 nonce 与 BURN_ADDR 一致（部署地址 = 合约地址是硬耦合）
@@ -37,7 +37,9 @@ MANIFEST = os.path.join(OUT, "score_sum.calc.manifest.json")
 
 ADDR_TOOL = os.environ.get("HACDS_ADDR", r"D:\hacash_fullnode\target\release\hacds_addr.exe")
 DEPLOYER = "15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q"
-EXPECT_ADDR = "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"
+# ⚠ 2026-11-18 第二轮部署：nonce 2 → 5，地址随之改变。
+#   第一轮（T1A8kaeW…）因股权资产发行错误作废，整套换到 4000/4001。
+EXPECT_ADDR = "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h"
 
 # 交易大小硬上限（hacash-params/src/lib.rs:162，编译期常量）。
 # ⚠ 2026-11-15 审计 B-1：原脚本只打印长度、从不判断，超限也照样"自检通过"。

@@ -54,8 +54,8 @@ function installerLang() {
     return m ? (NSIS_LANG[m[1]] || null) : null;
   } catch { return null; }
 }
-// #3000 合约地址。旧配置里可能是 #2000 的 VKNw…，需迁移。
-const CONTRACT_V3000 = 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH';
+// #4000 合约地址。旧配置里可能是 #2000 的 VKNw…，需迁移。
+const CONTRACT_V3000 = 'bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h';
 // 服务器默认地址（节点 / 索引器）。本地测试时用户会在界面里手动改成 127.0.0.1。
 // 默认走 HTTPS 域名，不硬编码运维 IP（2026-11-12 审计 M-5）。
 // 明文 HTTP 的响应可被链路篡改，而这是要签名的应用 —— 改一个收款地址就是盗币。
@@ -73,14 +73,24 @@ function migrateCfg(c) {
   if (!c || typeof c !== 'object') return c;
   let changed = false;
 
-  // ① #2000 旧合约地址 → #3000
-  //    只迁移"已知的旧值"，不覆盖用户手动填的其它地址（可能是在测私有部署）
-  if (c.contract === 'VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1') {
+  // ① 已作废的合约地址 → 当前地址。
+  //    只迁移"已知的旧值"，不覆盖用户手动填的其它地址（可能是在测私有部署）。
+  //
+  //    2026-11-18：第一轮 #4000 部署（nonce 2 的 T1A8kaeW…）已作废 ——
+  //    股权资产发行时 issuer 填错，10,000 份锁死，整套换 nonce 重部署。
+  //    老用户的配置文件里会残留这个地址，而"只在缺失时补默认值"的规则
+  //    不会覆盖它 → 钱包连到已死合约，界面上只表现为"查询失败"，
+  //    用户完全看不出是配置残留。所以这里必须显式迁移。
+  const OBSOLETE_CONTRACTS = [
+    'VKNwXFFMCEn9XfMrhyHhd5rHqBnEyM3m1',   // #2000
+    'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH',   // #4000 第一轮（nonce 2，已作废）
+  ];
+  if (OBSOLETE_CONTRACTS.includes(c.contract)) {
     c.contract = CONTRACT_V3000;
     changed = true;
   }
 
-  // ② 删除已废弃的 oracle 字段（#3000 无预言机）
+  // ② 删除已废弃的 oracle 字段（#4000 无预言机）
   if ('oracle' in c) { delete c.oracle; changed = true; }
 
   // ③ 节点 / 索引器缺失时补服务器默认值。
@@ -189,6 +199,10 @@ function parseTxOutput(out) {
   res.actions = (out.match(/actions\s*=\s*(\d+)/) || [])[1] || null;
   res.selfcheck = field(out, 'selfcheck');
   res.signedCheck = field(out, 'signed_check');
+  // 2026-11-18：partial-sign 支持。txbuild sign 现在未签齐时输出
+  // `signed_check = PARTIAL (n/m) — …`，并照常给出 signed_tx_hex。
+  // 这里把它转成布尔字段，前端据此决定「广播」还是「发给对方追加签名」。
+  res.partial = /^PARTIAL\b/i.test(String(res.signedCheck || ''));
   res.signer = field(out, 'signer');
   res.address = field(out, 'address');
   res.label = (out.match(/^--- (.+?) ---/m) || [])[1] || null;
@@ -834,10 +848,10 @@ function addrFromHex(hex) {
 //
 // ⚠ D-1（上线前审计）：#3000 **已删除证书与预言机**（`HacdsDeFi3000.fitsh`
 //   全文 0 处读取 tx_message/blob）。旧实现向预言机逐颗取 126B 证书再塞进
-//   交易，在 #3000 下不仅无效，还因预言机已停用而直接报网络错误 →
+//   交易，在 #4000 下不仅无效，还因预言机已停用而直接报网络错误 →
 //   存入功能完全不可用。
 //   现在不再取证书，`hacd` 模式不传 certfile（引擎已支持可省略）。
-//   `oracle` 参数已彻底删除（#3000 无预言机，保留只会误导调用方）。
+//   `oracle` 参数已彻底删除（#4000 无预言机，保留只会误导调用方）。
 handle('tx:redeem', async (_e, req) => {
   const { names, node, keyPath, contract, fee, gasMax, mainAddr } = req;
   try {
@@ -852,7 +866,7 @@ handle('tx:redeem', async (_e, req) => {
       throw new Error('未解锁钱包，也未指定私钥文件');
     }
     if (gasMax) env.HACDS_GAS_MAX = String(gasMax);
-    // #3000：不传 certfile（引擎 hacd 模式第 6 个参数已改为可选）
+    // #4000：不传 certfile（引擎 hacd 模式第 6 个参数已改为可选）
     const hargs = ['hacd', mainAddr, '0', contract, names.join(',')];
     let res;
     if (fee) { env.HACDS_FEE = fee; res = { ok: true, ...parseTxOutput(await runTxbuild(hargs, env)), feeUsed: fee, feeAuto: false }; }
@@ -973,7 +987,7 @@ handle('tx:combo', async (_e, req) => {
 });
 
 // ---- HACD 赎回（D9）：hacds -> HACD 实物流出 ----
-// ⚠ D-1：#3000 不再需要证书，直接 TransferHacdFromTo 驱动 PermitHACD。
+// ⚠ D-1：#4000 不再需要证书，直接 TransferHacdFromTo 驱动 PermitHACD。
 handle('tx:redeemHacd', async (_e, req) => {
   const { names, node, keyPath, contract, toAddr, fee, gasMax, mainAddr } = req;
   try {
@@ -984,7 +998,7 @@ handle('tx:redeemHacd', async (_e, req) => {
     else throw new Error('未解锁钱包，也未指定私钥文件');
     if (gasMax) env.HACDS_GAS_MAX = String(gasMax);
 
-    // #3000：不传 certfile（引擎 redeem-hacd 第 7 个参数已改为可选）
+    // #4000：不传 certfile（引擎 redeem-hacd 第 7 个参数已改为可选）
     const hargs = ['redeem-hacd', mainAddr, '0', contract, toAddr, names.join(',')];
     let res;
     if (fee) { env.HACDS_FEE = fee; res = { ok: true, ...parseTxOutput(await runTxbuild(hargs, env)), feeUsed: fee, feeAuto: false }; }
@@ -1068,7 +1082,7 @@ async function redeemBatchCore(req) {
     const tmp = [];
     try {
       if (uniq.length > 200) throw new Error('单笔最多 200 颗');
-      // #3000 已无证书流；第 2 个参数是 ts 占位，runTxbuild 会覆盖成唯一时间戳
+      // #4000 已无证书流；第 2 个参数是 ts 占位，runTxbuild 会覆盖成唯一时间戳
       const hargs = ['hacd', mainAddr, '0', contract, uniq.join(',')];
       let res;
       if (fee) { env.HACDS_FEE = fee; res = { ok: true, ...parseTxOutput(await runTxbuild(hargs, env)), feeUsed: fee, feeAuto: false }; }
@@ -1109,7 +1123,7 @@ async function redeemBatchCore(req) {
   for (const nm of uniq) {
     const tmp = [];
     try {
-      // ⚠ D-1：#3000 已无证书（合约 0 处读取 tx_message/blob），
+      // ⚠ D-1：#4000 已无证书（合约 0 处读取 tx_message/blob），
       //   这里不再向预言机取证书，直接构建转账动作。
       // 第 2 个参数是 ts 占位，runTxbuild 会用本笔唯一的时间戳覆盖它
       const hargs = ['redeem-hacd', mainAddr, '0', contract, toAddr, nm];
@@ -1266,7 +1280,7 @@ handle('liq:treasury', async (_e, { node, contract, caller }) => {
   } catch (e) { return { ok: false, error: String(e) }; }
 });
 
-// ⚠ #3000 无管理员：admin:probe 已删除（原实现 sandbox 调 set_paused，该函数不存在）
+// ⚠ #4000 无管理员：admin:probe 已删除（原实现 sandbox 调 set_paused，该函数不存在）
 
 // ---- 单个只读查询（通用，供渲染层批量调用）----
 handle('contract:call', async (_e, { node, contract, fn, caller, params }) => {
@@ -1300,9 +1314,15 @@ handle('asset:overview', async (_e, { node, contract, address }) => {
       + `&function=balance_ds&caller=${address}&params=${address}:address`);
     const balHac = await sandboxGet(`${base}/query/contract/sandboxcall?contract=${contract}`
       + `&function=balance_hac&caller=${address}&params=${address}:address`);
-    // 3) 链上 hacds 实物（assets 里 serial=2000）
-    const assets = (b.assets || []).filter(a => String(a.serial) !== '2000');
-    const hacdsOnchain = (b.assets || []).find(a => String(a.serial) === '2000');
+    // 3) 链上 hacds 实物（assets 里 serial = HACDS_SERIAL）
+    //
+    // ⚠ 2026-11-18：原来写死 '2000'（#2000 版资产号）。
+    //   #4000 第一轮是 3000、第二轮是 4000，写死旧值会让「链上 hacds」
+    //   永远显示 0，而真正的 hacds 跑到 otherAssets 里（表现为"资产列表里
+    //   多了一个不认识的 4000"）。
+    const HACDS_SERIAL = '4000';
+    const assets = (b.assets || []).filter(a => String(a.serial) !== HACDS_SERIAL);
+    const hacdsOnchain = (b.assets || []).find(a => String(a.serial) === HACDS_SERIAL);
     return { ok: true, data: {
       hac: b.hacash || '0:0',
       satoshi: b.satoshi || 0,

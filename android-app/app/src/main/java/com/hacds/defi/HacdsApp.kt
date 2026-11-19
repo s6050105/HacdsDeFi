@@ -11,6 +11,9 @@ class HacdsApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Strings.appContext = this
+        // 2026-11-15 审计 M-8 / A-50：把 context 交给 TxEngine，
+        // 供它在 loadLibrary 之前校验 .so 哈希。
+        TxEngine.attachContext(this)
         // 冷启动即应用已保存的语言（写进程级 Resources）
         val saved = com.hacds.defi.ui.LocaleHelper.saved(this)
         if (saved.isNotEmpty()) com.hacds.defi.ui.LocaleHelper.applyToResources(this, saved)

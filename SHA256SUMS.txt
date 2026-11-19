@@ -4,13 +4,18 @@
 #   校验： sha256sum -c SHA256SUMS.txt      （Linux/macOS）
 #          Get-FileHash -Algorithm SHA256 <文件>   （Windows PowerShell）
 #
-# 生成日期：2026-10-22（2026-10-27 重建引擎后更新 txbuild 三项）
+# 生成日期：2026-10-22（2026-10-27 重建引擎后更新 txbuild 三项；
+#           2026-11-20 主网 #4000 部署当日的 exe 重建后再次更新）
 #
 # ⚠ 说明：这些二进制中，hacds_txbuild.exe 与 libhacds_txbuild.so 由
 #   `D:\hacash_fullnode`（testkit / android-jni crate）构建，源码不在本仓库，
 #   故无法由本仓库源码复现。此处仅提供产物指纹，供发布后一致性核对。
+#
+# ⚠ 2026-11-20：exe 于 2026-11-18 01:34 重建（主网 #4000 部署所用的那一份），
+#   旧哈希 40e7e567… 已失效。安卓两个 .so 未变，仍为 10-27 的产物。
+#   此处以链上部署实际使用的产物为准 —— 发布出去的引擎必须就是跑在主网上的那份。
 
-40e7e5677f15c0d8f102c627d0b742c9ea4de9b0fb1409906c0d021964e0b112  wallet-app/bin/hacds_txbuild.exe
+f2b2674ff549796915ee2280a8e1a712b4897bfe7e871860065b98131ecc2848  wallet-app/bin/hacds_txbuild.exe
 5009dc2b8fd1c52e423d983d3ded6dde2ac9a6e4da882e36cb4c906bb9e28593  android-app/app/src/main/jniLibs/arm64-v8a/libhacds_txbuild.so
 7640b3d629920a6404b0be5c32915cbba15c8151a2f79c3cdff16a54585f2305  android-app/app/src/main/jniLibs/x86_64/libhacds_txbuild.so
 f6ce12f28f3db950ddd01da4131efc34fbaba63325567ccb3ea868b5f9058e16  wallet-app/vendor/hacash_sdk.wasm
@@ -31,6 +36,11 @@ a7e754da55536cf0eb2a4c69eb916cc0c60496a1838e45761806826bddca74da  wallet-app/ren
 # 部署产物与源码（2026-11-15 审计 B-1：此前 deploy.json / contractmap / fitsh
 #   都不在校验范围内 —— 部署字节码可被整份替换而所有既有自检照过）。
 #   改 fitsh 后必须重跑 fitSHc 并更新这三行；verify_build.py 会强制校验。
-990a46a360c9766c336d0e73863bf8a3f7a6a0789609e1246445588285f191bb  hacds_exchange/HacdsDeFi3000.fitsh
-10af8cab21b0534cc44b999511be6b4b209b1771d62c73be846cdf92e2937ea5  hacds_exchange/_build_v30/HacdsDeFi3000.deploy.json
+1380e25ac559d0c5c04012bc9482a5e704970912009d80b072e882f1d6352089  hacds_exchange/HacdsDeFi3000.fitsh
+1314fe23a111a8ac4fe5217af53a5db11181c6bfa79f619e90fe50aea7ddf56b  hacds_exchange/_build_v30/HacdsDeFi3000.deploy.json
 e569e65f14050091de7ec12f2c0717504eee798a5145f2099a181ed806cc2b26  hacds_exchange/_build_v30/HacdsDeFi3000.contractmap.json
+
+# ---- 合约 B（金库分红）2026-11-20 ----
+fae30b69fb35c36fcb46f4962317905d92c79c0631921777c1ca0b7f9bb98943  hacds_exchange/vault.fitsh
+75132800b5f923d8eb17a20d895ddc9fad465e69cb35b127ef98283830bbe7c1  hacds_exchange/_build_vault/vault.deploy.json
+8b0636105f8dbafb2e32de0220af4778c2c97d77330b901b5bd1014b50e5ec2c  hacds_exchange/_build_vault/vault.contractmap.json

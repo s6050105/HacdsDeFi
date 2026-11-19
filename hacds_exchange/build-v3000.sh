@@ -1,5 +1,5 @@
 #!/bin/sh
-# 构建 #3000 合约（含 rv64im 评分内核 score_sum）。
+# 构建 #4000 合约（含 rv64im 评分内核 score_sum）。
 #
 # 用法：
 #   sh build-v3000.sh                 # 产物写到 ./_build_v30

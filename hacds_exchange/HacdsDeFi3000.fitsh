@@ -77,12 +77,13 @@ contract HacdsDeFi {
         //   部署会被拒：`contract <addr> already exists`
         //   （vm/src/action/contract_exec.rs:41）。
         //
-        //   当前：部署者 15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q + nonce=2
-        //        → T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH  ← 必须 == BURN_ADDR
+        //   当前（2026-11-18 第二轮）：部署者 15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q
+        //        + nonce=5 → bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h  ← 必须 == BURN_ADDR
         //
+        //   第一轮用 nonce=2（T1A8kaeW…）已作废，原因见 TREASURY 的注释。
         //   改这里之后，务必用 `hacds_addr <部署者> <nonce>` 重算，
         //   并把结果同步到 BURN_ADDR 与 发行参数-正式.md。
-        nonce: 2
+        nonce: 5
     }
 
     // ---------------- 常量 ----------------
@@ -98,7 +99,22 @@ contract HacdsDeFi {
     // rpu 定点放大（费用 × 10¹² / 总质押量）
     const RPU_SCALE   : u128 = 1000000000000
     // 金库地址（写死，不可更换）
-    const TREASURY    : address = 1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK
+    // ⚠ 2026-11-18：TREASURY 从普通地址改为**金库分红合约 B**。
+    //
+    //   ⚠ 第二轮部署（2026-11-18）：第一轮的资产发行把股权发给了合约 B，
+    //     导致 B 的 sh: 账本与链上余额脱钩（AssetCreate 不经钩子），
+    //     10,000 份永久锁死。serial 3000/3001 随之作废，整套换到 4000/4001，
+    //     两个合约也换 nonce 重新部署：
+    //       B（新）= nonce 4 → duEkx1E3owCP2VhTq6LzvLUGeMJpjZXm4
+    //       A（新）= nonce 5 → bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h（本合约）
+    //     部署顺序：**A 先、B 后**（B 的 library 校验要求 A 已存在）。
+    //
+    //   ⚠ 安全前提：B 的 PayableHAC **绝不按 tx_main_addr() 记账**。
+    //     原因：本合约 PermitHAC 的 TREASURY 分支只校验 `cp == TREASURY`，
+    //     不校验调用者身份 —— 任何人都能发起清扫。若 B 按发起人记账，
+    //     清扫者就能把这笔钱据为己有（测试链已实测复现）。
+    //     B 只用全局 rpu:share 累加器，与"谁触发"无关，因此安全。
+    const TREASURY    : address = duEkx1E3owCP2VhTq6LzvLUGeMJpjZXm4
     // AMM 手续费二分（万分比，2026-10-22 修订）：**LP 80 / 金库 20**（鼓励做市）
     const LP_BPS      : u128 = 8000
     // AMM 费率——**编译期常量**（#3000 取消管理员，不再可调；万分比 50 = 0.5%）
@@ -163,9 +179,16 @@ contract HacdsDeFi {
     // hacds 资产 serial——**#3000 版改用 3000**（decimal 计划为 0，见白皮书）。
     // 合法域（mint-core/src/exec/asset.rs）：1025 ≤ serial ≤ 1025+(height−765432)。
     // 高度 792309 → 上限 27902；链上已占用 = {1025,1026,1027,1028,1111,2000}。
-    // 3000 在合法域内且未被占用。
-    // ⚠ 部署时须核对：height−765432 ≥ 1975，即高度 ≥ 767407（早已满足）。
-    const HACDS_SERIAL : u128 = 3000
+    //
+    // ⚠ 2026-11-18：serial 从 **3000 改为 4000**。
+    //   原因：3000 已在主网发行（issuer = 旧合约 A T1A8kaeW…），而旧 A 作废
+    //   （B 的 SHARE_SERIAL 死锁，整体重部署），新 A 的地址变了。
+    //   资产 serial 不能重发、issuer 也不能改，所以整套换到 4000/4001。
+    //
+    //   对应关系（必须与链上一致，改任何一个都会让 PermitAsset 全部失败）：
+    //     hacds  4000  issuer = 新合约 A（本合约）
+    //     股权    4001  issuer = 部署者 15fv6cNE…（**不是**合约 B！见 B 的文件头）
+    const HACDS_SERIAL : u128 = 4000
 
     // 批量存入的硬上限（单个名字列表 wire 上限，官方 DiamondNameListMax200）
     const MAX_DEPOSIT_COUNT : u128 = 200
@@ -230,7 +253,7 @@ contract HacdsDeFi {
     // ⚠ 每次改部署者/nonce 都必须同步这里：写错会把 LP 死份额记到别的地址，
     //   而 tx 里没人能动那个地址的账，份额永久锁死。
     // 部署者 15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q + nonce=2 →
-    const BURN_ADDR : address = T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH
+    const BURN_ADDR : address = bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h
     // ---- 利率曲线（§6.1）：U=0 → 2% ; U=35% → 6% ; U=50% → 46% ----
     const BASE_RATE_BPS : u128 = 200             // 基础年化 2%
     const SLOPE1_BPS : u128 = 400                // 0 → U_OPT 斜率 4%

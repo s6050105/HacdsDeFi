@@ -1,5 +1,6 @@
 package com.hacds.defi.net
 
+import com.hacds.defi.core.AppConfig
 import com.hacds.defi.core.ContractErrors
 import org.json.JSONObject
 
@@ -86,8 +87,13 @@ object NodeApi {
         val bal = balance(node, address)
         val due = call(node, contract, "balance_ds", address, "$address:address")
         val hacPts = call(node, contract, "balance_hac", address, "$address:address")
-        val others = bal.assets.filter { it.optString("serial") != "2000" }
-        val onchain = bal.assets.firstOrNull { it.optString("serial") == "2000" }?.optString("amount", "0") ?: "0"
+        // ⚠ 2026-11-18：原来写死 "2000"（#2000 版资产 serial）。#3000 起
+        //   链上 hacds 的 serial 是 3000，写死旧值会让「链上 hacds」永远显示 0，
+        //   而真正的 3000 会跑到 otherAssets 里。改用常量。
+        val hacdsSerial = AppConfig.HACDS_SERIAL.toString()
+        val others = bal.assets.filter { it.optString("serial") != hacdsSerial }
+        val onchain = bal.assets.firstOrNull { it.optString("serial") == hacdsSerial }
+            ?.optString("amount", "0") ?: "0"
         return AssetOverview(
             hac = bal.hac, satoshi = bal.satoshi, diamondCount = bal.diamondCount,
             diamonds = bal.diamonds, due = due, hacPoints = hacPts,

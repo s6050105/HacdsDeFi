@@ -23,11 +23,11 @@ function applyI18nStatic() {
 const S = {
   cfg: { node: 'https://api.hacds.com',
          indexer: 'https://indexer.hacds.com',
-         contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH' },
+         contract: 'bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h' },
   keyPath: null,
   addr: null,
   unlocked: false,
-  // ⚠ #3000 无管理员概念：isAdmin 已删除
+  // ⚠ #4000 无管理员概念：isAdmin 已删除
   pending: null,       // 最近一次构建结果
   tab: 'swap',         // 默认页签（原 'trade' 已不存在）
   toolsGroup: 'query', // 工具页当前分组：query / ops / rent / advanced
@@ -39,6 +39,18 @@ const S = {
   hacdChecked: [],     // 批量勾选的钻石名（Ctrl/Shift）
   hacdAnchor: null,    // Shift 连选的锚点
   combo: [],           // “加入组合”暂存的动作规格
+  // ---- 金库分红（2026-11-18）----
+  vaultHold: 0,        // 钱包持有的 3001 份数（链上余额）
+  vaultStaked: 0,      // 已质押进合约 B 的份数
+  vaultDue: 0,         // 已结算待提现（zhu）—— >0 时页签显示金色圆点
+  vaultData: null,     // 上一次查询的完整数据（get_shares/get_due/...）
+  vaultAt: 0,          // 上次刷新时间戳（30 秒缓存）
+  vaultRefSeq: 0,      // 持仓引用序号（用于选择要质押的钻石/份额，预留）
+  // ---- 股权 OTC 原子交易（2026-11-18）----
+  // 卖家付出 3001，买家付出 HAC/HACD/资产（≤3 种）。字段见 otcState()
+  otc: null,           // 表单状态，惰性初始化
+  otcTx: null,         // 最近一次构建的未签名交易体
+  otcPreview: null,    // 翻译结果（{ header, actions[] }）
 };
 
 const ASSETS = {
@@ -73,7 +85,7 @@ const zhu   = (n) => (n == null ? '—' : (Number(n) / ATOMS_PER_UNIT).toLocaleS
 // LP 份额 lpt = √(hac×ds)，无定标（设计 v4 §7），直接按原值显示
 const share = (n) => (n == null ? '—' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 4 }));
 // 【展示专用】hacds 链上原始量（atoms）。
-// #3000 是 **decimal=0**：1 atom = 1 hacds，atoms 原值**就是个数**，不需要 ÷1e8。
+// #4000 是 **decimal=0**：1 atom = 1 hacds，atoms 原值**就是个数**，不需要 ÷1e8。
 // （旧版 #2000 是 decimal=8，那时才要 ÷1e8；那套口径已作废。）
 // 仅用于「只读展示面板」（资产总览的链上实物 / 协议状态的池与账单侧），
 // 让链上数字与浏览器、交易所接口保持同一口径（raw atoms）。
@@ -174,6 +186,19 @@ async function refreshOverview() {
   else { logErr(t('r.protoFail'), p); }
   // 顺带刷新块高缓存（deadline 自动填充用）
   await refreshHeightCache();
+
+  // ⚠ 2026-11-18：必须在这里探一次金库，否则「金库分红」页签永远不出现。
+  //
+  //   原实现只在**切换到 vault 页签时**才调 refreshVault()（见 renderTabs 的
+  //   onSelect），但页签是否渲染又取决于 S.vaultHold —— 于是形成死锁：
+  //     不切过去 → 不查询 → vaultHold 永远是 0 → 页签不渲染 → 永远切不过去
+  //
+  //   持有 4001 的用户因此**根本看不到这个页签**（实测反馈）。
+  //   现在改成每次刷新资产时顺带探一次；refreshVault 内部有 30 秒缓存，
+  //   不会因为频繁刷新而多打 RPC。
+  await refreshVault();
+  renderTabs();          // 探测结果可能让页签出现/消失
+
   // 第二段：HACD 列表跟随刷新。
   // 必须放在 assetOverview 之后（loadHacdDetails 依赖 S.overview.diamonds）。
   await refreshHacdLists(true);
@@ -196,7 +221,7 @@ function renderAssets(d) {
   const host = $('#assetGrid');
   const hac = hacToNum(d.hac);
   // 预期 hacds：与链上量纲保持一致 —— 1 分 = SCORE_SCALE(1e8) atoms。
-  // 【#3000 decimal=0】atoms 就是「个数」，**不再 ÷1e8**。
+  // 【#4000 decimal=0】atoms 就是「个数」，**不再 ÷1e8**。
   //   旧代码 `expectedAtoms / 1e8` 是 #2000(decimal=8) 时代的写法，
   //   在 decimal=0 下会让显示值虚低 1e8 倍（存 3.55 分的钻石实际铸 3.55 亿，
   //   却显示「3.55 个」）。Android 端（HomeScreen.kt）早已按原值显示，此处对齐。
@@ -247,14 +272,37 @@ function renderAssets(d) {
   if (b) b.onclick = () => { loadHacdDetails(); };
 }
 
+/**
+ * 池价文本（HAC/hacds）。
+ *
+ * ⚠ 2026-11-20：不要用合约的 `pool_price()` 返回值。
+ *   合约里是 `mul_div(pool_hac, 1, pool_ds)` —— **整数除法**，
+ *   4,900 HAC / 1,960 亿 hacds = 2.5，但整数除法截断成 2，丢了 0.5。
+ *   典型的池子会出现 4,900 / 196e9 这种比值远小于 1 的情况，
+ *   截断后直接变成 0，界面显示 "0.000000"（用户实测反馈）。
+ *
+ *   改用两个储备自己算：price = (pool_hac / 1e8) / pool_ds，保留 8 位小数。
+ *   小数位取 8 是因为 1 atom 的价格可能就是 1e-9 量级。
+ */
+function poolPriceText(p) {
+  const ph = p && p.poolHac != null ? Number(p.poolHac) : null;   // zhu
+  const pd = p && p.poolDs != null ? Number(p.poolDs) : null;     // atoms
+  if (!ph || !pd || pd <= 0) return '—';
+  const price = (ph / 1e8) / pd;                                   // HAC per hacds
+  if (!isFinite(price) || price <= 0) return '—';
+  // 小于 1e-6 时用科学计数法，否则 8 位小数
+  if (price < 1e-6) return price.toExponential(4).replace('e', 'e') + ' HAC/hacds';
+  return price.toFixed(8) + ' HAC/hacds';
+}
+
 function renderProtocol(p) {
   // 【展示口径 D44】hacds 侧（amm:ds / pendDs / treDs / loan:coll）显示 #2000 原始 amount。
-  // #3000：奖励分配已改（AMM 费 LP80/金库20，赎回费 LP80/金库20，利息给 HAC 存款人）。
+  // #4000：奖励分配已改（AMM 费 LP80/金库20，赎回费 LP80/金库20，利息给 HAC 存款人）。
   //       不再展示"质押/持仓奖励"（rpu 通道仅用于借贷利息，且无独立展示意义）。
   // HAC 侧（zhu）与份额、价格、健康度不受影响。
   const rows = [
     [t('p.poolHac'), hacOf(p.poolHac)], [t('p.poolDs'), rawHacds(p.poolDs, true)],
-    [t('p.price'), p.poolPrice != null ? (Number(p.poolPrice) / 1e8).toFixed(6) + ' HAC/hacds' : '—'],
+    [t('p.price'), poolPriceText(p)],
     [t('p.lpTotal'), share(p.lpTotal)], [t('p.myLp'), share(p.myLp)],
     [t('p.pendHac'), hacOf(p.pendHac)], [t('p.pendDs'), rawHacds(p.pendDs, true)],
     [t('p.treHac'), hacOf(p.treHac)], [t('p.treDs'), rawHacds(p.treDs, true)],
@@ -319,7 +367,19 @@ async function checkSocialFactor() {
   host.querySelector('.ov-body').appendChild(div);
 }
 
+// 2026-11-18：防重入标志。
+// renderPanels 与 renderHacdPanel 都可能触发自动加载，
+// 没有这个标志会并发发出两轮同样的 RPC（节点 sandbox 并发上限只有 2）。
+let _hacdLoading = false;
+
 async function loadHacdDetails(silent) {
+  if (_hacdLoading) return;
+  _hacdLoading = true;
+  try { return await _loadHacdDetailsInner(silent); }
+  finally { _hacdLoading = false; }
+}
+
+async function _loadHacdDetailsInner(silent) {
   if (!S.overview || !S.overview.diamonds || !S.overview.diamonds.length) {
     // 刷新场景静默，避免没有 HACD 的地址每次刷新都刷警告
     if (!silent) log(t('r.noHacd'), 'warn');
@@ -369,10 +429,10 @@ async function loadPoolHacd(silent) {
 // ===================== 资产 serial =====================
 // ⚠ 必须传**数字** serial，不能传 'hacds' 别名。
 //   hacds_txbuild 内部的 `HACDS_SERIAL` 常量仍停在旧版 2000，
-//   而 #3000 版合约的 `HACDS_SERIAL` 是 3000；传别名会被 txbuild 拼成
+//   而 #4000 版合约的 `HACDS_SERIAL` 是 3000；传别名会被 txbuild 拼成
 //   serial=2000 的动作，链上 PermitAsset 校验 `serial != 3000` 直接 return 1。
 //   （2026-11-15 测试网实测复现，详见 测试报告-v2.md 附三）
-const HACDS_SERIAL = '3000';
+const HACDS_SERIAL = '4000';
 
 // ===================== 操作目录 =====================
 const OPS = [
@@ -400,7 +460,7 @@ const OPS = [
   // 【单位 D55】hacFields 列出「以 HAC 计价」的输入字段（用户填 HAC，上链前 ×1e8 转 zhu）；
   //   未列出的字段保持原量纲（hacds 侧 = atoms；share 无定标）。
   //   注意 swap_ds_to_hac 的输出腿是 HAC，故其滑点保护 min_out 也以 HAC 计。
-  // ⚠ #3000 合约签名已加滑点/deadline 保护（防 front-run 与延迟执行）：
+  // ⚠ #4000 合约签名已加滑点/deadline 保护（防 front-run 与延迟执行）：
   //   swap_*          (x, min_out, deadline)
   //   add_liquidity   (hac, ds, min_share, deadline)
   //   remove_liquidity(share, min_hac_out, min_ds_out, deadline)
@@ -491,7 +551,7 @@ const OPS = [
         String(v.serial).trim().replace(/^#/, ''), v.atoms]}) },
 ];
 
-// ⚠ #3000 无管理员：原 ADMIN_OPS 的 6 个函数（set_fee / set_loan_rate /
+// ⚠ #4000 无管理员：原 ADMIN_OPS 的 6 个函数（set_fee / set_loan_rate /
 //   set_liquidate_bonus / set_paused / set_oracle / rent_batch）在
 //   HacdsDeFi3000.fitsh 里全部不存在，整个管理员页签已删除。
 //   续租改由链下 keeper 调用 rent_keys / topup_keys 完成，不走钱包 UI。
@@ -508,7 +568,7 @@ const QUERIES = [
   { labelKey:'p.coll',    btnKey:'qb.coll',    fn:'loan_coll_of', params:[{name:'who',type:'address',labelKey:'q.fieldWho'}] },
   { labelKey:'q.lpShare', btnKey:'qb.lpShare', fn:'lp_share_of', params:[{name:'who',type:'address',labelKey:'q.fieldWho'}] },
   { labelKey:'p.lpTotal', btnKey:'qb.lpTotal', fn:'lp_total', params:[] },
-  // #3000：AMM 费/赎回费给 LP，利息给 HAC 存款人 → total_staked 改名"总持仓（含 HAC 存款）"
+  // #4000：AMM 费/赎回费给 LP，利息给 HAC 存款人 → total_staked 改名"总持仓（含 HAC 存款）"
   { labelKey:'q.stake',   btnKey:'qb.stake',   fn:'total_staked', params:[{name:'kind',type:'u128',labelKey:'q.fieldKind'}] },
 ];
 
@@ -520,8 +580,18 @@ const QUERIES = [
 //   · 兑换/流动性/借贷/HACD —— 与合约的具体业务交互
 //   · 工具 tools —— 查询、运维、高级，收拢低频功能
 //
-// 原 9+1 个页签（含 1 个在 #3000 下完全无效的管理员页）收敛为 7 个，
+// 原 9+1 个页签（含 1 个在 #4000 下完全无效的管理员页）收敛为 7 个，
 // 且每个功能**只保留一个入口**。
+// ============================================================================
+// 金库分红合约 B 常量（2026-11-18）
+//
+// VAULT_ADDR：金库分红合约地址。由「部署者 15fv6cNE… + nonce 3」推导。
+//             一旦主网实际部署地址与此不符，只需改这一处。
+// SHARE_SERIAL：股权资产 serial，与合约 B 的 SHARE_SERIAL 常量必须一致。
+// ============================================================================
+const VAULT_ADDR   = 'duEkx1E3owCP2VhTq6LzvLUGeMJpjZXm4';
+const SHARE_SERIAL = 4001;
+
 const TABS = [
   { id:'swap',  labelKey:'tab.swap' },
   { id:'lp',    labelKey:'tab.lp' },
@@ -529,28 +599,163 @@ const TABS = [
   { id:'hacd',  labelKey:'tab.hacd' },
   { id:'xfer',  labelKey:'tab.xfer' },
   { id:'fund',  labelKey:'tab.fund' },
+  // 金库分红：**动态显示**，见 vaultVisible()。
+  // ⚠ 2026-11-18：股权 OTC 原子交易**并入本页**，不再单独占一个页签。
+  //   理由：两者是同一件事的两面 —— 一个管"持有份额怎么分红"，
+  //   一个管"份额怎么转让"。放在一起，用户不用来回切换页签。
+  { id:'vault', labelKey:'tab.vault', cls:'vault' },
   { id:'tools', labelKey:'tab.tools' },
 ];
+
+/**
+ * 页签是否对当前账户可见。
+ *
+ * ⚠ 判定条件必须是「钱包持有 3001 **或** 已质押 > 0」。
+ *   只看钱包余额的话，用户把份额全部质押后会看不到页签 ——
+ *   那笔钱就"凭空消失"了。
+ */
+function vaultVisible() {
+  if (!S.addr) return false;
+  return S.vaultHold > 0 || S.vaultStaked > 0;
+}
 
 function renderTabs() {
   const nav = $('#tabs');
   nav.innerHTML = '';
   TABS.forEach(tab => {
+    // 动态可见性：金库页签只在持有/质押 3001 时出现
+    if (tab.id === 'vault' && !vaultVisible()) return;
+
     const b = document.createElement('button');
     b.textContent = t(tab.labelKey);   // 注意：循环变量不能叫 t，会遮蔽取词函数
-    b.className = S.tab === tab.id ? 'on' : '';
+    const cls = [];
+    if (S.tab === tab.id) cls.push('on');
+    if (tab.cls) cls.push(tab.cls);           // 金色高亮：class="vault"
+    // 有未领取分红时加金色小圆点
+    if (tab.id === 'vault' && S.vaultDue > 0) cls.push('has-reward');
+    b.className = cls.join(' ');
     b.onclick = () => {
       const prev = S.tab;
       S.tab = tab.id; renderTabs(); renderPanels();
       // 切回 HACD 页签时，若之前加载过列表就静默重拉一次，
       // 避免"离开后再回来看到的还是旧数据"（合约池可能已被他人变动）。
       if (tab.id === 'hacd' && prev !== 'hacd' && S.addr) refreshHacdLists(true);
+      if (tab.id === 'vault' && prev !== 'vault' && S.addr) refreshVault();
     };
     nav.appendChild(b);
   });
 }
 
 /** 跳到指定页签（供页面内的「去资金页」「去 HACD 页」等链接使用） */
+// ============================================================================
+// 金库分红：数据刷新（2026-11-18）
+//
+// 数据来源：合约 B 的只读视图 + 节点余额查询。
+// 并发约束：节点对 sandboxcall 有**每 IP 并发上限（2）**，所以这里**串行**调用。
+// 缓存：30 秒。写操作后强制刷新（force=true）。
+// ============================================================================
+
+/** 串行查询合约视图，返回 ret_val（失败返回 null）。 */
+async function vaultView(fn, params) {
+  const r = await window.api.contractCall({
+    node: S.cfg.node,
+    contract: VAULT_ADDR,
+    fn,
+    caller: S.addr || VAULT_ADDR,
+    params,
+  });
+  return (r && r.ok) ? (r.data && r.data.ret_val) : null;
+}
+
+/**
+ * 读钱包里持有的 3001 份数。
+ *
+ * 用 assetOverview —— 它已经把 HAC / HACD / hacds(#2000) 之外的资产
+ * 都归到 otherAssets 里，3001 就在其中。
+ */
+async function vaultHoldings() {
+  try {
+    const r = await window.api.assetOverview({
+      node: S.cfg.node, contract: S.cfg.contract, address: S.addr,
+    });
+    if (!r || !r.ok) return 0;
+    for (const a of (r.data && r.data.otherAssets) || []) {
+      if (Number(a.serial) === SHARE_SERIAL) return Number(a.amount) || 0;
+    }
+  } catch (e) { /* 查询失败按 0 处理 */ }
+  return 0;
+}
+
+/**
+ * 刷新金库数据。
+ * @param {boolean} force 忽略 30 秒缓存
+ */
+async function refreshVault(force) {
+  if (!S.addr) { S.vaultHold = S.vaultStaked = S.vaultDue = 0; return; }
+  const now = Date.now();
+  if (!force && S.vaultData && now - S.vaultAt < 30000) return;
+
+  const who = S.addr + ':address';
+  // ⚠ 串行：节点 sandboxcall 并发上限 2，并发发会随机失败
+  //
+  // ① 先校验合约身份（设计文档 §9）：
+  //    VAULT_ADDR 一旦配错（比如指到主协议 A），get_shares 之类的函数
+  //    很可能不存在或语义完全不同。用 share_serial() 做身份校验 ——
+  //    合约 B 必然返回 3001，别的合约不会。
+  const serial = await vaultView('share_serial');
+  if (serial === null || Number(serial) !== SHARE_SERIAL) {
+    // 合约 B 未部署 / 地址不符 → 隐藏页签，不打扰用户
+    console.warn('[vault] 金库合约校验失败：share_serial =', serial,
+                 '（期望', SHARE_SERIAL, '，地址', VAULT_ADDR, '）');
+    S.vaultData = null; S.vaultHold = 0; S.vaultStaked = 0; S.vaultDue = 0;
+    renderTabs();
+    return;
+  }
+
+  // 上一次成功的数据（网络失败时兜底用）
+  const prevData = S.vaultData;
+
+  const shares = await vaultView('get_shares', who);
+  const due    = await vaultView('get_due', who);
+  const claim  = await vaultView('get_claimable', who);
+  const rpu    = await vaultView('get_current_rpu');
+  const totdiv = await vaultView('get_total_dividend');
+  const reserv = await vaultView('get_reserve');
+  const hold   = await vaultHoldings();
+
+  // 合约 B 不可用（未部署 / 地址不符）→ 整体隐藏
+  if (shares === null) {
+    // ⚠ 设计文档 §9「网络失败」：若之前成功过，**保留上次数据**并标记过期，
+    //   而不是清空 —— 用户至少还能看到最近一次的状态。
+    if (prevData) {
+      S.vaultData = { ...prevData, stale: true };
+      S.vaultAt = now;          // 避免每次渲染都重试
+    } else {
+      S.vaultData = null; S.vaultHold = 0; S.vaultStaked = 0;
+    }
+    renderTabs();
+    return;
+  }
+
+  S.vaultHold   = hold;
+  S.vaultStaked = Number(shares) || 0;
+  S.vaultDue    = Number(due) || 0;
+  S.vaultData = {
+    hold:  S.vaultHold,
+    staked: S.vaultStaked,
+    due:   Number(due) || 0,
+    claimable: Number(claim) || 0,
+    // 未结算增量 = 总额 − 已结算
+    pending: Math.max(0, (Number(claim) || 0) - (Number(due) || 0)),
+    rpu:   Number(rpu) || 0,
+    totdiv: Number(totdiv) || 0,
+    reserve: Number(reserv) || 0,
+    stale: false,
+  };
+  S.vaultAt = now;
+  renderTabs();   // 份额变化会影响页签显隐与金色圆点
+}
+
 function goTab(id) {
   if (!TABS.some(x => x.id === id)) return;
   S.tab = id; renderTabs(); renderPanels();
@@ -580,12 +785,30 @@ function renderPanels() {
   guardTab();
   const host = $('#panels');
   host.innerHTML = '';
+  // 2026-11-18：把当前页签写到 body，供 CSS 切换布局模式。
+  //   只有 HACD 页需要"外层不滚动、内层滚动"（钻石多时要能下滑选取），
+  //   其它页仍是普通的整页滚动。见 style.css 的 body[data-tab="hacd"] 规则。
+  document.body.dataset.tab = S.tab;
   $('#hacdPanel').hidden = (S.tab !== 'hacd');
   host.hidden = (S.tab === 'hacd');
 
-  if (S.tab === 'hacd')  { renderHacdPanel(); return; }
+  if (S.tab === 'hacd')  {
+    renderHacdPanel();
+    // ⚠ 2026-11-18：进页面自动加载，否则整个面板只有两行"未加载"提示。
+    //   原来的设计是"点『加载』才拉详情"，理由是省 RPC；但实际效果是
+    //   用户进入 HACD 页看到的是一片空白，根本不知道该点什么。
+    //   现在改成：进页面就拉（有钻石才拉，没钻石不会发请求）。
+    if (S.hacdList == null && S.overview && (S.overview.diamonds || []).length) {
+      loadHacdDetails(true).then(() => { if (S.tab === 'hacd') renderHacdPanel(); });
+    }
+    if (S.poolHacdList == null && S.poolHacdCount > 0) {
+      loadPoolHacd().then(() => { if (S.tab === 'hacd') renderHacdPanel(); });
+    }
+    return;
+  }
   if (S.tab === 'tools') return renderToolsPanel(host);
   if (S.tab === 'fund')  return renderFundPanel(host);
+  if (S.tab === 'vault') return renderVaultPage(host);
 
   // 兑换 / 流动性 / 借贷三页用网页端的左右分栏布局
   if (S.tab === 'swap') { renderSwapPage(host); return; }
@@ -1416,7 +1639,7 @@ function poolStatusCard() {
     // HAC 侧走 zhu、份额走 share。
     host.innerHTML = [
       [t('p.poolHac'), hacOf(p.poolHac)], [t('p.poolDs'), rawHacds(p.poolDs, true)],
-      [t('p.price'), p.poolPrice != null ? (Number(p.poolPrice)/1e8).toFixed(6) + ' HAC/hacds' : '—'],
+      [t('p.price'), poolPriceText(p)],
       [t('p.lpTotal'), share(p.lpTotal)], [t('p.myLp'), share(p.myLp)],
       [t('p.pendHac'), hacOf(p.pendHac)], [t('p.pendDs'), rawHacds(p.pendDs, true)],
     ].map(([k,v])=>`<div class="proto-row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
@@ -1748,7 +1971,7 @@ function renderXferPage(host) {
     <div class="grid-2" style="gap:var(--sp-3)">
       <div>
         <label class="field-label">${t('f.serialNum')}</label>
-        <input class="field-input mono" id="xferOtherSerial" type="text" placeholder="2000">
+        <input class="field-input mono" id="xferOtherSerial" type="text" placeholder="${HACDS_SERIAL}">
       </div>
       <div>
         <label class="field-label">${t('f.atomsNum2')}</label>
@@ -1824,6 +2047,771 @@ function renderXferPage(host) {
   };
 }
 
+// ============================================================================
+// 金库分红页（2026-11-18）
+//
+// 视觉：金色高亮，与其它页签区分（--vault-gold*，见 style.css）
+// 语义（详见设计文档）：
+//   · 「待结算」= 尚未 claim 的增量
+//   · 「待提现」= 已 claim、还在合约里的 due
+//   · 「总计可提取」= 两者之和
+//   ⚠ get_claimable 返回的是「总计」，claim 之后数值不变 —— 不要写成"可领取"
+// ============================================================================
+// ============================================================================
+// 股权 OTC 原子交易（2026-11-18）
+//
+// 设计文档：hacds_exchange/股权OTC原子交易-设计.md
+//
+// 核心：一笔 combo 交易里同时完成「3001 转让」与「对价支付」，原子生效。
+// 签名：Type-3 交易**必须一次签齐所有签名者**（链上强制），所以流程是
+//       ① 发起方构建未签名体 → 发给对方
+//       ② 对方核对后与其私钥一起签（或由发起方收集签名）
+//       实际工具链：txbuild 支持「签一个 → PARTIAL → 对方追加」，见 sign 命令。
+// ⚠ 交易体**没有有效期**：签完发给对方后随时可能被广播，无法撤回。
+// ============================================================================
+
+/** OTC 表单状态（惰性初始化）。 */
+function otcState() {
+  if (!S.otc) {
+    S.otc = {
+      dir: 'sell',        // sell = 我卖 3001 换对价；buy = 我买 3001 付对价
+      shares: '',         // 3001 份数
+      counter: '',        // 对手方地址
+      // 对价（最多 3 种）
+      pay: [
+        { on: true,  kind: 'hac',   amount: '' },
+        // 默认给 hacds（3000）—— 最常见的对价；用户可改成任意 serial
+        { on: false, kind: 'asset', serial: HACDS_SERIAL, amount: '' },
+        { on: false, kind: 'hacd',  names: '' },
+      ],
+      myKeyWho: 'me',     // 谁是发起方（我）
+    };
+  }
+  // 对方给来的交易体（追加签名用）。必须与我自己的 S.otcTx 分开存 ——
+  // 两处共用一个变量会让"签的是自己的、屏幕上显示的是对方的"这种盲签漏洞成立。
+  if (S.otcOther === undefined) {
+    S.otcOther = null;
+    S.otcOtherVerified = false;
+  }
+  return S.otc;
+}
+
+/** 构建 OTC 的 combo spec。 */
+function otcBuildSpec() {
+  const st = otcState();
+  const me = S.addr;
+  const other = (st.counter || '').trim();
+  const n = Math.floor(Number(st.shares));
+  if (!me) throw new Error(t('acct.locked'));
+  if (!other) throw new Error(t('otc.needCounter'));
+  if (!(n > 0)) throw new Error(t('otc.badShares'));
+
+  // 谁付 3001、谁收 3001
+  const shareFrom = st.dir === 'sell' ? me : other;
+  const shareTo   = st.dir === 'sell' ? other : me;
+
+  const actions = [{
+    type: 'asset-from-to', from: shareFrom, to: shareTo,
+    serial: String(SHARE_SERIAL), atoms: String(n),
+  }];
+
+  // 对价：付款方是「不付 3001 的那一方」
+  const payFrom = st.dir === 'sell' ? other : me;
+  const payTo   = st.dir === 'sell' ? me : other;
+  const picks = (st.pay || []).filter(p => p.on);
+  if (!picks.length) throw new Error(t('otc.needCounterAsset'));
+  if (picks.length > 3) throw new Error(t('otc.tooManyAssets'));
+
+  for (const p of picks) {
+    if (p.kind === 'hac') {
+      const a = String(p.amount || '').trim();
+      if (!a) throw new Error(t('otc.badAmount'));
+      actions.push({ type: 'hac-from-to', from: payFrom, to: payTo, hac: a });
+    } else if (p.kind === 'hacd') {
+      const names = String(p.names || '').trim();
+      if (!names) throw new Error(t('otc.badHacd'));
+      actions.push({ type: 'hacd-from-to', from: payFrom, to: payTo, names });
+    } else {
+      const a = String(p.amount || '').trim();
+      const sr = String(p.serial || '').trim();
+      if (!a || !sr) throw new Error(t('otc.badAmount'));
+      actions.push({ type: 'asset-from-to', from: payFrom, to: payTo,
+                     serial: sr, atoms: a });
+    }
+  }
+  return { contract: S.cfg.contract, actions };
+}
+
+/**
+ * 把交易体翻译成人类可读的摘要。
+ *
+ * 优先用节点 /util/transaction/check 的 actions（结构化、权威）。
+ * 拿不到时退回「按 spec 反推」，并在界面上标注"未校验"。
+ *
+ * @returns {Promise<{ok:boolean, me?:string, actions?:Array, viaNode?:boolean}>}
+ */
+async function otcTranslate(hex) {
+  try {
+    const r = await window.api.txTranslate({ node: S.cfg.node, hex });
+    if (r && r.ok && r.data && Array.isArray(r.data.actions)) {
+      return {
+        ok: true,
+        viaNode: true,
+        main: r.data.main_address,
+        actions: r.data.actions.map(x => ({
+          raw: x.action || x,
+          desc: x.description || '',
+        })),
+      };
+    }
+  } catch (e) { /* 退回本地反推 */ }
+  return { ok: false, viaNode: false };
+}
+
+/** 本地把 spec 动作转成人类可读行（翻译器的 fallback）。 */
+function otcDescribeLocal(actions, who) {
+  return (actions || []).map(a => {
+    if (a.type === 'asset-from-to' || a.type === 'asset-to') {
+      const from = a.from || who;
+      const dir = from === who ? 'out' : 'in';
+      return { kind: 'asset', dir, serial: a.serial, amount: a.atoms,
+               from, to: a.to };
+    }
+    if (a.type === 'hac-from-to' || a.type === 'hac-to') {
+      const from = a.from || who;
+      const dir = from === who ? 'out' : 'in';
+      return { kind: 'hac', dir, amount: a.hac, from, to: a.to };
+    }
+    if (a.type === 'hacd-from-to' || a.type === 'hacd-to') {
+      const from = a.from || who;
+      const dir = from === who ? 'out' : 'in';
+      return { kind: 'hacd', dir, names: a.names, from, to: a.to };
+    }
+    if (a.type === 'call') {
+      return { kind: 'call', fn: a.fn, contract: a.contract };
+    }
+    return { kind: 'unknown', type: a.type };
+  });
+}
+
+// ---- 金库操作 ----
+
+/** 广播已构建的交易（统一错误处理）。 */
+async function vaultBroadcast(r, okMsg) {
+  if (!r.ok) { logErr(t('common.buildFail') || '', r); return false; }
+  const b = await window.api.broadcast({ node: S.cfg.node, hex: r.signed });
+  if (b && b.ok && b.data && b.data.ret === 0) {
+    log(okMsg + '  ' + String(b.data.hash || '').slice(0, 16), 'ok');
+    return true;
+  }
+  const msg = (b && b.translated) ? b.translated
+            : ((b.data && (b.data.err || b.data.error)) || (b && b.error) || '');
+  log(t('common.broadcastFail') + msg, 'err');
+  return false;
+}
+
+
+
+/**
+ * 质押：把 3001 转给合约 B。
+ *
+ * ⚠ 这不是"存入"，是**转账** —— 份额会离开钱包余额，进合约账本（sh:<addr>）。
+ *   必须在确认框里讲清楚。
+ */
+async function openVaultStake(maxN) {
+  if (!S.addr) return log(t('fund.needUnlock'), 'warn');
+  const v = await modal({
+    title: t('vault.stakeTitle'),
+    okLabel: t('vault.stake'),
+    fields: [{ name: 'n', label: t('vault.stakeAmount'), type: 'text',
+               default: String(maxN || 0), hintKey: 'vault.stakeMax' }],
+    warn: t('vault.stakeConfirm', { n: String(maxN || 0) }),
+  });
+  if (!v) return;
+  const n = Math.floor(Number(v.n));
+  if (!(n > 0)) return log(t('vault.badAmount'), 'warn');
+  if (n > (S.vaultData ? S.vaultData.hold : 0)) return log(t('vault.exceedHold'), 'warn');
+
+  const r = await window.api.buildTx({
+    mode: 'transfer',
+    args: [S.addr, '0', 'asset-from-to', S.addr, VAULT_ADDR, String(SHARE_SERIAL), String(n)],
+    // ⚠ 2026-11-20 修复：gasMax 必须显式给 99。
+    //
+    //   原来传 null，走 main.js 的 gasMaxFor() 自动推断。那个函数靠
+    //   `req.contract` 判断"目标是不是合约地址"，但这里**没有传 contract**，
+    //   于是 isContract() 恒为 false，落到 `asset-from-to → gasByteForAssetCount(1)`
+    //   → **gas = 50**（预算 4,065）。
+    //
+    //   质押 4001 会触发金库合约 B 的 PayableAsset 钩子，内部还要
+    //   settle()（读 chk/sh、写 chk/due）+ 写 sh:/tot:staked，几次存储写下来
+    //   远超 4,065 → 广播返回 "gas 不足"，用户完全不知道该怎么调。
+    //
+    //   合约调用类操作统一给 99（预算 111,911），与 claim 保持一致。
+    keyPath: null, fee: null, gasMax: 99, node: S.cfg.node,
+    contract: S.cfg.contract,
+  });
+  if (!r.ok) return logErr(t('vault.stakeFail'), r);
+  await vaultBroadcast(r, t('vault.stakeOk', { n: String(n) }));
+  await refreshVault(true);
+  renderPanels();
+}
+
+/** 赎回：把份额从合约 B 转回自己（触发 PermitAsset，先结算再减份额）。 */
+async function openVaultUnstake(maxN) {
+  if (!S.addr) return log(t('fund.needUnlock'), 'warn');
+  const v = await modal({
+    title: t('vault.unstakeTitle'),
+    okLabel: t('vault.unstake'),
+    fields: [{ name: 'n', label: t('vault.unstakeAmount'), type: 'text',
+               default: String(maxN || 0) }],
+  });
+  if (!v) return;
+  const n = Math.floor(Number(v.n));
+  if (!(n > 0)) return log(t('vault.badAmount'), 'warn');
+  if (n > (S.vaultData ? S.vaultData.staked : 0)) return log(t('vault.exceedStaked'), 'warn');
+
+  const r = await window.api.buildTx({
+    mode: 'transfer',
+    args: [S.addr, '0', 'asset-from-to', VAULT_ADDR, S.addr, String(SHARE_SERIAL), String(n)],
+    // ⚠ 同上：赎回触发 PermitAsset（先 settle 再减 sh），必须给 99。
+    keyPath: null, fee: null, gasMax: 99, node: S.cfg.node,
+    contract: S.cfg.contract,
+  });
+  if (!r.ok) return logErr(t('vault.unstakeFail'), r);
+  await vaultBroadcast(r, t('vault.unstakeOk', { n: String(n) }));
+  await refreshVault(true);
+  renderPanels();
+}
+
+/**
+ * 领取并提现（一步完成）。
+ *
+ * ⚠ 两步缺一不可：
+ *   claim()                    → 增量结算进 due（钱还在合约里）
+ *   TransferHacFromTo(B→自己)  → 钱真正到钱包
+ * 用 combo 原子交易把两步放进同一笔，顺序不能反。
+ */
+async function doVaultClaim(amountZhu) {
+  if (!S.addr) return log(t('fund.needUnlock'), 'warn');
+  const hac = (Number(amountZhu) / 1e8).toFixed(8);
+  const ok = confirm(t('vault.claimConfirm', { hac }));
+  if (!ok) return;
+
+  const spec = {
+    contract: VAULT_ADDR,
+    actions: [
+      { type: 'call', contract: VAULT_ADDR, fn: 'claim', params: '-' },
+      { type: 'hac-from-to', from: VAULT_ADDR, to: S.addr, hac },
+    ],
+  };
+  const r = await window.api.buildTx({
+    mode: 'combo',
+    args: [S.addr, '0'],
+    spec,
+    keyPath: null, fee: null, gasMax: 99, node: S.cfg.node,
+  });
+  if (!r.ok) return log(t('vault.claimFailed'), 'err') || logErr('', r);
+
+  try {
+    const b = await window.api.broadcast({ node: S.cfg.node, hex: r.signed });
+    if (!b.ok || (b.data && b.data.ret !== 0)) {
+      return log(t('vault.claimFailed') + ' ' + esc(String((b.data && b.data.err) || b.error || '')), 'err');
+    }
+    log(t('vault.claimOk', { hac }), 'ok');
+    await refreshVault(true);
+    renderPanels();
+  } catch (e) {
+    log(t('vault.claimFailed') + ' ' + esc(String(e)), 'err');
+  }
+}
+
+// ============================================================================
+// OTC 原子交易页（2026-11-18）
+// ============================================================================
+function renderOtcPage(host) {
+  const st = otcState();
+  const wrap = document.createElement('div');
+  wrap.className = 'otc-wrap';
+  host.appendChild(wrap);
+
+  // ---- ① 构建器 ----
+  const c1 = document.createElement('div');
+  c1.className = 'card';
+  c1.innerHTML = `<div class="card-hd">${esc(t('otc.builder'))}</div>` +
+    `<p class="desc">${esc(t('otc.builderDesc'))}</p>`;
+
+  // 方向
+  const dirRow = document.createElement('div');
+  dirRow.className = 'row';
+  ['sell', 'buy'].forEach(d => {
+    const b = document.createElement('button');
+    b.className = st.dir === d ? 'primary' : 'ghost';
+    b.textContent = t(d === 'sell' ? 'otc.dirSell' : 'otc.dirBuy');
+    b.onclick = () => { st.dir = d; renderPanels(); };
+    dirRow.appendChild(b);
+  });
+  c1.appendChild(dirRow);
+
+  // 份额 + 对手方
+  const g1 = document.createElement('div'); g1.className = 'grid';
+  g1.appendChild(fieldEl({ name: '__shares', label: t('otc.shares'),
+                           hintKey: 'otc.sharesHint' }, st.shares));
+  g1.appendChild(fieldEl({ name: '__counter', label: t('otc.counter'),
+                           hintKey: 'otc.counterHint' }, st.counter));
+  c1.appendChild(g1);
+
+  // 对价（最多 3 种）
+  const payBox = document.createElement('div');
+  payBox.innerHTML = `<div class="field-label" style="margin-top:12px">${esc(t('otc.paySide'))}</div>`;
+  st.pay.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'otc-pay-row';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = p.on;
+    cb.onchange = () => { p.on = cb.checked; renderPanels(); };
+    row.appendChild(cb);
+
+    const sel = document.createElement('select');
+    [['hac', t('otc.kindHac')], ['asset', t('otc.kindAsset')], ['hacd', t('otc.kindHacd')]]
+      .forEach(([v, label]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = label; o.selected = (p.kind === v);
+        sel.appendChild(o);
+      });
+    sel.onchange = () => { p.kind = sel.value; renderPanels(); };
+    row.appendChild(sel);
+
+    if (p.kind === 'hacd') {
+      const inp = document.createElement('input');
+      inp.className = 'mono'; inp.placeholder = t('otc.hacdHint');
+      inp.value = p.names || '';
+      inp.oninput = () => { p.names = inp.value; };
+      row.appendChild(inp);
+    } else {
+      if (p.kind === 'asset') {
+        const si = document.createElement('input');
+        si.className = 'mono'; si.style.maxWidth = '90px';
+        si.placeholder = 'serial';
+        si.value = p.serial || '';
+        si.oninput = () => { p.serial = si.value; };
+        row.appendChild(si);
+      }
+      const ai = document.createElement('input');
+      ai.className = 'mono'; ai.placeholder = t('otc.amountHint');
+      ai.value = p.amount || '';
+      ai.oninput = () => { p.amount = ai.value; };
+      row.appendChild(ai);
+    }
+    payBox.appendChild(row);
+  });
+  c1.appendChild(payBox);
+
+  const actRow = document.createElement('div');
+  actRow.className = 'row'; actRow.style.marginTop = '12px';
+  const bBuild = document.createElement('button');
+  bBuild.className = 'primary';
+  bBuild.textContent = t('otc.build');
+  bBuild.onclick = doOtcBuild;
+  actRow.appendChild(bBuild);
+
+  const bSignMe = document.createElement('button');
+  bSignMe.className = 'ghost';
+  bSignMe.textContent = t('otc.signMine');
+  bSignMe.disabled = !S.otcTx;
+  bSignMe.onclick = doOtcSignMine;
+  actRow.appendChild(bSignMe);
+  c1.appendChild(actRow);
+  wrap.appendChild(c1);
+
+  // ---- ② 翻译 / 核对 ----
+  const c2 = document.createElement('div');
+  c2.className = 'card';
+  c2.innerHTML = `<div class="card-hd">${esc(t('otc.preview'))}</div>`;
+  const pv = document.createElement('div');
+  pv.className = 'otc-preview';
+  if (!S.otcTx) {
+    pv.innerHTML = `<p class="muted">${esc(t('otc.noTx'))}</p>`;
+  } else {
+    pv.appendChild(otcPreviewEl());
+  }
+  c2.appendChild(pv);
+  wrap.appendChild(c2);
+
+  // ---- ③ 外部交易体核对（对方给我的）----
+  const c3 = document.createElement('div');
+  c3.className = 'card';
+  c3.innerHTML = `<div class="card-hd">${esc(t('otc.verifyOther'))}</div>` +
+    `<p class="desc">${esc(t('otc.verifyDesc'))}</p>` +
+    `<textarea id="otcOtherHex" rows="4" style="width:100%;background:var(--panel2);` +
+    `border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px;` +
+    `font-family:Consolas,monospace;font-size:12px" placeholder="${esc(t('otc.pasteHex'))}"></textarea>`;
+  const vRow = document.createElement('div'); vRow.className = 'row';
+  const bVerify = document.createElement('button');
+  bVerify.className = 'ghost';
+  bVerify.textContent = t('otc.verifyBtn');
+  bVerify.onclick = doOtcVerifyOther;
+  vRow.appendChild(bVerify);
+
+  // ⚠ 追加签名（我是接受方）：双签流程缺了它，B 就签不了
+  //   必须**先核实**才可用 —— 盲签是签名应用的头号风险。
+  const bSignOther = document.createElement('button');
+  bSignOther.className = 'primary';
+  bSignOther.textContent = t('otc.signThis');
+  bSignOther.disabled = !S.otcOther || !S.otcOtherVerified;
+  bSignOther.onclick = doOtcSignOther;
+  vRow.appendChild(bSignOther);
+  c3.appendChild(vRow);
+  if (S.otcOther && !S.otcOtherVerified) {
+    const w = document.createElement('p');
+    w.className = 'otc-bad';
+    w.style.fontSize = '12px';
+    w.textContent = t('otc.mustVerifyFirst');
+    c3.appendChild(w);
+  }
+  const vOut = document.createElement('div');
+  vOut.id = 'otcVerifyOut'; vOut.className = 'otc-preview';
+  c3.appendChild(vOut);
+  wrap.appendChild(c3);
+
+  // ---- ④ 风险警告 ----
+  const warn = document.createElement('div');
+  warn.className = 'otc-warn';
+  warn.textContent = t('otc.noExpiryWarn');
+  wrap.appendChild(warn);
+}
+
+/** 渲染当前待签交易的摘要。 */
+function otcPreviewEl() {
+  const box = document.createElement('div');
+  const st = otcState();
+  const who = S.addr;
+
+  let desc;
+  if (S.otcPreview && S.otcPreview.ok) {
+    // 节点翻译：结构化 actions
+    desc = (S.otcPreview.actions || []).map(x => {
+      const a = x.raw || {};
+      if (a.kind === 14 || a.hacash) {
+        const dir = a.from === who ? 'out' : 'in';
+        return { kind: 'hac', dir, amount: a.hacash, from: a.from, to: a.to };
+      }
+      if (a.asset) {
+        const dir = a.from === who ? 'out' : 'in';
+        return { kind: 'asset', dir, serial: String(a.asset.serial),
+                 amount: a.asset.amount, from: a.from, to: a.to };
+      }
+      // ⚠ 节点协议字段名是 `diamonds`（TransferHacdFromTo）/ `diamond`（SingleTo），
+      //   不是 spec 里的 `names` —— 两者混用会让 HACD 那一腿显示成空。
+      const dn = a.diamonds || a.diamond;
+      if (dn) {
+        return { kind: 'hacd', dir: a.from === who ? 'out' : 'in', names: dn, from: a.from, to: a.to };
+      }
+      return { kind: 'other', desc: x.desc };
+    });
+  } else {
+    desc = otcDescribeLocal((S.otcSpec && S.otcSpec.actions) || [], who);
+  }
+
+  const lines = desc.map(d => {
+    const tag = d.dir === 'out'
+      ? `<span class="otc-out">${esc(t('otc.youPay'))}</span>`
+      : `<span class="otc-in">${esc(t('otc.youGet'))}</span>`;
+    let what = '';
+    if (d.kind === 'hac')   what = `${esc(String(d.amount))} HAC`;
+    if (d.kind === 'asset') what = `${esc(String(d.amount))} × ${esc(t('otc.serialN', { n: String(d.serial) }))}`;
+    if (d.kind === 'hacd')  what = `${esc(t('otc.hacdN', { n: String(d.names) }))}`;
+    if (d.kind === 'other') what = esc(String(d.desc || ''));
+    // 高亮：收款地址是我吗
+    let tail = '';
+    if (d.dir === 'in' && d.to && who) {
+      tail = (d.to === who)
+        ? ` <span class="otc-ok">✓ ${esc(t('otc.toIsYou'))}</span>`
+        : ` <span class="otc-bad">⚠ ${esc(t('otc.toNotYou'))}</span>`;
+    }
+    return `<div class="otc-line">${tag} ${what}${tail}</div>`;
+  }).join('');
+
+  box.innerHTML = lines || `<p class="muted">${esc(t('otc.noActions'))}</p>`;
+  if (!(S.otcPreview && S.otcPreview.ok)) {
+    box.innerHTML += `<p class="muted" style="font-size:12px;margin-top:8px">` +
+      `${esc(t('otc.unverified'))}</p>`;
+  }
+  return box;
+}
+
+async function doOtcBuild() {
+  if (!S.addr) return log(t('acct.locked'), 'err');
+  try {
+    const spec = otcBuildSpec();
+    S.otcSpec = spec;
+    log(t('otc.building'));
+    // 1) 生成未签名交易体（不注入私钥）
+    const r = await window.api.buildUnsigned({
+      mode: 'combo', args: [S.addr, '0'], spec, node: S.cfg.node, gasMax: 99,
+    });
+    if (!r.ok) return logErr(t('common.buildFail'), r);
+    S.otcTx = r.unsigned;
+    if (!S.otcTx) return log(t('otc.noUnsigned'), 'err');
+    // 2) 翻译
+    S.otcPreview = await otcTranslate(S.otcTx);
+    log(t('otc.built', { n: String((S.otcTx.length / 2) | 0) }), 'ok');
+    renderPanels();
+  } catch (e) {
+    log(t('otc.buildFail') + esc(String(e.message || e)), 'err');
+  }
+}
+
+async function doOtcSignMine() {
+  if (!S.addr) return log(t('acct.locked'), 'err');
+  if (!S.otcTx) return log(t('otc.noTx'), 'warn');
+  try {
+    const r = await window.api.signRaw({ unsignedHex: S.otcTx });
+    if (!r.ok) return logErr(t('otc.signFail'), r);
+    const signed = r.signed || r.signedHex;
+    if (!signed) return log(t('otc.signFail'), 'err');
+    // 若已齐 → 可直接广播；否则提示发给对方
+    const partial = (r.partial === true);
+    S.otcTx = signed;
+    if (partial) {
+      log(t('otc.signedPartial'), 'warn');
+      await copyToClipboard(signed);
+      log(t('otc.copied'), 'ok');
+    } else {
+      log(t('otc.signedFull'), 'ok');
+      const b = await window.api.broadcast({ node: S.cfg.node, hex: signed });
+      if (b && b.ok && b.data && b.data.ret === 0) {
+        log(t('common.broadcastOk', { h: String(b.data.hash || '').slice(0, 16) }), 'ok');
+      } else {
+        log(t('common.broadcastFail') + esc(String((b.data && (b.data.err || b.data.error)) || b.error || '')), 'err');
+      }
+    }
+    renderPanels();
+  } catch (e) {
+    log(t('otc.signFail') + esc(String(e)), 'err');
+  }
+}
+
+async function doOtcVerifyOther() {
+  const el = document.getElementById('otcOtherHex');
+  const out = document.getElementById('otcVerifyOut');
+  if (!el || !out) return;
+  const hex = (el.value || '').trim();
+  if (!hex) return;
+  out.innerHTML = `<span class="muted">${esc(t('otc.verifying'))}</span>`;
+  const tr = await otcTranslate(hex);
+  if (!tr.ok) {
+    // 翻译失败 → 清空已核实的交易体，签名按钮自然禁用
+    S.otcOther = null; S.otcOtherVerified = false;
+    out.innerHTML = `<p class="otc-bad">${esc(t('otc.verifyFail'))}</p>`;
+    renderPanels();
+    return;
+  }
+  // ⚠ 必须**存下来**：追加签名签的就是这份 hex，不能只渲染到 DOM
+  S.otcOther = hex;
+  S.otcOtherVerified = true;
+  const who = S.addr;
+  const lines = (tr.actions || []).map(x => {
+    const a = x.raw || {};
+    let dir = 'other', what = esc(String(x.desc || ''));
+    if (a.hacash)      { dir = a.from === who ? 'out' : 'in'; what = `${esc(String(a.hacash))} HAC`; }
+    else if (a.asset)  { dir = a.from === who ? 'out' : 'in';
+                         what = `${esc(String(a.asset.amount))} × serial ${esc(String(a.asset.serial))}`; }
+    else if (a.diamonds || a.diamond) {
+      dir = a.from === who ? 'out' : 'in';
+      what = `HACD ${esc(String(a.diamonds || a.diamond))}`;
+    }
+    const tag = dir === 'out' ? `<span class="otc-out">${esc(t('otc.youPay'))}</span>`
+              : dir === 'in'  ? `<span class="otc-in">${esc(t('otc.youGet'))}</span>`
+              : `<span class="muted">${esc(t('otc.other'))}</span>`;
+    let tail = '';
+    if (dir === 'in' && a.to) {
+      tail = (a.to === who) ? ` <span class="otc-ok">✓ ${esc(t('otc.toIsYou'))}</span>`
+                            : ` <span class="otc-bad">⚠ ${esc(t('otc.toNotYou'))}</span>`;
+    }
+    return `<div class="otc-line">${tag} ${what}${tail}</div>`;
+  }).join('');
+  out.innerHTML = lines + `<p class="muted" style="font-size:12px;margin-top:8px">${esc(t('otc.verifyHint'))}</p>`;
+  renderPanels();   // 让「追加我的签名」按钮变为可用
+}
+
+/**
+ * 给**对方的**交易体追加我的签名（我是接受方）。
+ *
+ * 前置条件：必须已经翻译核实过（`S.otcOtherVerified`）—— 否则就是盲签。
+ * 这是双签流程里 B 的那一半，缺了它整条链路走不通。
+ */
+async function doOtcSignOther() {
+  if (!S.addr) return log(t('acct.locked'), 'err');
+  if (!S.otcOther) return log(t('otc.noTx'), 'warn');
+  if (!S.otcOtherVerified) return log(t('otc.mustVerifyFirst'), 'err');
+  try {
+    const r = await window.api.signRaw({ unsignedHex: S.otcOther });
+    if (!r.ok) return logErr(t('otc.signFail'), r);
+    const signed = r.signed || r.signedHex;
+    if (!signed) return log(t('otc.signFail'), 'err');
+    S.otcOther = signed;
+    if (r.partial === true) {
+      log(t('otc.signedPartial'), 'warn');
+      await copyToClipboard(signed);
+      log(t('otc.copied'), 'ok');
+      S.otcOtherVerified = false;   // hex 已变，需要重新核实
+    } else {
+      log(t('otc.signedFull'), 'ok');
+      const b = await window.api.broadcast({ node: S.cfg.node, hex: signed });
+      if (b && b.ok && b.data && b.data.ret === 0) {
+        log(t('common.broadcastOk', { h: String(b.data.hash || '').slice(0, 16) }), 'ok');
+      } else {
+        log(t('common.broadcastFail') + esc(String((b.data && (b.data.err || b.data.error)) || b.error || '')), 'err');
+      }
+    }
+    renderPanels();
+  } catch (e) {
+    log(t('otc.signFail') + esc(String(e)), 'err');
+  }
+}
+
+async function copyToClipboard(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    // 兜底：创建临时 textarea
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+  }
+}
+
+function renderVaultPage(host) {
+  const wrap = document.createElement('div');
+  wrap.className = 'vault-wrap';
+  host.appendChild(wrap);
+
+  const d = S.vaultData;
+  if (!S.addr) {
+    wrap.innerHTML = `<div class="card vault-card"><p class="muted">${esc(t('fund.needUnlock'))}</p></div>`;
+    return;
+  }
+  if (!d) {
+    wrap.innerHTML = `<div class="card vault-card"><p class="muted">${esc(t('vault.loading'))}</p></div>`;
+    refreshVault(true).then(() => renderPanels());
+    return;
+  }
+
+  const unstaked = Math.max(0, d.hold - d.staked);
+  const fmtHac = (zhu) => (Number(zhu || 0) / 1e8).toFixed(8);
+  const fmtN = (n) => Number(n || 0).toLocaleString('en-US');
+
+  // 数据过期提示（设计文档 §9「网络失败」）
+  if (d.stale) {
+    const st = document.createElement('div');
+    st.className = 'vault-stale';
+    st.textContent = t('vault.staleData');
+    wrap.appendChild(st);
+  }
+
+  // ---- ① 我的权益 ----
+  const c1 = document.createElement('div');
+  c1.className = 'card vault-card';
+  c1.innerHTML =
+    `<div class="card-hd">${esc(t('vault.holdings'))}</div>` +
+    `<div class="proto-grid">` +
+      `<div><span class="muted">${esc(t('vault.walletHolds'))}</span><b>${fmtN(d.hold)}</b></div>` +
+      `<div><span class="muted">${esc(t('vault.staked'))}</span><b class="gold">${fmtN(d.staked)}</b></div>` +
+      `<div><span class="muted">${esc(t('vault.unstaked'))}</span>` +
+        `<b class="${unstaked > 0 ? 'warn' : ''}">${fmtN(unstaked)}</b></div>` +
+    `</div>`;
+  wrap.appendChild(c1);
+
+  // 未质押提示
+  if (unstaked > 0) {
+    const w = document.createElement('div');
+    w.className = 'vault-warn';
+    w.innerHTML = `<span>${esc(t('vault.warnUnstaked', { n: fmtN(unstaked) }))}</span>`;
+    const btn = document.createElement('button');
+    btn.className = 'gold-btn';
+    btn.textContent = t('vault.stakeNow');
+    btn.onclick = () => openVaultStake(unstaked);
+    w.appendChild(btn);
+    wrap.appendChild(w);
+  }
+
+  // ---- ② 分红 ----
+  const hasStake = d.staked > 0;
+  const c2 = document.createElement('div');
+  c2.className = 'card vault-card dividend' + (hasStake ? '' : ' dim');
+  if (!hasStake) {
+    c2.innerHTML = `<div class="card-hd">${esc(t('vault.dividend'))}</div>` +
+      `<p class="muted">${esc(t('vault.emptyStake'))}</p>`;
+  } else {
+    c2.innerHTML =
+      `<div class="card-hd">${esc(t('vault.dividend'))}</div>` +
+      `<div class="proto-grid">` +
+        `<div><span class="muted">${esc(t('vault.pendingSettle'))}</span><b>${fmtHac(d.pending)} HAC</b></div>` +
+        `<div><span class="muted">${esc(t('vault.pendingWithdraw'))}</span><b>${fmtHac(d.due)} HAC</b></div>` +
+      `</div>` +
+      `<div class="vault-total">` +
+        `<span class="muted">${esc(t('vault.totalClaimable'))}</span>` +
+        `<b class="amount primary gold">${fmtHac(d.claimable)} HAC</b>` +
+      `</div>`;
+    const btn = document.createElement('button');
+    btn.className = 'gold-btn wide';
+    btn.textContent = t('vault.claimAndWithdraw');
+    btn.disabled = d.claimable <= 0;
+    btn.onclick = () => doVaultClaim(d.claimable);
+    c2.appendChild(btn);
+  }
+  wrap.appendChild(c2);
+
+  // ---- ③ 全局 ----
+  // 每份累计（HAC/份）。
+  // ⚠ 2026-11-18 修正：原来是 `rpu / 1e12`，那是 **zhu**（合约里
+  //   `mul_div(shares, rpu_delta, RPU_SCALE)` 的单位），当 HAC 显示会大 1e8 倍。
+  //   实测数据可验：240 HAC 分给 25 份 → rpu = 9.6e20 → 应为 9.6 HAC/份。
+  //   正确换算是 rpu / 1e12（去定点） / 1e8（zhu→HAC） = rpu / 1e20。
+  const perShare = d.rpu > 0 ? (d.rpu / 1e20) : 0;
+  const c3 = document.createElement('div');
+  c3.className = 'card vault-card';
+  c3.innerHTML =
+    `<div class="card-hd">${esc(t('vault.global'))}</div>` +
+    `<div class="proto-grid">` +
+      `<div><span class="muted">${esc(t('vault.totalDividend'))}</span><b>${fmtHac(d.totdiv)} HAC</b></div>` +
+      `<div><span class="muted">${esc(t('vault.rentReserve'))}</span><b>${fmtHac(d.reserve)} HAC</b></div>` +
+      `<div><span class="muted">${esc(t('vault.perShare'))}</span><b>${perShare.toFixed(8)}</b></div>` +
+    `</div>`;
+  wrap.appendChild(c3);
+
+  // ---- 操作区 ----
+  const ops = document.createElement('div');
+  ops.className = 'vault-ops';
+  const b1 = document.createElement('button');
+  b1.className = 'gold-btn'; b1.textContent = t('vault.stake');
+  b1.onclick = () => openVaultStake(unstaked || d.hold);
+  const b2 = document.createElement('button');
+  b2.className = 'ghost'; b2.textContent = t('vault.unstake');
+  b2.disabled = d.staked <= 0;
+  b2.onclick = () => openVaultUnstake(d.staked);
+  const b3 = document.createElement('button');
+  b3.className = 'ghost'; b3.textContent = t('vault.refresh');
+  b3.onclick = async () => { await refreshVault(true); renderPanels(); };
+  ops.appendChild(b1); ops.appendChild(b2); ops.appendChild(b3);
+  wrap.appendChild(ops);
+
+  // ---- ④ 股权转让（原独立页签「股权交易」，2026-11-18 并入本页）----
+  //
+  // 为什么合并：两者是同一件事的两面 —— 上面管"持有份额怎么分红"，
+  // 下面管"份额怎么转让"。分两个页签时用户要来回切，而且"股权交易"
+  // 这个页签名本身不说明它和分红的关系。
+  //
+  // 实现上直接复用 renderOtcPage(host)：它只往 host 里 append 卡片，
+  // 不依赖自己是独立页签；内部的 renderPanels() 重绘也仍是本页，无副作用。
+  const otcHost = document.createElement('div');
+  otcHost.className = 'vault-otc-section';
+  otcHost.dataset.title = t('vault.otcSection');   // CSS ::before 显示
+  wrap.appendChild(otcHost);
+  renderOtcPage(otcHost);
+}
+
 function renderFundPanel(host) {
   // ① 顶部：合约内余额（PC 端独有，网页端没有）
   const bal = document.createElement('div');
@@ -1835,12 +2823,20 @@ function renderFundPanel(host) {
   (async () => {
     const el = bal.querySelector('#fundBal');
     if (!S.addr) { el.innerHTML = `<span class="muted">${t('fund.needUnlock')}</span>`; return; }
-    const r = await window.api.protocolOverview({ node: S.cfg.node, contract: S.cfg.contract, address: S.addr });
+    // ⚠ 2026-11-20 修复：这里原来调 protocolOverview，读 d.balHac / d.balDs ——
+    //   但 protocolOverview 返回的是池子/LP/借贷那一组字段，**根本没有 balHac/balDs**，
+    //   所以两项永远是 undefined，界面只显示 "—"。
+    //
+    //   合约内余额的两个字段实际来自 asset:overview（它单独 sandboxcall 了
+    //   balance_hac 与 balance_ds）：
+    //     hacPoints  ← balance_hac（HAC 积分，名义值）
+    //     due        ← balance_ds （hacds 配额）
+    const r = await window.api.assetOverview({ node: S.cfg.node, contract: S.cfg.contract, address: S.addr });
     if (!r.ok) { el.innerHTML = '<span class="qerr">' + esc(r.error) + '</span>'; return; }
     const d = r.data || {};
     el.innerHTML = [
-      [t('fund.hacCredit'), hacOf(d.balHac)],
-      [t('fund.dsQuota'), rawHacds(d.balDs, true)],
+      [t('fund.hacCredit'), d.hacPoints == null ? '—' : hacOf(d.hacPoints)],
+      [t('fund.dsQuota'), d.due == null ? '—' : rawHacds(d.due, true)],
     ].map(([k, v]) => `<div class="proto-item"><span class="pk">${esc(k)}</span><span class="pv">${esc(v)}</span></div>`).join('');
   })();
 
@@ -2277,7 +3273,7 @@ function renderOfflinePanel(host) {
   };
 }
 
-// ⚠ #3000 无管理员：renderAdminPanel 已整块删除（对应 6 个合约函数全部不存在）
+// ⚠ #4000 无管理员：renderAdminPanel 已整块删除（对应 6 个合约函数全部不存在）
 
 // ===================== 构建 =====================
 async function buildOp(op, card, btn) {
@@ -2510,7 +3506,7 @@ async function setAccount(addr, unlocked) {
   $('#overview').hidden = !unlocked;
   if (addr) $('#addr').textContent = addr;
   if (!unlocked) { $('#overview').hidden = true; renderTabs(); return; }
-  // #3000 无管理员：不再做 adminProbe 探测
+  // #4000 无管理员：不再做 adminProbe 探测
   readCfgFromUI();
   renderTabs();
   await refreshOverview();
@@ -2706,7 +3702,13 @@ function renderHacdPanel() {
   const mine = S.hacdList;   // null = 未加载
   if (!mine) {
     if (filter) filter.innerHTML = '';
-    myGrid.innerHTML = '<div class="muted" style="font-size:12px">' + t('hacd.notLoaded') + '</div>';
+    // 加载中：画骨架块而不是一行小字。
+    // 一行字会让整个面板看起来是空的（用户实测反馈"空很多"），
+    // 骨架块能撑住布局，加载完成后直接替换成真卡片，视觉上不跳动。
+    // 骨架块：撑住布局，加载完成后替换成真卡片。
+    // 触发加载统一放在 renderPanels() 里（避免两处都发请求）。
+    myGrid.innerHTML = Array.from({ length: 24 }, () =>
+      '<div class="hacd-card hacd-skeleton"></div>').join('');
   } else if (!mine.length) {
     if (filter) filter.innerHTML = '';
     myGrid.innerHTML = '<div class="muted" style="font-size:12px">' + t('hacd.none') + '</div>';

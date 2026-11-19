@@ -1,0 +1,1038 @@
+{
+  "contract": "HacdsVault",
+  "funcs": [
+    {
+      "lets": [
+        0,
+        1
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "ld_u128",
+      "param_prelude_count": 1,
+      "params": [
+        "key"
+      ],
+      "slots": [
+        "key",
+        "v"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "wr_u128",
+      "param_prelude_count": 2,
+      "params": [
+        "key",
+        "val"
+      ],
+      "slots": [
+        "key",
+        "val",
+        "st",
+        "live"
+      ]
+    },
+    {
+      "lets": [
+        0
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "chk_key",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "lets": [
+        0
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "due_key",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "lets": [
+        0
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "sh_key",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "rpu_now",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "sh_key",
+          "sig": "84cc89b4"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "chk_key",
+          "sig": "bddf3660"
+        },
+        {
+          "name": "due_key",
+          "sig": "d784d5b1"
+        },
+        {
+          "name": "rpu_now",
+          "sig": "de1dbcb2"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "settle",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "cur",
+        "v",
+        "ck",
+        "sh",
+        "earn",
+        "dk"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "rpu_now",
+          "sig": "de1dbcb2"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "abstract::PayableHAC",
+      "param_prelude_count": 2,
+      "params": [
+        "cp",
+        "amount"
+      ],
+      "slots": [
+        "cp",
+        "amount",
+        "zhu",
+        "rent_part",
+        "div_part",
+        "rk",
+        "staked"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "due_key",
+          "sig": "d784d5b1"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "abstract::PermitHAC",
+      "param_prelude_count": 2,
+      "params": [
+        "cp",
+        "amount"
+      ],
+      "slots": [
+        "cp",
+        "amount",
+        "zhu",
+        "dk",
+        "due"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "sh_key",
+          "sig": "84cc89b4"
+        },
+        {
+          "name": "settle",
+          "sig": "8fe194b7"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "abstract::PayableAsset",
+      "param_prelude_count": 3,
+      "params": [
+        "cp",
+        "serial",
+        "amount"
+      ],
+      "slots": [
+        "cp",
+        "serial",
+        "amount",
+        "who",
+        "sk"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "sh_key",
+          "sig": "84cc89b4"
+        },
+        {
+          "name": "settle",
+          "sig": "8fe194b7"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "abstract::PermitAsset",
+      "param_prelude_count": 3,
+      "params": [
+        "cp",
+        "serial",
+        "amount"
+      ],
+      "slots": [
+        "cp",
+        "serial",
+        "amount",
+        "who",
+        "sk",
+        "cur",
+        "staked"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "abstract::PayableSAT",
+      "param_prelude_count": 2,
+      "params": [
+        "cp",
+        "count"
+      ],
+      "slots": [
+        "cp",
+        "count"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "abstract::PermitSAT",
+      "param_prelude_count": 2,
+      "params": [
+        "cp",
+        "count"
+      ],
+      "slots": [
+        "cp",
+        "count"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "abstract::PayableHACD",
+      "param_prelude_count": 3,
+      "params": [
+        "cp",
+        "count",
+        "names"
+      ],
+      "slots": [
+        "cp",
+        "count",
+        "names"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "abstract::PermitHACD",
+      "param_prelude_count": 3,
+      "params": [
+        "cp",
+        "count",
+        "names"
+      ],
+      "slots": [
+        "cp",
+        "count",
+        "names"
+      ]
+    },
+    {
+      "lets": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "rent_one",
+      "param_prelude_count": 2,
+      "params": [
+        "key",
+        "period"
+      ],
+      "slots": [
+        "key",
+        "period",
+        "st",
+        "live",
+        "thr"
+      ],
+      "vars": [
+        4
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "sh_key",
+          "sig": "84cc89b4"
+        },
+        {
+          "name": "rent_one",
+          "sig": "b63fbfee"
+        },
+        {
+          "name": "chk_key",
+          "sig": "bddf3660"
+        },
+        {
+          "name": "due_key",
+          "sig": "d784d5b1"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "rent_self",
+      "param_prelude_count": 2,
+      "params": [
+        "who",
+        "period"
+      ],
+      "slots": [
+        "who",
+        "period",
+        "n"
+      ],
+      "vars": [
+        2
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "wr_u128",
+          "sig": "68f080e6"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "due_key",
+          "sig": "d784d5b1"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        4,
+        5
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "pay_keeper",
+      "param_prelude_count": 1,
+      "params": [
+        "nkeys"
+      ],
+      "slots": [
+        "nkeys",
+        "rk",
+        "res",
+        "reward",
+        "keeper",
+        "dk"
+      ],
+      "vars": [
+        3
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "settle",
+          "sig": "8fe194b7"
+        },
+        {
+          "name": "rent_self",
+          "sig": "ef5994c2"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "claim",
+      "param_prelude_count": 0,
+      "slots": [
+        "who",
+        "_n"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "rent_one",
+          "sig": "b63fbfee"
+        },
+        {
+          "name": "pay_keeper",
+          "sig": "cf04f70e"
+        }
+      ],
+      "lets": [
+        0,
+        2
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "pay_rent",
+      "param_prelude_count": 1,
+      "params": [
+        "period"
+      ],
+      "slots": [
+        "period",
+        "n",
+        "_r"
+      ],
+      "vars": [
+        1
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "rent_key_len_at",
+          "sig": "7a8aa71d"
+        },
+        {
+          "name": "rent_keys_group",
+          "sig": "9899148d"
+        },
+        {
+          "name": "topup_keys",
+          "sig": "9ecc529f"
+        },
+        {
+          "name": "pay_keeper",
+          "sig": "cf04f70e"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "pay_rent_ahac",
+      "param_prelude_count": 2,
+      "params": [
+        "group",
+        "period"
+      ],
+      "slots": [
+        "group",
+        "period",
+        "klen",
+        "grp",
+        "r",
+        "nkeys",
+        "_r"
+      ],
+      "vars": [
+        5
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "sh_key",
+          "sig": "84cc89b4"
+        },
+        {
+          "name": "rent_one",
+          "sig": "b63fbfee"
+        },
+        {
+          "name": "chk_key",
+          "sig": "bddf3660"
+        },
+        {
+          "name": "pay_keeper",
+          "sig": "cf04f70e"
+        },
+        {
+          "name": "due_key",
+          "sig": "d784d5b1"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        8,
+        9
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "pay_rent_shares",
+      "param_prelude_count": 2,
+      "params": [
+        "addrs",
+        "period"
+      ],
+      "slots": [
+        "addrs",
+        "period",
+        "total",
+        "naddr",
+        "per_addr",
+        "max_addr",
+        "i",
+        "renewed",
+        "who",
+        "_r"
+      ],
+      "vars": [
+        6,
+        7
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "sh_key",
+          "sig": "84cc89b4"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "chk_key",
+          "sig": "bddf3660"
+        },
+        {
+          "name": "due_key",
+          "sig": "d784d5b1"
+        },
+        {
+          "name": "rpu_now",
+          "sig": "de1dbcb2"
+        }
+      ],
+      "lets": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "get_claimable",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "due",
+        "v",
+        "ck",
+        "cur"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "get_reserve",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "rpu_now",
+          "sig": "de1dbcb2"
+        }
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "get_current_rpu",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "sh_key",
+          "sig": "84cc89b4"
+        },
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "get_shares",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "due_key",
+          "sig": "d784d5b1"
+        }
+      ],
+      "lets": [
+        0
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "get_due",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        },
+        {
+          "name": "chk_key",
+          "sig": "bddf3660"
+        }
+      ],
+      "lets": [
+        0,
+        1
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "get_checkpoint",
+      "param_prelude_count": 1,
+      "params": [
+        "who"
+      ],
+      "slots": [
+        "who",
+        "v"
+      ]
+    },
+    {
+      "funcs": [
+        {
+          "name": "ld_u128",
+          "sig": "bd7dcabb"
+        }
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "get_total_dividend",
+      "param_prelude_count": 0
+    },
+    {
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "share_serial",
+      "param_prelude_count": 0
+    },
+    {
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "share_total",
+      "param_prelude_count": 0
+    },
+    {
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "rent_ratio_bps",
+      "param_prelude_count": 0
+    },
+    {
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "rpu_scale",
+      "param_prelude_count": 0
+    },
+    {
+      "funcs": [
+        {
+          "name": "rent_key_group_count",
+          "sig": "b771e616"
+        }
+      ],
+      "libs": [
+        {
+          "address": "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h",
+          "idx": 0,
+          "name": "ahac"
+        }
+      ],
+      "name": "ahac_group_count",
+      "param_prelude_count": 0
+    }
+  ],
+  "inherits": [],
+  "libs": [
+    "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h"
+  ]
+}

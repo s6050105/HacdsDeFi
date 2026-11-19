@@ -1,0 +1,853 @@
+pragma fitsh 1.0.0
+
+// ============================================================================
+// HacdsVault —— 金库分红合约（合约 B）
+//
+// 定位：与主协议（合约 A / HacdsDeFi #3000）独立的**纯分红池**。
+//   * 只收 HAC，按份额比例把 HAC 记成"应得"，不做交易、不做撮合。
+//   * 股权代币化：链上资产 serial 3001，decimal 0，总量 10,000（SHARE_TOTAL）。
+//   * **无管理员、无 pause、无参数修改接口**；一切参数是编译期常量。
+//
+// ---------------------------------------------------------------------------
+// 一、会计模型：全局累加器 + 逐地址检查点（rpu / chk）
+// ---------------------------------------------------------------------------
+// 每来一笔分红不逐个地址分发，而是抬高一个全局累加器：
+//
+//     rpu:share += div_part * RPU_SCALE / tot:staked
+//
+// 每个地址有自己的检查点 chk:<addr>，记"上次结算时的 rpu"。
+// 某人应得 = 份额 × (rpu_now − chk) / RPU_SCALE。
+//
+// 为什么：地址集合无法枚举（见下文第二节），逐地址分发在 HVM 里不可行；
+// 累加器只需 1 次存储写，与股东人数无关，且天然支持任意时刻、任意人结算。
+//
+// ⚠ **分母是 tot:staked（动态已质押量），不是 SHARE_TOTAL（固定 10000）**。
+//   这是刻意偏离"任务书字面公式"的一处，理由见 PayableHAC 的详细注释：
+//   用固定 10000 作分母时，质押率越低泄漏越大（25% 质押 → 80 HAC 里
+//   只有 20 被分掉，60 永久滞留在合约里谁也取不走）；用 tot:staked
+//   则每一笔都被当时在册的份额完整吸收，结构性泄漏为 0。
+//   SHARE_TOTAL 仍是**发行上限**与元数据，但不是分红分母。
+//
+// RPU_SCALE = 1e12 是定点放大。误差只可能出现在结算端（向下取整），
+// 方向对合约有利（少发，绝不超发）。
+//
+// ---------------------------------------------------------------------------
+// 二、⚠ 最关键约束：HVM 拿不到"任意地址持有的资产余额"，也拦不住 P2P
+// ---------------------------------------------------------------------------
+// 事实（已从 fullnode 源码核实）：
+//
+//   (1) 钩子路由基于**端点**（base/src/iface/action.rs:120-121）：
+//         authorize = from.is_scriptmh() || from.is_contract()  → PermitX
+//         receive   = to.is_contract()                          → PayableX
+//       即：**只有本合约是这笔转账的 from 或 to 时，钩子才会被调用**。
+//
+//   (2) 因此 用户A → 用户B 的 serial 3001 转账**完全不触发本合约**。
+//       合约无法在"股东卖币"的瞬间做结算 —— 该动作在链上对它不可见。
+//
+//   (3) ACTVIEW 确有 balance_asset(addr, serial)（protocol/src/setup.rs:110），
+//       但它返回**当前余额**，不是历史某高度的余额。用它分红会造成：
+//       卖出后旧股东凭空失去已积累分红、新买家拿不到买入前分红，
+//       而这笔分红永久滞留合约 —— 不可接受，故不采用。
+//
+// 采用方案（任务书的"方案 B"）：**份额必须质押进合约才计息**。
+//   * 股东把 3001 转进来（用户 → 本合约）：PayableAsset 结算旧份额、sh:<addr> 增加。
+//   * 提走份额（本合约 → 用户）：PermitAsset **先结算再减份额**。
+//   * 合约内 sh:<addr> 是**唯一权威**的分红份额账本。
+//
+// 诚实地说清经济含义：钱包里的 3001 只是可转让凭证，**只有质押进金库的份额
+// 才参与分红**。这恰好消除了"卖币时无法结算"的全部问题：份额变动只可能
+// 发生在两个能被钩子拦住的时刻，所以"先结算、后改动"在这两处都能强制保证。
+// 合约链上资产余额恒等于 Σ sh:<addr>，同增同减，不会漂移。
+//
+// ---------------------------------------------------------------------------
+// 三、⚠ 记账绝不用 tx_main_addr()（安全要害）
+// ---------------------------------------------------------------------------
+// 实测确认：钩子里的 tx_main_addr() 是"这笔交易的发起人"，既不是 from 也不是 to。
+// 若收款钩子按 tx_main_addr() 记账，会出现这条盗币路径：
+//   任意第三方发起"某合约把 HAC 打给本金库"的交易 → 本合约 PayableHAC 被调用
+//   → 若记到 tx_main_addr()，钱就进了第三方自己的可提取账。
+//
+// 本合约的处理（这是本文件最重要的安全属性）：
+//   * PayableHAC 只更新**全局** rpu:share / reserve:rent / tot:div，
+//     **完全不读 tx_main_addr()**。谁触发都对所有人结果相同：
+//     第三方替协议把收益推进来 = 替全体股东干活，钱一分不差进分红池。
+//   * 资产钩子用 cp 做归属（cp 来自协议实际扣账/入账的地址，不可伪造）：
+//       PayableAsset 里 cp = **转出方**（存款人）；
+//       PermitAsset  里 cp = **转入方**（提款人）。
+//     两个钩子的 cp 语义相反，这是 HVM 的对称设计（authorize 传 to，
+//     receive 传 from），写反就是资敌，务必看清。
+//   * tx_main_addr() 只出现在两处，且都是"对自己"或"领报酬"：
+//       claim()    —— 只结算、只续租**调用者自己**的键；
+//       pay_rent() —— 谁干活谁领储备金报销（入账，不是扣账）。
+//
+// ---------------------------------------------------------------------------
+// 四、"部署方失联后分红不能停"——逐环节核查
+// ---------------------------------------------------------------------------
+//   环节                     触发者             依赖特定账户?
+//   A 累积 tre:hac:          AMM/借贷自动       否
+//   A → B 搬运               任何人（股东 claim
+//                            时顺带）           否
+//   B 更新 rpu               PayableHAC 自动    否
+//   股东 claim               股东本人           否
+//   B 自身键续租             claim 顺带 / 任何人 否
+//   A 的键续租               任何人调 pay_rent   否
+//
+//   "从 A 搬进 B"：Hacash 的 ACTION 是 TopOnly，**合约不能主动转账**，
+//   所以 B 无法自己"拉"A 的钱。正确形态是任何人（典型是股东自己）构造：
+//       action1: TransferHacFromTo(A → B, 金额)   // A 的 PermitHAC 放行 tre:hac:，
+//                                                  // B 的 PayableHAC 立即更新 rpu
+//       action2: ContractMainCall(B, claim)         // 结算本人份额
+//   ⚠ 两动作的**执行顺序**：tx 内 action 按列表顺序**串行**执行
+//     （protocol/src/exec/tx.rs:149-158 execute_actions 的 for 循环）；
+//     每个 ACTION 的转账与其 Permit/Payable 钩子是**同步**的
+//     （interpreter/execute.rs:335-355：action_call 之后立刻 drive_transfer）。
+//     所以只要把 TransferHacFromTo 放在 claim **之前**，claim 就能看到本笔
+//     刚抬高的 rpu，一次交易完成"搬运 + 结算 + 领钱"。
+//     顺序写反不会出错（claim 先结算旧 rpu，本次分红留在 rpu 里，
+//     下次再领），只是少领一次，不会多领或丢失 —— 但我仍在注释里
+//     明确要求"搬运动作在前"，因为那才是用户想要的体验。
+//
+//   本合约**刻意不提供 sweep()**：B 没有任何能力主动从 A 拉钱，
+//   多一个入口只会多一份不可升级的攻击面而没有新增能力。
+//
+// ---------------------------------------------------------------------------
+// 五、储备金（reserve:rent）—— 已核实，与直觉不同
+// ---------------------------------------------------------------------------
+//   storage_rent(key, period) 扣的是**交易的 gas 预算**（vm/src/state/state.rs
+//   的 srent 返回 gas 单位），**不会从合约余额里扣 HAC**。
+//   所以续租的"存储费"实际由**调用者的交易手续费**承担；
+//   reserve:rent 的唯一作用是**给 keeper 报销**，让"维护"这件事有经济激励。
+//
+//   storage_rent 的成本在扣账前**无法预知**（取决于该键的存储 unit 与剩余
+//   credit，见 state.rs:srent），所以本合约不做"预算式"扣款，
+//   而是"按成功续租的键数计件付酬"，天然规避成本预知问题。
+//
+// ---------------------------------------------------------------------------
+// 六、⚠ B 与 A 的耦合：B 必须 link A，因此 **A 必须先部署**
+// ---------------------------------------------------------------------------
+//   B 的 pay_rent 要续 A 的键，就必须调用 A 的 external 函数
+//   （rent_key_len_at / rent_keys_group / topup_keys）。FitSH 只能通过
+//   `library` 静态链接调用跨合约函数，而链上部署时
+//   vm/src/action/contract_exec.rs:363-375 的 check_link_contracts_exist()
+//   会**强制校验被 link 的合约已存在**（store 不存在的库直接
+//   "library contract ... does not exist" 整笔失败）；
+//   650-680 的 check_static_call_targets() 还会校验目标函数存在且为 external。
+//
+//   结论（与最初"B 先部署"的安排相反）：
+//       必须 **先部署 A（nonce=2），再部署 B（nonce=3）**。
+//   这在地址上是完全可行的：合约地址 = ripemd160(sha3(部署者 ‖ nonce))，
+//   nonce 只是一个**参数**，不是自增计数器（vm/src/action/contract_exec.rs:41），
+//   所以 A 用 nonce=2、B 用 nonce=3，部署顺序与 nonce 数值无关。
+//   A 里 `const TREASURY = <B 的地址>` 是编译期常量，A 部署时 B 还不存在
+//   也没关系 —— 那只是一个普通地址常量，不触发任何存在性校验。
+//
+// ============================================================================
+
+contract HacdsVault {
+
+    deploy {
+        // ⚠ 用 nonce = **4**（第二轮）。地址 = ripemd160(sha3(部署者 15fv6cNE… ‖ nonce))
+        //   = duEkx1E3owCP2VhTq6LzvLUGeMJpjZXm4
+        //   （该地址需由部署者按 15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q + nonce 4 复算确认）
+        nonce: 4
+    }
+
+    // A（主协议 #3000）的地址。B 通过它续租 A 的账本键。
+    // 部署 B 时 A 必须已存在（见文件头第六节）。
+    //
+    // ⚠ 2026-11-18 第二轮：A 也换 nonce 重部署，地址随之改变：
+    //     旧 A = T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH（nonce 2，已作废）
+    //     新 A = bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h（nonce 5）
+    library [ ahac: bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h ]
+
+    // ---------------- 常量（全部编译期固化，永不可改） ----------------
+
+    // 股权代币的链上资产序号。与 A 的 4000 刻意错开，
+    // 避免两个合约的资产钩子互相误判（各合约只认自己那一个 serial）。
+    //
+    // ⚠ 2026-11-18 第二轮：原为 3001，因第一轮资产发行错误作废。
+    //   第一轮把股权 AssetCreate 的 issuer 填成了本合约地址，而 AssetCreate
+    //   **不经过任何钩子**，所以链上余额 = 10,000 而 sh: 账本 = 0，
+    //   PermitAsset 的 `if cur < amount { return 11 }` 让份额永远转不出去。
+    //
+    //   **正确做法（测试链 _test_vault.py 已验证）**：
+    //     AssetCreate 的 issuer 填**部署者**，份额先落到部署者名下，
+    //     再由部署者 asset-to 分发给股东，股东质押时才走 PayableAsset 建立 sh:。
+    //   本合约永远**不发行、也不持有**自己的股权资产。
+    const SHARE_SERIAL    : u128 = 4001
+    // 份额**发行总量上限**（链上资产 serial 3001 的 supply）。decimal = 0，故 1 atom = 1 份。
+    // ⚠ 这个常量**不参与分红计算**：分红分母是动态的 tot:staked。
+    //   若误用它作分母，质押率低于 100% 时会产生结构性泄漏（见 PayableHAC 注释）。
+    //   它在这里的作用：① 对外元数据/前端校验；② 让"总量 10000"这一发行
+    //   设计在合约里可被验证（任何人可调 share_total() 和链上 asset_meta 比对）。
+    const SHARE_TOTAL     : u128 = 10000
+    // 分账比例：2000 bps = 20% 进续租储备，80% 进分红池。
+    const RENT_RATIO_BPS  : u128 = 2000
+    // rpu 定点放大倍数。取 1e12：一笔 1 zhu 的分红分给 1e4 份额时
+    // 仍有 1e8 的定点分辨率，足以覆盖最小 HAC 单位而不产生可见截断。
+    const RPU_SCALE       : u128 = 1000000000000
+
+    // 新建键的初始租期。1 period = 100 块（vm/src/rt/cap.rs:63），
+    // 100 periods = 10,000 块 ≈ 34 天。与 A 一致：宁可短租让 keeper 续，
+    // 也不在冷路径上一次锁死过长租期（部署期 storage 预算有限）。
+    const PERIOD_NEW      : u128 = 100
+    // recoverable 键复活 / 续租用的目标租期。
+    const RENT_PERIOD     : u128 = 300
+    // 1 period 等于多少块。用于把 period 换算成 storage_stat 的"剩余块数"
+    // （live 单位是**块**，不是 period —— 极易搞错，写错会让阈值形同虚设）。
+    const BLOCKS_PER_PERIOD : u128 = 100
+
+    // 单笔最多续租的键数。storage 桶上限约 111,911（A 的实测结论），
+    // 10 键 × 36 unit × 300 period ≈ 108,000 已接近顶部，11 键会超限。
+    const RENT_MAX_KEYS   : u128 = 10
+
+    // pay_rent_shares 的 storage 预算上限与单键 unit。
+    //
+    // ⚠ 单笔能续几个地址**必须随 period 动态算**，不能写死：
+    //   storage_rent 的 cost = unit × period，unit = val(16) + base(20) = 36。
+    //   1 个地址 = chk:/due:/sh: 共 3 键 → 单个地址 = 108 × period。
+    //
+    //     period= 30 →  3,240 /地址 → 最多 34 个地址
+    //     period=100 → 10,800 /地址 → 最多 10 个地址（keeper 默认）
+    //     period=300 → 32,400 /地址 → 最多  3 个地址
+    //
+    //   写死 10 的话，period=300 时 10 个地址 = 324,000，直接 OutOfGas
+    //   整笔回滚（不但没续上，连 gas 也白烧）。所以下面按预算现算。
+    const STORAGE_BUDGET   : u128 = 111000
+    const RENT_KEY_UNIT    : u128 = 36
+    // 每成功续租 1 个键付给 keeper 的 HAC（zhu 计）= 0.05 HAC。
+    const RENT_REWARD_ZHU : u128 = 5000000
+    // pay_rent 允许的 period 区间（B 自己的键）。
+    // 下限：若允许 period=1（100 块），配合阈值判断可每块续一次、每次领满额
+    //      报销，零成本抽干 reserve:rent（A 的 C-2 审计项就是这个问题）。
+    // 上限：防止一次锁死过长租期。
+    const RENT_MIN_PERIOD : u128 = 30
+    const RENT_MAX_PERIOD : u128 = 3000
+
+    // ⚠ 续**合约 A** 的键时 period 的硬区间，必须与 A 的 topup_keys 校验一致，
+    //   否则 B 传一个 A 不接受的值会被 A 直接 return 62 而整笔失败。
+    //   已核实（HacdsDeFi3000.fitsh:2077-2078）：
+    //       if period < RENT_PERIOD { return 62 }        // RENT_PERIOD = 300
+    //       if period > RENT_PERIOD * 10 { return 63 }   // = 3000
+    //   所以 A 侧的下限是 **300 期**（= 30,000 块 ≈ 104 天），远高于 B 自己的 30 期。
+    //   这是 A 的既有约束，B 只能服从，不能放宽。
+    const AHAC_MIN_PERIOD : u128 = 300
+    const AHAC_MAX_PERIOD : u128 = 3000
+    // 续租阈值分子/分母：剩余块数 < period×100/3 才续。
+    // 续满后 live ≥ period×100，远高于阈值 → 同一个键**不可能被连续续租**，
+    // 这从机制上封死"反复调用、反复领赏"。
+    const RENT_THR_DIV    : u128 = 3
+
+    // claim() 顺带给用户键续租时用的目标租期。
+    //
+    // ⚠ 为什么**不**用 RENT_PERIOD(300)：
+    //   storage_rent 的 gas = unit × period，unit = val_size(16) + base(20) = 36。
+    //   300 期 → 每键 10,800 gas，3 键 = 32,400；storage 桶上限约 111,911，
+    //   再叠加 settle 的几次写，余量偏紧。用户 claim 若因此 OOG，
+    //   分红就永远领不出来 —— 这是必须避免的失败模式。
+    //   100 期 → 每键 3,600 gas，3 键 = 10,800，安全得多。
+    //
+    //   配套的 rent_one 阈值 = period×100/3 = 3,333 块：键续到 10,000 块后
+    //   要再过约 6,667 块才会再次触发续租，所以绝大多数 claim 是零续租成本。
+    const SELF_RENT_PERIOD : u128 = 100
+
+    // ---------------- 存储读写原语 ----------------
+
+    function ld_u128(key: bytes) -> u128 {
+        var v = storage_load(key)
+        if v is nil { return 0 }
+        return v
+    }
+
+    // 三分支写入，**每个分支都保证键处于已租用的 live 状态**：
+    //   stat == nil     → 新键，按 PERIOD_NEW 新建（storage_new 自带租期）
+    //   live > 0        → 键活着，直接 edit（edit 不延长租期，
+    //                     所以长期活跃的键仍需 pay_rent 续租）
+    //   仅 recover > 0  → 键已过期但数据还在可恢复窗口，
+    //                     必须先 storage_rent 复活再 edit；
+    //                     不先 rent 直接 edit 会 StorageNotActive 整笔回滚。
+    //
+    // ⚠ 为什么不能省 storage_rent：Hacash 的存储键是**租用制**，
+    //   租期耗尽后键被删除，用户余额就永久归零。写路径必须显式租用。
+    function wr_u128(key: bytes, val: u128) -> u32 {
+        var st = storage_stat(key)
+        if st is nil {
+            storage_new(key, val, PERIOD_NEW)
+            return 0
+        }
+        var live = item_get(st, 0)
+        if live > 0 {
+            storage_edit(key, val)
+            return 0
+        }
+        storage_rent(key, RENT_PERIOD)
+        storage_edit(key, val)
+        return 0
+    }
+
+    // ---------------- 存储键构造 ----------------
+    //
+    // 一律 "前缀:" ++ address。address 定长 21 字节，故同前缀下键长一致，
+    // 便于 keeper 用定长 klen 批量续租。
+    // ⚠ 这些键是**确定性**的：任何人只要知道地址就能算出键名并为其续租，
+    //   不需要任何链上枚举能力。这一点是"用户键可被救活"的前提。
+
+    function chk_key(who: address) -> bytes { return "chk:" ++ who }
+    function due_key(who: address) -> bytes { return "due:" ++ who }
+    function sh_key(who: address)  -> bytes { return "sh:" ++ who }
+
+    function rpu_now() -> u128 { return self.ld_u128("rpu:share") }
+
+    // ---------------- 结算（推进分红检查点） ----------------
+    //
+    // 把 who 自上次检查点以来新产生的分红结算进 due:<who>，
+    // 再把 chk:<who> 推到当前 rpu。
+    //
+    // ---------------------------------------------------------------------
+    // ⚠⚠ 存储编码：chk 键保存的是 **(chk + 1)**，不是 chk 本身 ⚠⚠
+    // ---------------------------------------------------------------------
+    // 为什么必须这样：rpu 的初值就是 0，所以"尚未初始化"和"在 rpu=0 时刻
+    // 初始化过"在数值上都是 0，无法区分。若直接用 0 当"未初始化"哨兵，
+    // 会出这个真实的资金 bug：
+    //
+    //   股东在 rpu=0 时存入份额 → settle 判定"首注，只打点不发"，
+    //   但如果此时 cur==0 就不写键 → chk 键不存在
+    //   → 之后分红进来、rpu=X → claim 时看到 chk 缺失 → 又当成"首注"
+    //   → 把 chk 置为 X 而不发放 → **该股东在存入后应得的 X 全部丢失**，
+    //   且这部分 HAC 永久滞留合约（谁都取不走）。
+    //
+    // 用 +1 偏移后：0 = 键不存在（真未初始化），n ≥ 1 表示 chk = n−1
+    // （包括合法的 chk = 0）。这样两种情况彻底可区分。
+    // u128 上限 2^128−1 减 1 不会有实际溢出风险（rpu 远小于此）。
+    //
+    // ---------------------------------------------------------------------
+    // ⚠⚠ 另外两个必须做对、否则致命的点 ⚠⚠
+    //
+    // (1) **首次检查点必须初始化，不能从 0 起算**。
+    //     若从未参与过的地址按 chk=0 结算，第一次 claim 就会拿到
+    //     "rpu_now × 他的份额" —— 等于把创世以来全部分红都算给他，
+    //     分红池会被第一个调用者瞬间掏空。所以未初始化时直接置为当前值，
+    //     增量按 0 计（本次不发）。
+    //
+    // (2) **即便本次份额为 0，也必须把 chk 推到当前 rpu**（只要 cur > ck）。
+    //     这是"先结算、后改份额"正确性的根基：
+    //     PayableAsset 的顺序是 settle(who) → sh += amount。
+    //     若 settle 因 sh == 0 而跳过 chk 写入，chk 就停在很旧的值上，
+    //     随后 sh 变正，下一次 claim 会用"新份额 × 极旧 delta"结算 ——
+    //     等于让刚存入的人白拿他存入之前的所有历史分红（超发）。
+    //     所以 chk 写入是无条件的。
+    function settle(who: address) -> u32 {
+        var cur = self.rpu_now()
+        var v = self.ld_u128(self.chk_key(who))
+
+        // 键不存在（v == 0）→ 真正的首次初始化：只打点，不发放。
+        // 注意这里**必须写键**（哪怕 cur 也是 0），否则会退化成上面说的资金 bug。
+        if v == 0 {
+            self.wr_u128(self.chk_key(who), cur + 1)
+            return 0
+        }
+
+        var ck = v - 1
+        // rpu 单调不减；相等或异常回退时不打点、不发放。
+        if cur <= ck { return 0 }
+
+        var sh = self.ld_u128(self.sh_key(who))
+        if sh > 0 {
+            // mul_div 走 256 位中间量再除，防 sh × (cur − ck) 溢出 u128。
+            // 向下取整：零头留在合约（对剩余股东有利），绝不超发。
+            var earn = mul_div(sh, cur - ck, RPU_SCALE)
+            if earn > 0 {
+                var dk = self.due_key(who)
+                self.wr_u128(dk, self.ld_u128(dk) + earn)
+            }
+        }
+
+        // (2) 无论 sh 是否为 0，都推进检查点。
+        self.wr_u128(self.chk_key(who), cur + 1)
+        return 0
+    }
+
+    // ========================================================================
+    // 八个钩子 —— 缺一不可（缺任何一个 = CallNotExist(51)，转账直接失败）
+    // 返回 0 放行；返回非 0 整笔回滚，发送方状态完全回滚。
+    // ========================================================================
+
+    // ---------------- PayableHAC：外部把 HAC 打进来 = 分红入库 ----------------
+    //
+    // ⚠ 全函数**不读 tx_main_addr()**，见文件头第三节。
+    //   分红按 rpu:share 全局分摊，入账结果与"谁触发"完全无关，
+    //   所以任何人都可以无许可地把钱推进来 —— 这是设计意图，不是漏洞。
+    //
+    // ---------------------------------------------------------------------
+    // ⚠⚠ 分母必须是 **tot:staked（当前已质押份额）**，不能是 SHARE_TOTAL ⚠⚠
+    // ---------------------------------------------------------------------
+    // 这是一个必须偏离"任务书字面公式"的地方，理由是资金效率与死锁：
+    //
+    //   若 rpu += div × SCALE / SHARE_TOTAL（固定总量 10000）：
+    //     rpu 的增量只按"理论上限"分摊，而实际能结算的只有 sh>0 的地址。
+    //     质押率 25% 时，100 HAC 分红只发出 20 HAC，**80 HAC 永久滞留**
+    //     （没有 sh>0 的地址能对它提出索取权，因为 rpu 增量已被 SHARE_TOTAL
+    //      稀释掉了）。质押率 1% 时滞留 99%。
+    //     后果：合约 HAC 余额会无限膨胀成一堆谁都取不走的死钱，
+    //           且真实收益率被稀释 4~100 倍，与"分红池"的定位直接矛盾。
+    //
+    //   改用 tot:staked 作分母后：
+    //     每一笔 div_part 都恰好被"当时在册的份额"完全吸收，滞留为 0（只剩
+    //     整数除法的尘埃，且方向对合约有利）。质押率高低只影响"谁分到"，
+    //     不影响"有没有钱被浪费"。
+    //
+    //   与"总量 10,000"的关系：SHARE_TOTAL 仍是**发行上限**与元数据，
+    //   但**不是**分红分母。分母是动态的已质押量 —— 这与"只有质押份额
+    //   才参与分红"的既定语义（见文件头第二节）完全自洽。
+    //
+    //   ⚠ 边界：tot:staked == 0（无人质押）时不能除零，也不能把 div
+    //     记进 rpu（那样分母语义就错了，且谁也取不走）。做法是把这笔钱
+    //     留在合约余额里不动 —— 它没有对应的索取权，但也不会被错误分配；
+    //     下一笔有人质押后才开始按 tot:staked 分摊。
+    //     这部分滞留是**可解释且有界**的（只在"零质押"这个退化态出现），
+    //     与上面那个"每次分红都漏 80%"的结构性泄漏有本质区别。
+    abstract PayableHAC(cp: address, amount: bytes) -> u32 {
+        // hac_to_zhu 把 Amount 的 wire 编码解成 zhu（1 HAC = 1e8 zhu）。
+        // 不自己解析 amount 字节：那是带单位/尾数的复合编码，手写必错。
+        var zhu = hac_to_zhu(amount)
+        if zhu == 0 { return 0 }
+
+        // 20/80 拆分。用 mul_div 而非 zhu * 2000 / 10000，
+        // 避免极端大额下 zhu * 2000 溢出 u128。
+        var rent_part = mul_div(zhu, RENT_RATIO_BPS, 10000)
+        var div_part = zhu - rent_part
+
+        // 20% 专款专用：只用于给续租的人报销（见文件头第五节）。
+        // 这笔钱不参与分红，所以不会和"分给股东"抢同一笔钱。
+        var rk = "reserve:rent"
+        self.wr_u128(rk, self.ld_u128(rk) + rent_part)
+
+        if div_part > 0 {
+            var staked = self.ld_u128("tot:staked")
+            if staked > 0 {
+                // 抬高全局累加器。不遍历地址、不碰任何 per-address 键，
+                // 单次写入，成本与股东人数无关。
+                self.wr_u128(
+                    "rpu:share",
+                    self.rpu_now() + mul_div(div_part, RPU_SCALE, staked)
+                )
+                // 累计分红总额，纯统计，不参与任何账目计算。
+                // 只在真正入池时累加，零质押时的滞留额不计入。
+                self.wr_u128("tot:div", self.ld_u128("tot:div") + div_part)
+            }
+        }
+        return 0
+    }
+
+    // ---------------- PermitHAC：本合约把 HAC 打出去 = 股东提现 ----------------
+    //
+    // 这是**唯一的 HAC 出口**，也是"合约不能主动转账"（TopOnly）的正确用法：
+    // 用户提现必须在同一笔交易里自己附带
+    //     TransferHacFromTo(本合约 → 本人, 金额)
+    // 由本钩子放行并对账。合约永远不会主动转出任何 HAC。
+    //
+    // ⚠ 扣谁的账？扣 **cp（收款方）** 的 due，**不是** tx_main_addr()。
+    //   PermitX 的 cp 是协议记录的 to（apply_transfer_intent 实际入账的地址），
+    //   不可伪造。所以：
+    //     - 攻击者替自己提现 → 扣自己的 due，天经地义；
+    //     - 攻击者想替别人提现 → 扣的是**别人的** due，钱也进别人口袋，
+    //       攻击者一分拿不到（最多算无意义的"帮人领钱"）。
+    //   若按 tx_main_addr() 扣账，则任何人都能顶着别人的余额把自己的钱提走。
+    abstract PermitHAC(cp: address, amount: bytes) -> u32 {
+        var zhu = hac_to_zhu(amount)
+        var dk = self.due_key(cp)
+        var due = self.ld_u128(dk)
+        // 余额不足整笔回滚（11 与 A 的"余额不足"语义码保持一致）
+        if zhu > due { return 11 }
+        self.wr_u128(dk, due - zhu)
+        return 0
+    }
+
+    // ---------------- PayableAsset：股东把份额质押进来 ----------------
+    //
+    // cp = **转出方**（存款人），来自协议实际扣账的地址。
+    // 注意与 PermitAsset 的 cp（= 转入方）语义相反，见文件头第三节。
+    abstract PayableAsset(cp: address, serial: u64, amount: u64) -> u32 {
+        // 只认本合约自己的股权资产。其它 serial 一律拒绝并回滚：
+        // 若放行，任何人都能把无关资产塞进来，而本合约没有对应的出账口径，
+        // 只会变成永久锁死的垃圾，还白白消耗存储租金。
+        if serial != SHARE_SERIAL { return 1 }
+        if amount == 0 { return 2 }
+
+        var who = cp
+
+        // **先结算、后加份额**：把他"按旧份额"应得的历史分红先落袋，
+        // 这样新增份额不会追溯分享他存入之前的分红。
+        // settle 内部会把 chk 推到当前 rpu（无论旧份额是否为 0），
+        // 这是本次结算正确性的关键，详见 settle 注释 (2)。
+        self.settle(who)
+
+        var sk = self.sh_key(who)
+        self.wr_u128(sk, self.ld_u128(sk) + amount)
+
+        // 同步抬高分红分母（tot:staked）。
+        // ⚠ 顺序要求：必须在 settle 之后。若先加 tot:staked 再 settle，
+        //   下一次 PayableHAC 会用"含本次新增"的分母，但那部分份额还没有
+        //   检查点 —— 不会错发，只是语义上分母应先与 settle 对齐。
+        //   这里 settle 在前、加份额其次、加分母最后，最直观。
+        self.wr_u128("tot:staked", self.ld_u128("tot:staked") + amount)
+        return 0
+    }
+
+    // ---------------- PermitAsset：股东把份额赎回去 ----------------
+    //
+    // cp = **转入方**（提款人 / 份额接收地址）。
+    // 合约链上资产减少 amount，内部 sh:<cp> 同步减少 amount，
+    // 维持不变式「合约链上余额 == Σ sh:<addr>」。
+    abstract PermitAsset(cp: address, serial: u64, amount: u64) -> u32 {
+        if serial != SHARE_SERIAL { return 1 }
+        if amount == 0 { return 2 }
+
+        var who = cp
+
+        // **关键顺序：先结算，后减份额**。
+        // 若反过来（先减后结算），settle 用的是已减小的 sh，
+        // 刚被减掉的那部分份额"自上次检查点到现在的分红"就永远拿不到，
+        // 且这部分 HAC 会滞留在合约里谁都取不走。
+        // 先结算则退出份额在退出前的全部分红都被精确计入 due，
+        // 既不会"旧股东漏拿"，也不会"新买家吃掉旧卖家未领分红"。
+        self.settle(who)
+
+        var sk = self.sh_key(who)
+        var cur = self.ld_u128(sk)
+        // 份额不足就不许把资产搬走（否则等于凭空提走合约资产）
+        if cur < amount { return 11 }
+        self.wr_u128(sk, cur - amount)
+
+        // 同步降低分红分母（tot:staked）。
+        // 已在 settle 之后，所以退出份额在自己退出前的分红已全部结算进 due ——
+        // 减少分母不会让他漏拿，也不会让留下的人凭空多拿（rpu 已固化）。
+        var staked = self.ld_u128("tot:staked")
+        if amount >= staked {
+            self.wr_u128("tot:staked", 0)
+        } else {
+            self.wr_u128("tot:staked", staked - amount)
+        }
+        return 0
+    }
+
+    // ---------------- 其余四个钩子：一律拒绝 ----------------
+    //
+    // 为什么"拒绝"比"透传"安全：本合约是纯 HAC 分红池，不处理 SAT / HACD。
+    // 若对这些资产返回 0（透传），误转进来的 SAT/HACD 会永久锁死在合约地址
+    // （合约没有任何把它们转出去的入口），纯属制造损失；
+    // 返回非 0 让整笔交易回滚，用户的钱原样退回，损失为零。
+    abstract PayableSAT(cp: address, count: u64) -> u32 { return 1 }
+    abstract PermitSAT(cp: address, count: u64) -> u32 { return 1 }
+    abstract PayableHACD(cp: address, count: u32, names: bytes) -> u32 { return 1 }
+    abstract PermitHACD(cp: address, count: u32, names: bytes) -> u32 { return 1 }
+
+    // ========================================================================
+    // 续租基础设施
+    // ========================================================================
+
+    // 把单个键补租到 period（仅当剩余块数低于阈值）。
+    // 返回 1 = 真的续了，0 = 没续（键不存在，或租期还够）。
+    //
+    // ⚠ live 的单位是**块**，不是 period。漏乘 BLOCKS_PER_PERIOD 会让阈值
+    //   变成 1/100，等于每次调用都续、每次都领赏 → 可被抽干。
+    function rent_one(key: bytes, period: u128) -> u128 {
+        var st = storage_stat(key)
+        if st is nil { return 0 }
+        var live = item_get(st, 0)
+        var thr = period * BLOCKS_PER_PERIOD / RENT_THR_DIV
+        if thr < 1 { thr = 1 }
+        if live >= thr { return 0 }
+        storage_rent(key, period)
+        return 1
+    }
+
+    // 给调用者本人续租三个 per-address 键（chk/due/sh）。
+    //
+    // 这是"用户键不会静默过期"的自愈机制：只要股东还来 claim，
+    // 他自己的键就一直被续上，不需要第三方 keeper 认识他。
+    // 这也是 claim() 顺带做续租的核心价值 —— 活跃用户自我维护。
+    function rent_self(who: address, period: u128) -> u128 {
+        var n = 0u128
+        n = n + self.rent_one(self.chk_key(who), period)
+        n = n + self.rent_one(self.due_key(who), period)
+        n = n + self.rent_one(self.sh_key(who), period)
+        return n
+    }
+
+    // 给 keeper 记账（报销）。reward 从 reserve:rent 出，饱和不减到负数。
+    // 返回实际付出的金额（0 表示储备已空）。
+    function pay_keeper(nkeys: u128) -> u128 {
+        if nkeys == 0 { return 0 }
+        var rk = "reserve:rent"
+        var res = self.ld_u128(rk)
+        var reward = nkeys * RENT_REWARD_ZHU
+        // 储备不足则付到 0 为止，绝不让 reserve:rent 下溢成天文数字
+        if reward > res { reward = res }
+        if reward == 0 { return 0 }
+        self.wr_u128(rk, res - reward)
+
+        // keeper = 本次交易的发起人。
+        // 这是 tx_main_addr 的合法用法之一：它是**入账**（凭空付酬），
+        // 不是扣账。最坏的滥用是"有人滥调把自己该拿的报销提前领走"，
+        // 而这必须先真实付出续租 gas 且键确实到期 —— 无利可图。
+        var keeper = tx_main_addr()
+        var dk = self.due_key(keeper)
+        self.wr_u128(dk, self.ld_u128(dk) + reward)
+        return reward
+    }
+
+    // ========================================================================
+    // 无许可入口
+    // ========================================================================
+
+    // ---------------- claim：结算自己的分红 + 顺带自我续租 ----------------
+    //
+    // 交易布局（顺序很重要）：
+    //   action1: TransferHacFromTo(合约A → 本合约, 金额)   // 推进 rpu（可选）
+    //   action2: ContractMainCall(本合约, claim)           // 结算
+    //   action3: TransferHacFromTo(本合约 → 本人, 金额)     // 提现（可选）
+    //
+    // ⚠ 为什么搬运动作必须在前：tx 内 action 按列表顺序串行执行
+    //   （protocol/src/exec/tx.rs:149-158），且每个 ACTION 的转账与其
+    //   Permit/Payable 钩子同步完成（interpreter/execute.rs:335-355）。
+    //   把搬运放在 claim 之前，claim 才能看到本笔刚抬高的 rpu，
+    //   一笔交易完成"搬运 + 结算 + 提现"。
+    //   顺序写反**不会多领或丢失**（本次分红留在 rpu 里下次再领），
+    //   只是少领一次 —— 但体验不对，所以明确要求搬运在前。
+    //
+    // 谁调用就结算谁（tx_main_addr）：这是合法用法 —— 它只能把分红结算进
+    // **调用者自己**的 due，无法替别人、也无法从别人那里拿。
+    function external claim() -> u32 {
+        var who = tx_main_addr()
+        // settle 幂等：连调多次只有第一次有增量，不会重复发放。
+        self.settle(who)
+        // 顺带续租自己的键：只要股东还来领，他自己的账本就不会静默过期。
+        // 这里**不付**续租报酬 —— 他是为自己付 gas，不是替合约干活，
+        // 不该从 reserve:rent 领钱（否则每个股东都能靠 claim 白拿奖励）。
+        //
+        // ⚠ 用 SELF_RENT_PERIOD(100) 而非 RENT_PERIOD(300)：claim 是热路径，
+        //   gas 必须留足余量，理由见 SELF_RENT_PERIOD 注释。
+        //   即使这次续租失败（gas 不够），也只是键租期不变，
+        //   不会影响 settle 已经完成的账目（整笔回滚的话则分红也没动，
+        //   下次再 claim 即可，不会丢钱）。
+        var _n = self.rent_self(who, SELF_RENT_PERIOD)
+        return 0
+    }
+
+    // ---------------- pay_rent：无许可续租 B 自己的全局键 ----------------
+    //
+    // 任何人都可调（不限角色、无需白名单）。经济模型：
+    //   * 调用者自己付这笔交易的 gas（storage_rent 扣 gas，不扣合约余额）；
+    //   * 本合约按**真正续租成功的键数**从 reserve:rent 付固定报销，
+    //     记进 due:<调用者>（可再经 TransferHacFromTo + PermitHAC 提现）。
+    // 于是"维护合约不被租金打死"对任何第三方都有利可图，
+    // 不需要存在一个特定的 keeper 账户 —— 这是"部署方失联也能继续"的关键。
+    //
+    // 只续 B 自己的 3 个全局键（rpu:share / reserve:rent / tot:div）。
+    // 续 A 的键走 pay_rent_ahac（分开是为了不撞 storage 桶上限）。
+    function external pay_rent(period: u128) -> u32 {
+        if period < RENT_MIN_PERIOD { return 62 }
+        if period > RENT_MAX_PERIOD { return 63 }
+
+        var n = 0u128
+        n = n + self.rent_one("rpu:share", period)
+        n = n + self.rent_one("reserve:rent", period)
+        n = n + self.rent_one("tot:div", period)
+
+        var _r = self.pay_keeper(n)
+        return 0
+    }
+
+    // ---------------- pay_rent_ahac：无许可续租合约 A 的账本键 ----------------
+    //
+    // ⚠ 为什么需要它：A 自己的 rent_keys / topup_keys 虽然无许可，
+    //   但**没有任何激励** —— 全凭好心的人付 gas。若没人管，A 的账本键
+    //   在租期耗尽后会被删除，A 的全部余额/池子归零。
+    //   本函数用 B 的 reserve:rent（= A 分给 B 的钱里预留的 20%）
+    //   给续租者报销，把"维护 A"变成一件有利可图的事。
+    //   这正是"20% 专款专用"的落地方式。
+    //
+    // group: A 的键组下标（0..6，见 A 的 rent_key_len_at）。
+    // 一次只续**一组**，因为最大的一组有 9 个键，
+    // 两组叠加必然撞 storage 桶上限（约 111,911）。
+    //
+    // 键清单不硬编码在 B 里，而是每次向 A 现查：
+    //   ahac:rent_key_len_at(group)  → klen
+    //   ahac:rent_keys_group(klen)   → 该组全部键连排
+    // 这样 A 将来若增删键，B 无需升级也能跟上。
+    function external pay_rent_ahac(group: u128, period: u128) -> u32 {
+        // ⚠ 用 A 的区间，不是 B 自己的。传 30..299 会被 A 直接拒（return 62）。
+        //   本金库调用 A 之后，A 的非零返回会让整笔交易回滚，
+        //   所以这里必须先在本地拦住，给调用者一个明确的错误码。
+        if period < AHAC_MIN_PERIOD { return 62 }
+        if period > AHAC_MAX_PERIOD { return 63 }
+
+        // View 调用：取该组的键长；0 表示 group 越界
+        var klen = ahac:rent_key_len_at(group)
+        if klen == 0 { return 64 }
+
+        // View 调用：取该组全部键（定长连排）
+        var grp = ahac:rent_keys_group(klen)
+        if size(grp) == 0 { return 64 }
+        if size(grp) % klen != 0 { return 3 }
+
+        // Edit 调用：让 A 自己执行续租。
+        //
+        // ⚠ 必须是 A 来执行，不能由 B 直接 storage_rent：
+        //   storage_rent 作用在**当前帧的 context_addr** 上
+        //   （interpreter/execute.rs:967 传的是 context_addr），
+        //   跨合约调用会切换 context（rt/call_site.rs:189 switches_context），
+        //   所以只有 A 帧内的 storage_rent 才会碰到 A 的存储。
+        //   顺带一提：A 的 topup_keys 是"只续已存在的键、不付报酬"的版本，
+        //   正好符合这里的需求（B 自己负责付报酬，避免双重计酬）。
+        var r = ahac.topup_keys(grp, klen, period)
+        if r != 0 { return 65 }
+
+        // 报酬按 A 侧实际键数计。topup_keys 不返回"实际续了几个"，
+        // 所以这里按该组键数上限支付 —— 代价是可能略微多付，
+        // 但每键 0.05 HAC、每组 ≤ 9 键，单次最多 0.45 HAC，可接受。
+        // 换来的是无需信任 A 的返回值语义。
+        var nkeys = size(grp) / klen
+        if nkeys > RENT_MAX_KEYS { nkeys = RENT_MAX_KEYS }
+        var _r = self.pay_keeper(nkeys)
+        return 0
+    }
+
+    // ---------------- pay_rent_shares：无许可批量续租**股东**地址键 ----------------
+    //
+    // ⚠ 为什么必须有它（2026-11-18 新增，部署前补的缺口）：
+    //
+    //   在此之前，B 只有三个续租入口，**没有一个能续别人的地址键**：
+    //     claim()          → 只续 tx_main_addr() 自己的 3 个键
+    //     pay_rent()       → 只续 B 自己的 3 个全局键
+    //     pay_rent_ahac()  → 续的是 A 的键，不是 B 股东的
+    //
+    //   而 claim() 的 `var who = tx_main_addr()` 决定了**keeper 代签无效**：
+    //   发起人是 keeper 自己，续到的只会是 keeper 的键。
+    //   storage_rent 又只作用在当前 frame 的 context_addr 上
+    //   （interpreter/execute.rs:967），跨不了地址。
+    //
+    //   所以 PERIOD_NEW=100 期（主网 34.7 天）到期的股东键
+    //   （chk:/due:/sh:<addr>）在旧设计下**只能靠本人来 claim**。
+    //   股东一旦 34.7 天没来，三个键被物理删除
+    //   （storage_new 传 recover_credit=0，无恢复窗口）：
+    //     sh:  丢失 → 质押份额归零 → PermitAsset return 11
+    //                → 链上的 3001 **永远转不出来**
+    //     due: 丢失 → 已结算待提现的 HAC 无法证明归属
+    //     chk: 丢失 → 下次 claim 重新打点，历史增量作废
+    //   测试链上 9,690 份 3001 正是这样锁死的。
+    //
+    // 参数：
+    //   addrs  —— 连排的 21 字节地址（不是可读字符串）。
+    //             size(addrs) % 21 == 0，单笔最多 10 个地址。
+    //   period —— 目标租期，与 pay_rent 同一区间。
+    //
+    // 经济模型与 pay_rent 完全一致：
+    //   * 调用者自己付 gas（storage_rent 扣 gas，不扣合约余额）
+    //   * 按**实际续租成功的键数**从 reserve:rent 报销进调用者的 due
+    //   于是「维护 B 的股东账本」对任何第三方有利可图，
+    //   不需要认识具体的股东 —— 与 claim() 的自愈形成双保险。
+    //
+    // ⚠ 单笔能处理几个地址随 period 变化，由 STORAGE_BUDGET 现算：
+    //   period= 30 → 最多 34 个地址
+    //   period=100 → 最多 10 个地址（keeper 默认用这个）
+    //   period=300 → 最多  3 个地址
+    //   超过就 return 60，让调用方分批 —— 绝不硬扛到 OutOfGas 整笔回滚。
+    //   返回值语义：0 成功 / 2 空参数 / 3 长度不整除 21 /
+    //              60 地址过多 / 62 period 过小 / 63 period 过大
+    function external pay_rent_shares(addrs: bytes, period: u128) -> u32 {
+        if period < RENT_MIN_PERIOD { return 62 }
+        if period > RENT_MAX_PERIOD { return 63 }
+
+        var total = size(addrs)
+        if total == 0 { return 2 }
+        // 地址是 21 字节定长连排；长度不整除说明调用方拼错了
+        if total % 21 != 0 { return 3 }
+        var naddr = total / 21
+        // 按 period 现算单笔能处理几个地址：每地址 3 键 × unit × period。
+        // 超了就 return 60 让调用方分批，而不是硬扛到 OutOfGas 整笔回滚。
+        var per_addr = RENT_KEY_UNIT * period * 3
+        if per_addr == 0 { return 62 }
+        var max_addr = STORAGE_BUDGET / per_addr
+        if max_addr < 1 { return 63 }        // period 大到单个地址都放不下
+        if naddr > max_addr { return 60 }
+
+        var i = 0u128
+        var renewed = 0u128
+        while i < naddr {
+            // 切出第 i 个 21 字节地址。as address 会走 cast_addr
+            // （value/cast.rs:226），校验长度与版本字节，
+            // 非法地址直接 CastFail 回滚 —— 不会写进垃圾键。
+            var who = buf_cut(addrs, i * 21, 21) as address
+            // 三个键逐个处理。rent_one 内部会先 storage_stat：
+            // 已存在的键按阈值判断，不存在的返回 0 跳过。
+            renewed = renewed + self.rent_one(self.chk_key(who), period)
+            renewed = renewed + self.rent_one(self.due_key(who), period)
+            renewed = renewed + self.rent_one(self.sh_key(who), period)
+            i = i + 1
+        }
+
+        var _r = self.pay_keeper(renewed)
+        return 0
+    }
+
+    // ========================================================================
+    // 视图（**全部无副作用**）
+    // ========================================================================
+
+    // 可领取总额 = 已结算的 due + 尚未结算的增量。
+    //
+    // ⚠ 只读函数不能真的写 chk。但 claim() 的第一步是"首次把 chk 置为当前
+    //   rpu（不发放）"，若这里不模拟这个行为，一个从未 claim 过的新地址会看到
+    //   "全部历史分红"的虚假余额，用户会以为合约超发或据此做错误决策。
+    //   所以未初始化时必须**模拟**初始化：增量按 0 计，只返回已有 due。
+    //   这与 claim() 的实际结果完全一致（首次 claim 不发增量）。
+    //
+    // ⚠ 编码对齐：chk 键存的是 (chk + 1)，见 settle 的注释。
+    //   v == 0 → 未初始化；否则真实 chk = v − 1。
+    //   漏掉这个 −1 会让视图与 claim 的实际结果差整整一个 rpu。
+    function external get_claimable(who: address) -> u128 {
+        var due = self.ld_u128(self.due_key(who))
+        var v = self.ld_u128(self.chk_key(who))
+        // 模拟首次初始化：尚未打点 → 没有可结算增量
+        if v == 0 { return due }
+        var ck = v - 1
+        var cur = self.rpu_now()
+        if cur <= ck { return due }
+        return due + mul_div(self.ld_u128(self.sh_key(who)), cur - ck, RPU_SCALE)
+    }
+
+    function external get_reserve() -> u128 { return self.ld_u128("reserve:rent") }
+
+    function external get_current_rpu() -> u128 { return self.rpu_now() }
+
+    // ---------------- 辅助视图（运维 / 索引器用，同样无副作用） ----------------
+
+    // 某地址质押在合约里的份额。分红只认这个值，不认钱包里的 3001 余额。
+    function external get_shares(who: address) -> u128 { return self.ld_u128(self.sh_key(who)) }
+
+    // 已结算、可直接提现的 HAC（不含未结算增量）。
+    function external get_due(who: address) -> u128 { return self.ld_u128(self.due_key(who)) }
+
+    // 某地址的分红检查点（对外暴露**逻辑值**，即去掉 +1 偏移后的真实 chk）。
+    // 未初始化时返回 0，与 rpu 初值一致，前端按"从未结算"处理。
+    function external get_checkpoint(who: address) -> u128 {
+        var v = self.ld_u128(self.chk_key(who))
+        if v == 0 { return 0 }
+        return v - 1
+    }
+
+    // 累计分红总额（仅统计）。
+    function external get_total_dividend() -> u128 { return self.ld_u128("tot:div") }
+
+    // 常量对外暴露，便于前端/索引器自校验，不需要硬编码。
+    function external share_serial() -> u128 { return SHARE_SERIAL }
+    function external share_total() -> u128 { return SHARE_TOTAL }
+    function external rent_ratio_bps() -> u128 { return RENT_RATIO_BPS }
+    function external rpu_scale() -> u128 { return RPU_SCALE }
+
+    // A 的键组个数，透传给前端，方便它遍历 pay_rent_ahac(group)。
+    // 注意：这是把 A 的视图包一层，A 若变更组数，这里自动跟随。
+    function external ahac_group_count() -> u128 { return ahac:rent_key_group_count() }
+}

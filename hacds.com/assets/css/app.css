@@ -249,49 +249,49 @@
    PC 钱包 renderer/style.css 里有完全相同的定义，改这里记得两边同步。
    ========================================================================== */
 
-.hacd-panel {
-  display: flex; gap: var(--sp-3); align-items: flex-start;
-  min-height: 520px;
-}
-.hacd-left {
-  flex: 1 1 auto; min-width: 0;
-  display: flex; flex-direction: column;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: var(--sp-3);
-  max-height: 640px;
-}
+/* ⚠ 2026-11-19：删除了 .hacd-panel / .hacd-left / .hacd-right / .hacd-ops
+ *   这四组样式 —— HTML 里**一个都没有使用**（app/index.html 的 HACD 页
+ *   用的是 `.grid-2 > .card > .hacd-grid`，和 PC 钱包同一套结构）。
+ *
+ *   留着它们只会误导：`.hacd-left{max-height:640px}` 和
+ *   `.hacd-panel{min-height:520px}` 看起来像是布局的一部分，
+ *   实际完全没生效。排查"为什么列表滚不动"时容易被带偏。
+ *
+ *   真正生效的只有下面两个：.hacd-filter-wrap 和 .hacd-grid。 */
 .hacd-filter-wrap { margin-bottom: var(--sp-2); }
+/* ⚠ 2026-11-19：原样式 `flex:1; overflow:auto` **完全无效**。
+ *
+ *   实测（Electron 加载真实页面，塞 30 张卡片）：
+ *     网格高度 47,310 px   ← 全部铺开
+ *     overflowY: visible   ← 没有滚动容器
+ *     flex: 0 1 auto       ← flex:1 被忽略
+ *
+ *   原因：父级 `.card` 是 `display:block`（见 main.css:166），
+ *   不是 flex 容器，所以子项的 `flex:1` 没有任何意义；
+ *   而 `overflow:auto` 又必须有确定高度才会出滚动条。
+ *   结果 103 颗钻石把页面撑到 4.8 万像素，用户要滚几十屏。
+ *
+ *   修法：网页端是"整页滚动"布局（不像 PC 端是固定视口），
+ *   所以给网格一个**最大高度**，超出即内部滚动。
+ *   卡片本身不需要变成 flex 容器——那是 PC 端的做法。
+ */
 .hacd-grid {
-  flex: 1; overflow: auto; display: grid;
+  overflow-y: auto; display: grid;
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: var(--sp-2); align-content: start;
   padding-top: var(--sp-2);
+  /* 最大高度：约 4 排卡片。再高就要滚动。
+   * 用 max-height 而不是 height，是因为钻石少时不该留一大块空白。 */
+  max-height: min(520px, 62vh);
+  scrollbar-gutter: stable;
+  padding-right: 4px;
 }
-.hacd-right {
-  width: 320px; flex: none;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: var(--sp-3);
-  max-height: 640px; overflow: auto;
-}
-.hacd-right svg { width: 100%; height: auto; border-radius: var(--radius); }
-.hacd-right .det { margin-top: var(--sp-2); font-size: 12px; }
-.hacd-right .det div {
-  display: flex; justify-content: space-between; gap: 8px;
-  padding: 3px 0; border-bottom: 1px solid var(--border);
-}
-.hacd-right .det .k { color: var(--text-dim); }
-.hacd-right .det .v { font-family: var(--mono); }
-.hacd-ops { width: 320px; flex: none; }
+/* 2026-11-19：.hacd-right / .hacd-ops 同样未被使用，已删除。
+ * （详情改用弹窗 .modal，不再有常驻右栏） */
 
-@media (max-width: 1180px) {
-  /* 窄屏：详情与操作区折到下方，避免挤压网格 */
-  .hacd-panel { flex-wrap: wrap; }
-  .hacd-left { flex-basis: 100%; max-height: 420px; }
-  .hacd-right, .hacd-ops { width: calc(50% - var(--sp-2)); }
-}
-@media (max-width: 760px) {
-  .hacd-right, .hacd-ops { width: 100%; }
-}
+/* 窄屏：HACD 页的两栏折成单栏（.grid-2 的响应式规则在 main.css:337 已处理）。
+ * 2026-11-19：原来这里写的是 .hacd-left/.hacd-right/.hacd-ops，
+ * 那些 class 在 HTML 里不存在，整段是死规则，一并删除。 */
 
 /* ==========================================================================
    弹窗（2026-11-11，与 PC 钱包一致）
@@ -347,4 +347,92 @@ html[lang="zh-CN"] .modal-box .det-row .k::after { content: '：'; }
 .hacd-card .hc-check.on { background: var(--green); border-color: var(--green); }
 .hacd-card .hc-check.on::after {
   content: '✓'; color: #04281a; font-size: 12px; font-weight: 700; line-height: 1;
+}
+
+/* ============================================================================
+   金库分红页签（2026-11-18）
+   金色高亮，与其它页签区分。色值集中在下面，暗色模式覆盖同名变量。
+   ============================================================================ */
+:root{
+  --vault-gold:#c9982a;
+  --vault-gold-soft:#e8c76a;
+  --vault-gold-bg:rgba(201,152,42,.08);
+  --vault-gold-border:rgba(201,152,42,.35);
+  --vault-gold-text:#8a6512;
+}
+[data-theme="dark"]{
+  --vault-gold:#e8c76a;
+  --vault-gold-soft:#f5e0a0;
+  --vault-gold-bg:rgba(232,199,106,.10);
+  --vault-gold-border:rgba(232,199,106,.30);
+  --vault-gold-text:#f0d78a;
+}
+
+/* ---- 页签按钮 ---- */
+.tab.vault{ color:var(--vault-gold-text); position:relative; }
+.tab.vault.on{
+  color:var(--vault-gold-text);
+  background:linear-gradient(180deg,var(--vault-gold-bg) 0%,transparent 100%);
+  box-shadow:inset 0 -2px 0 var(--vault-gold);
+}
+.tab.vault.has-reward::after{
+  content:''; position:absolute; top:6px; right:6px;
+  width:6px; height:6px; border-radius:50%;
+  background:var(--vault-gold);
+}
+
+/* ---- 页面 ---- */
+.vault-wrap{ display:flex; flex-direction:column; gap:16px; }
+.vault-card{
+  border:1px solid var(--vault-gold-border);
+  background:var(--vault-gold-bg);
+  border-radius:12px;
+}
+.vault-card.dividend{ border-left:3px solid var(--vault-gold); }
+.vault-card.dim{ opacity:.55; }
+
+/* ---- 数字 ---- */
+.vault-wrap b.gold{ color:var(--vault-gold-text); }
+.vault-wrap b.warn{ color:var(--warn,#d08770); }
+.vault-wrap .amount{
+  font-variant-numeric:tabular-nums; letter-spacing:.02em;
+}
+.vault-wrap .amount.primary{
+  font-size:1.5em; font-weight:600; color:var(--vault-gold-text);
+}
+.vault-total{
+  display:flex; align-items:baseline; justify-content:space-between;
+  margin-top:14px; padding-top:14px;
+  border-top:1px dashed var(--vault-gold-border);
+}
+
+/* ---- 未质押警告条 ---- */
+.vault-warn{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:10px 14px; border-radius:10px;
+  background:var(--vault-gold-bg);
+  border:1px solid var(--vault-gold-border);
+  color:var(--vault-gold-text);
+  font-size:.92em;
+}
+
+/* ---- 按钮 ---- */
+.gold-btn{
+  background:var(--vault-gold); color:#1a1a1a;
+  border:none; border-radius:8px; padding:8px 16px;
+  font-weight:600; cursor:pointer;
+}
+.gold-btn:hover{ background:var(--vault-gold-soft); }
+.gold-btn:disabled{ opacity:.4; cursor:not-allowed; }
+.gold-btn.wide{ width:100%; margin-top:14px; }
+
+/* ---- 操作区 ---- */
+.vault-ops{ display:flex; gap:12px; flex-wrap:wrap; }
+
+/* 金库数据过期提示（设计文档 §9：网络失败时保留上次数据 + 标记） */
+.vault-stale{
+  padding:8px 14px; border-radius:8px; font-size:13px;
+  background:rgba(208,135,112,.12);
+  border:1px solid rgba(208,135,112,.35);
+  color:var(--warn,#d08770);
 }

@@ -31,7 +31,7 @@ Android 共用同一份 Rust 引擎）。这样编码正确性由同一份代码
     # 2) 启动本服务
     python3 hacds_build_server.py --port 8125 \
         --node http://127.0.0.1:8082 \
-        --contract T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH \
+        --contract bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h \
         --txbuild /opt/hacash_fullnode/target/release/hacds_txbuild
 
     # 3) 在 Cloudflare Worker 里把 /api/build 转发到这里
@@ -98,7 +98,9 @@ TRANSFER_FORMS = {
 #
 # 注意：用户「我 → 他人」的资产转账走 **asset-to**（发送方隐含为交易主地址），
 # 不依赖 from 参数，所以上述 from 限制不影响任何转账功能。
-ALLOWED_SERIALS = {"hacds", "3000"}   # 保留这两个别名，另允许任意数字 serial
+# 2026-11-18：加入 "4000"/"4001"（第二轮资产号）。保留 3000/3001 只是为了
+# 让旧调用方拿到明确的拒绝原因（合约侧会 return 1），而不是被这里直接挡掉。
+ALLOWED_SERIALS = {"hacds", "4000", "4001", "3000", "3001"}
 
 # ⚠ `hacds` 别名必须由**本服务**翻成数字 serial 再交给 txbuild。
 #   `testkit` 的 `hacds_txbuild` 内部常量 `HACDS_SERIAL` 是 2000（旧版值），
@@ -108,7 +110,11 @@ ALLOWED_SERIALS = {"hacds", "3000"}   # 保留这两个别名，另允许任意�
 #   表现为「转账失败但不知道原因」。
 #   2026-11-15 测试网实测复现：用 'hacds' 别名报 asset is insufficient，
 #   换成数字 serial 立刻成功。
-HACDS_SERIAL_MAINNET = "3000"
+# ⚠ 2026-11-18：从 "3000" 改为 "4000"。
+#   第一轮部署（serial 3000）已作废，第二轮资产号是 4000。
+#   这个常量必须与合约 A 的 `const HACDS_SERIAL` 完全一致，
+#   否则官网走 `hacds` 别名构建出来的转账会被 PermitAsset 以 return 1 拒绝。
+HACDS_SERIAL_MAINNET = "4000"
 
 
 def normalize_serial(sr: str) -> str:
@@ -238,7 +244,13 @@ ALLOWED_FNS = {
     "loan_add_collateral", "loan_borrow", "loan_repay", "loan_liquidate",
     # 键续租（无许可，任何人可调；官网可不提供，但保留以便运维页使用）
     "rent_keys", "topup_keys",
+    # 金库分红合约 B（2026-11-18）：股东领取分红
+    "claim",
 }
+
+#: 只属于合约 B 的函数。调用它们时必须把 target 指向金库地址，
+#: 且只有这些函数允许 target != 主合约 —— 防止本服务变成任意合约调用代理。
+VAULT_ONLY_FNS = {"claim"}
 
 #: 金库清扫不是独立函数——它由「普通转账到金库地址」触发合约的
 #: PermitHAC / PermitAsset 钩子。官网若要提供清扫，需走 transfer 而非 call，
@@ -251,7 +263,7 @@ MAX_PARAM_ITEMS = 16
 #: 单 IP 每分钟请求上限
 RATE_LIMIT_PER_MIN = 30
 
-DEFAULT_CONTRACT = "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"
+DEFAULT_CONTRACT = "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h"
 DEFAULT_NODE = "http://127.0.0.1:8082"
 
 #: /health 会返回这个值，用于远程确认服务器跑的是哪一版脚本。
@@ -468,8 +480,23 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(fee, str) or not re.match(r"^\d{1,3}:\d{1,3}$", fee):
                 return self._send({"error": "bad_fee", "detail": "fee 形如 0:248"}, 400)
 
+        # 2026-11-18：支持金库合约 B。规则：
+        #   · 默认 target = 主合约 A
+        #   · 只有 VAULT_ONLY_FNS 里的函数才允许显式指定 target，且 target
+        #     必须等于 --vault 配置的地址（白名单，不是任意地址）
+        #   · 其它函数若传了 target 且 != A → 拒绝
+        target = req.get("target") or self.server.contract
+        if target != self.server.contract:
+            vault = getattr(self.server, "vault", None)
+            if fn not in VAULT_ONLY_FNS:
+                return self._send({"error": "target_not_allowed",
+                                   "detail": "该函数只能调用主合约"}, 403)
+            if not vault or target != vault:
+                return self._send({"error": "bad_target",
+                                   "detail": "target 必须是已配置的金库合约地址"}, 400)
+
         ts = str(int(time.time()))
-        argv = [self.server.txbuild, "call", main, ts, self.server.contract, fn, params]
+        argv = [self.server.txbuild, "call", main, ts, target, fn, params]
 
         env = os.environ.copy()
         if fee:
@@ -569,10 +596,23 @@ class Handler(BaseHTTPRequestHandler):
             frm = req.get("from")
             if not isinstance(frm, str) or not ADDR_RE.match(frm):
                 return "bad_from", None
-            # ⚠ 关键安全约束：from 必须是本合约地址。
-            #   否则任何人都能拿到「把任意地址资产转走」的交易体。
-            if frm != self.server.contract:
-                return "from_must_be_contract", None
+            # ⚠ 关键安全约束（2026-11-18 修订）：
+            #
+            #   原实现要求 `from == 合约地址`，防止别人拿到「把任意地址资产转走」
+            #   的交易体。但这挡住了合法场景：用户**质押股权进合约 B**时，
+            #   from 是用户自己、to 是 B。
+            #
+            #   新规则：`from` 必须是以下两者之一 ——
+            #     ① 本合约地址（金库清扫等既有场景）
+            #     ② **交易主地址 main**（用户转自己的资产）
+            #
+            #   安全性不变：攻击者即使拿到交易体，也只能转 *他自己* 的资产
+            #   或合约的资产（后者本来就有 Permit 钩子把关），转不了第三方的。
+            main = req.get("main")
+            if not isinstance(main, str) or not ADDR_RE.match(main):
+                return "bad_main", None
+            if frm != self.server.contract and frm != main:
+                return "from_must_be_contract_or_main", None
             argv.append(frm)
 
         to = req.get("to")
@@ -642,6 +682,10 @@ def main():
     ap.add_argument("--port", type=int, default=8125)
     ap.add_argument("--node", default=DEFAULT_NODE, help="Hacash 节点（当前未使用，保留）")
     ap.add_argument("--contract", default=DEFAULT_CONTRACT)
+    # 金库分红合约 B（2026-11-18）。配置后，VAULT_ONLY_FNS 里的函数
+    # （如 claim）可以显式把 target 指向它；其它函数仍只能调 --contract。
+    ap.add_argument("--vault", default="",
+                    help="金库分红合约地址（可选）。配置后官网可发起 claim")
     ap.add_argument("--txbuild", default=DEFAULT_TXBUILD)
     ap.add_argument("--cors-origin", action="append", default=None,
                     help="允许的 Origin（可多次传）。默认 https://hacds.com 与 http://localhost")
@@ -665,7 +709,7 @@ def main():
     # 只有 HACD 存入/赎回静默失败，而错误又被错误处理吃掉，只剩「构建失败」。
     # 在这里一次性查出来，比等用户点按钮踩坑强。
     probe = [args.txbuild, "transfer", "15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q",
-             "1", "hacd-to", "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH", "UWVXXI"]
+             "1", "hacd-to", "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h", "UWVXXI"]
     try:
         r = subprocess.run(probe, capture_output=True, text=True, timeout=20)
         probe_text = (r.stdout or "") + (r.stderr or "")
@@ -685,6 +729,7 @@ def main():
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.txbuild = args.txbuild
     srv.contract = args.contract
+    srv.vault = (args.vault or "").strip() or None
     srv.cors_origins = set(origins)
     srv.txbuild_ok = True     # 上面自检没退出，就说明支持 hacd-to
     # 生产环境前面是 Cloudflare Worker 反代，必须开这个，

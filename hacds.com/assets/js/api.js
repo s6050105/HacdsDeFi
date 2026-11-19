@@ -24,8 +24,20 @@
 
   /** 调合约视图（sandboxcall，只读、不耗 gas、不上链） */
   async function callView(fn, params, caller) {
+    return callViewAt(CFG.contract, fn, params, caller);
+  }
+
+  /**
+   * 指定合约地址的只读调用（2026-11-18：用于金库分红合约 B）。
+   *
+   * @param {string} contract 目标合约地址
+   * @param {string} fn       函数名
+   * @param {string} [params] "值:类型,..." 形式
+   * @param {string} [caller] 调用者（默认用部署者地址，保证 gas 预扣不会失败）
+   */
+  async function callViewAt(contract, fn, params, caller) {
     const me = caller || '15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q';
-    let q = '/query/contract/sandboxcall?contract=' + encodeURIComponent(CFG.contract) +
+    let q = '/query/contract/sandboxcall?contract=' + encodeURIComponent(contract) +
             '&function=' + encodeURIComponent(fn) + '&caller=' + encodeURIComponent(me);
     if (params) q += '&params=' + encodeURIComponent(params);
     const r = await get(q);
@@ -71,7 +83,7 @@
     return r.list || [];
   }
 
-  /* ---------- 协议状态（#3000） ---------- */
+  /* ---------- 协议状态（#4000） ---------- */
 
   const PROTO_VIEWS = [
     ['ammHac',        'amm_reserves'],
@@ -137,14 +149,14 @@
   let _version = null;
 
   /**
-   * 探测合约版本：#3000 有 hcut() 视图，#2000 没有。
+   * 探测合约版本：#4000 有 hcut() 视图，#2000 没有。
    * 结果缓存，避免每次调用都探一次。
    */
   async function detectVersion() {
     if (_version) return _version;
     try {
       await callView('hcut');
-      _version = 'v3000';
+      _version = 'v4000';
     } catch (e) {
       _version = 'v2000';
     }
@@ -209,7 +221,7 @@
   }
 
   window.HacdsAPI = {
-    get, callView, blockHeight, balance, poolHacd, diamondDetails,
+    get, callView, callViewAt, blockHeight, balance, poolHacd, diamondDetails,
     protocolState, userState, detectVersion, backing,
     parseHac, fmt, fmtBig, fmtBps, shortAddr,
     CFG,

@@ -72,16 +72,28 @@ fun DiamondImage(
         modifier = modifier.fillMaxWidth().height(height),
         factory = { ctx ->
             WebView(ctx).apply {
-                settings.javaScriptEnabled = true
-                settings.allowFileAccess = true
+                // ⚠ 2026-11-15 审计 M-8 / A-54：
+                //   原实现 allowFileAccess=true + file:// 基址 —— 一旦图样 JS
+                //   被注入（gene 虽有白名单，但不该靠这条单点防线），
+                //   就能读本机任意 file:// 路径。
+                //
+                //   现在：关闭文件访问，基址换成 about:blank。
+                //   SVG 图样是**纯内联**生成的（diamondsvgimg.js 已内联进 html），
+                //   不需要读任何本地文件，所以关掉不影响功能。
+                settings.javaScriptEnabled = true          // 必须开：图样靠 JS 绘制
+                settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.blockNetworkLoads = true          // 禁网（图样是纯本地绘制）
                 settings.domStorageEnabled = false
+                settings.setGeolocationEnabled(false)
                 settings.setSupportZoom(false)
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
+                // 禁止长按下载 / 上下文菜单
+                isLongClickable = false
+                setOnLongClickListener { true }
                 webViewClient = WebViewClient()
-                loadDataWithBaseURL("file:///android_asset/", html, "text/html", "utf-8", null)
+                loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
             }
         },
     )

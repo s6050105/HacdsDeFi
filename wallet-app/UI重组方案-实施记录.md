@@ -109,7 +109,7 @@ diff hacds.com/assets/css/design-tokens.css wallet-app/renderer/design-tokens.cs
 | 规则 | 说明 |
 |---|---|
 | `VKNwXFFM…` → `T1A8kae…` | 只迁移**已知旧值**，不覆盖用户手动填的其它地址 |
-| 删除 `oracle` 字段 | #3000 无预言机 |
+| 删除 `oracle` 字段 | #4000 无预言机 |
 | 补 `node`/`indexer` 默认值 | **只在缺失时补**，不覆盖已有值（否则用户本地测试的 127.0.0.1 会失效） |
 
 ---
@@ -268,7 +268,7 @@ python hacds_build_server.py --port 8125 --host 127.0.0.1 \
 | 工具页签：查询 | 可直接做 |
 | 工具页签：续租 | 待做（需后端） |
 | 工具页签：二维码 | 可直接做 |
-| 白皮书/RPC文档重写 | 见 `白皮书/TODO-v3000-重写清单.md` |
+| 白皮书/RPC文档重写 | 见 `白皮书/TODO-v4000-重写清单.md` |
 
 ### 5.2 PC 钱包
 

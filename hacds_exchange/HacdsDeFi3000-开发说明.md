@@ -14,7 +14,7 @@
 | 项 | 改动 |
 |---|---|
 | **A-1** | **删除**证书/验签/预言机（`cert_message`/`cert_sign`/`verify_cert`/`cfg:oracle`/`set_oracle`/`wr_addr`/`ld_addr`/证书常量）。两个 HACD 钩子改为**链上读基因 + 合约自算分**。 |
-| **HACD 单颗** | HACD 钩子**硬限制 1 颗/笔**（`count != 1` → 48），已删除批量循环。原因：VM resource 单桶 6,100，单颗评分约 3,270 resource（quote_score；#3000 还加基因读取）；2 颗会 OutOfGas(31)。客户端继续逐颗拆笔。 |
+| **HACD 单颗** | HACD 钩子**硬限制 1 颗/笔**（`count != 1` → 48），已删除批量循环。原因：VM resource 单桶 6,100，单颗评分约 3,270 resource（quote_score；#4000 还加基因读取）；2 颗会 OutOfGas(31)。客户端继续逐颗拆笔。 |
 | **A-2** | `coll_to_hac` 改为**慢速参考价** `amm:ref`；新增 `ref_price()` / `ref_refresh()`（窗口 `REF_WINDOW=300` 块、偏离 `REF_DEV_BPS=±20%`）；借贷三入口先调 `ref_refresh`。`pool_price()` 保留但标注"仅 AMM 展示"。 |
 | **A-3** | `loan_liquidate(borrower, repay, min_coll_out)` 改为**清算人出资真 HAC 换抵押品**（市场定价，无 bonus 参数）；**深度水下改为“接管式清算”**：清算人按抵押市值付款、取得全部抵押，债务清零，差额只记一次 `bad:<addr>` 由金库 `tre:hac:` 承担。`amm:ref` 未初始化时拒绝清算（返回 47）。 |
 | **A-4** | 删除 `set_liquidate_bonus`（奖励=市场价差）。 |
@@ -25,13 +25,13 @@
 | 查询视图 | 新增 `ref_price_of` / `ref_height` / `bad_of` / `treasury_ds`。 |
 | **赎回费 0.5%** | `PermitHACD` 现收 `need×(1+REDEEM_FEE_BPS)`；`charge_fee_redeem(fee)`：**LP 80% → `lpu:ds` / 20% → `tre:ds`**。常量 `REDEEM_FEE_BPS=50`、`REDEEM_LP_BPS=8000`。 |
 | **奖励分配修订（鼓励 LP）** | `charge_fee_amm`：**LP 80% / 金库 20%**（`LP_BPS=8000`，删除 `STAKE_BPS`）；`charge_fee_interest` **不变**（HAC 存款人 80% / 金库 20%）；`charge_fee_redeem` → LP 80% / 金库 20%。通道：**`lpu:ds` 承担赎回费、`lpu:hac` 承担 AMM 费、`rpu:hac` 只承担利息、`rpu:ds` 停用**。无 LP/无存款时对应份**并入金库**。详见 `安全审计/整改/合约奖励来源与分配.md`。 |
-| **客户端同步** | PC `renderProtocol` 不再展示 `stakedHac/stakedDs`；`q.stake` 改名"总持仓(含HAC存款)"；i18n 管理员文案标注 `[#2000]`/#3000 已移除；Android `Ops.ADMIN` 的 `rent_batch` → **`rent_keys`**，管理员组标注仅对 #2000 有效。 |
+| **客户端同步** | PC `renderProtocol` 不再展示 `stakedHac/stakedDs`；`q.stake` 改名"总持仓(含HAC存款)"；i18n 管理员文案标注 `[#2000]`/#4000 已移除；Android `Ops.ADMIN` 的 `rent_batch` → **`rent_keys`**，管理员组标注仅对 #2000 有效。 |
 
 ## 2. ⚠ 唯一的待适配点：`hacd_read_gene`（ORACLE-SEAM）
 
 ```fitsh
 function hacd_read_gene(name: bytes) -> (bytes, u128) {
-    // TODO(#3000-SEAM)
+    // TODO(#4000-SEAM)
     var (lg, vg, num) = hacd_info(name)   // ← 我们建议的 ABI；VM 定稿后只改这里
     if size(vg) != 10 { return ("", 0) }
     return (vg, num)

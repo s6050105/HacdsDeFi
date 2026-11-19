@@ -3,6 +3,7 @@ package com.hacds.defi.engine
 import com.hacds.defi.TxEngine
 import com.hacds.defi.core.Fee
 import com.hacds.defi.net.NodeApi
+import org.json.JSONObject
 
 /**
  * 交易构建 / 签名门面。参数与 CLI / PC 版 `main.js` 完全对齐（共用同一份 Rust 引擎）。
@@ -194,6 +195,44 @@ object TxBuilder {
             EngineBridge.clearOverrides()
         }
     }
+
+    /**
+     * 构建**未签名**的 combo 原子交易（OTC 用，2026-11-18）。
+     *
+     * 引擎的 combo 模式要求 spec 走文件路径（`combo <main> <ts> <spec.json>`），
+     * 所以这里落一个临时文件。**用 try/finally 清理** —— spec 里是交易参数明文，
+     * 残留在 cache 目录会泄露（审计 M-8 / A-49）。
+     *
+     * [spec] 形如 `{ "contract": "...", "actions": [ {...}, ... ] }`。
+     */
+    fun buildUnsignedCombo(
+        cacheDir: java.io.File,
+        main: String,
+        spec: JSONObject,
+        fee: String? = null,
+        gasMax: Int = 99,
+    ): Built {
+        val f = java.io.File(cacheDir, "otc_${System.currentTimeMillis()}.json")
+        return try {
+            f.writeText(spec.toString())
+            buildUnsigned("combo", listOf(main, "0", f.absolutePath), fee, gasMax)
+        } catch (e: Exception) {
+            Built(ok = false, error = e.message ?: e.toString())
+        } finally {
+            f.delete()
+        }
+    }
+
+    /**
+     * 这次签名是否「未签齐」。
+     *
+     * 链上要求 Type-3 交易的签名数 == 签名者数（protocol/src/codec/tx.rs:450
+     * `verify_type3_signatures_exact`），**广播时**必须签齐；但 `insert_sign`
+     * 只追加不校验，所以中间产物（A 签完、等 B 签）是合法且必需的。
+     * 引擎在未签齐时输出 `signed_check = PARTIAL`。
+     */
+    fun isPartial(b: Built): Boolean =
+        b.ok && b.result?.rawText?.contains("PARTIAL") == true
 
     /** 对给定的未签名体签名（离线机调用）。 */
     fun signRaw(unsignedHex: String, keyHex: String, label: String = "<wallet>"): Built {

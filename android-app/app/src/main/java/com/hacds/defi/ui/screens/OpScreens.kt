@@ -46,6 +46,8 @@ fun OpTabScreen(vm: AppViewModel, tab: String, ops: List<Op> = Ops.MAIN) {
     val proto by vm.protocol.collectAsState()
     LaunchedEffect(tab) {
         if (tab == "amm" && proto == null) vm.refreshProtocolPublic()
+        // 金库卡片按需探测：进资金页才拉（30 秒缓存，切回来不重复请求）
+        if (tab == "fund") vm.refreshVault()
     }
 
     LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -56,6 +58,8 @@ fun OpTabScreen(vm: AppViewModel, tab: String, ops: List<Op> = Ops.MAIN) {
         // 网页端的资金页直接显示「合约内余额」，这里对应链上 + 合约两侧。
         if (tab == "fund") {
             item { FundOverview(vm) }
+            // 金库分红卡片（合约 B / 股权 3001）：只有持有或已质押时才显示
+            item { com.hacds.defi.ui.components.VaultCard(vm, unlocked = session.unlocked) }
         }
         val group = ops.filter { it.tab == tab }
         if (group.isEmpty()) item { Notice(tr("x_noop")) }

@@ -21,10 +21,63 @@ object TxEngine {
     private var loaded = false
     private var loadError: String? = null
 
+    /**
+     * 已知的 .so 哈希（2026-11-15 审计 M-8 / A-50）。
+     *
+     * 为什么要校验：`.so` 里是**交易构造与签名**的全部逻辑。如果 APK 被二次打包
+     * 换掉引擎，就能在用户不知情下构造出与 UI 显示不符的交易（改收款地址、
+     * 改金额）。签名校验只保护 APK 完整性，root/注入场景下仍需这一层。
+     *
+     * ⚠ 重新编译 JNI 引擎后**必须同步更新**这里，否则应用会拒绝加载。
+     * 校验值来源：`sha256sum app/src/main/jniLibs/<abi>/libhacds_txbuild.so`
+     */
+    private val KNOWN_SO_SHA256 = mapOf(
+        "arm64-v8a" to "5009dc2b8fd1c52e423d983d3ded6dde2ac9a6e4da882e36cb4c906bb9e28593",
+        "x86_64" to "7640b3d629920a6404b0be5c32915cbba15c8151a2f79c3cdff16a54585f2305",
+    )
+
+    /** 校验本机安装的 .so 是否与已知哈希一致。拿不到文件或哈希不符都返回 false。 */
+    private fun verifySoHash(ctx: android.content.Context): Boolean {
+        if (KNOWN_SO_SHA256.isEmpty()) return true          // 未配置则跳过（兼容旧构建）
+        val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: return false
+        val expect = KNOWN_SO_SHA256[abi] ?: return true    // 未登记的 ABI 跳过
+        val dir = ctx.applicationInfo.nativeLibraryDir ?: return false
+        val f = java.io.File(dir, "libhacds_txbuild.so")
+        if (!f.exists()) return false
+        return try {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            f.inputStream().use { ins ->
+                val buf = ByteArray(8192)
+                while (true) {
+                    val n = ins.read(buf)
+                    if (n <= 0) break
+                    md.update(buf, 0, n)
+                }
+            }
+            val got = md.digest().joinToString("") { "%02x".format(it) }
+            got == expect
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    private var appCtx: android.content.Context? = null
+
+    fun attachContext(ctx: android.content.Context) {
+        appCtx = ctx.applicationContext
+    }
+
     @Synchronized
     fun ensureLoaded(): Boolean {
         if (loaded) return true
         if (loadError != null) return false
+        // 哈希校验（A-50）：不通过直接拒绝加载，不降级
+        val ctx = appCtx
+        if (ctx != null && !verifySoHash(ctx)) {
+            loadError = "交易引擎校验失败：libhacds_txbuild.so 与已知版本不符，" +
+                    "请从官方渠道重新安装"
+            return false
+        }
         return try {
             System.loadLibrary("hacds_txbuild")
             loaded = true

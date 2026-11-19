@@ -1,4 +1,4 @@
-# HacdsDeFi #3000 · 经济设计 3-lite（定稿草案）
+# HacdsDeFi #4000 · 经济设计 3-lite（定稿草案）
 
 > 状态：设计定稿草案；合约尚未按本文修改。
 > 最近修订：2026-10-23（mint 改为不打折、lpr 名义口径、深水付款封顶、清算溢价上限提到 30%）。
@@ -451,7 +451,7 @@ hacds 侧（硬）
 
 ## 8A. hcut:hac（v1 定稿：一次性做到社会化）
 
-> 项目决定：#3000 不可升级，v1 就实现 hcut:hac，不留到 Phase 2。
+> 项目决定：#4000 不可升级，v1 就实现 hcut:hac，不留到 Phase 2。
 > 本节是 v1 的规范；§2–§14 中涉及 bal:hac 的 HAC 金额，按本节换算。
 
 ### 8A.1 为什么用 hcut，而不是逐个地址扣
@@ -1148,7 +1148,7 @@ UI 要点：
 
 **实测校准（2026-10-23，本机全节点高度 793,187）**
 
-用 `sandboxcall` 实测链上 #2000 合约的 `rent_batch`（逻辑与 #3000 的 `rent_keys` 相同，
+用 `sandboxcall` 实测链上 #2000 合约的 `rent_batch`（逻辑与 #4000 的 `rent_keys` 相同，
 都是逐键 `storage_rent`），period=300：
 
 | 键数 | compute | resource | storage | use_gas | 推断成本 |

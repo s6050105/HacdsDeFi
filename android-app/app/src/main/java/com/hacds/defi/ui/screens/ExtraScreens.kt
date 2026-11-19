@@ -53,7 +53,16 @@ fun QueryScreen(vm: AppViewModel) {
                 val p = proto
                 if (p == null) Text(tr("x_protoHint"), style = MaterialTheme.typography.bodySmall)
                 else {
-                    KV(tr("p_price"), p.poolPrice)
+                    // ⚠ 2026-11-20：不要用 p.poolPrice（合约返回值）。
+                    //   合约是 mul_div(pool_hac, 1, pool_ds) 整数除法，
+                    //   4900 HAC / 196e9 hacds = 2.5 会被截成 2；小比值直接变 0。
+                    //   用两个储备自己算（Units 里已有正确实现）。
+                    val price = runCatching {
+                        com.hacds.defi.core.Units.poolPriceHacPerDs(
+                            p.poolHac?.toBigIntegerOrNull() ?: java.math.BigInteger.ZERO,
+                            p.poolDs?.toBigIntegerOrNull() ?: java.math.BigInteger.ZERO)
+                    }.getOrNull()
+                    KV(tr("p_price"), price?.stripTrailingZeros()?.toPlainString()?.let { "$it HAC/hacds" } ?: "—")
                     KV(tr("p_poolHac"), p.poolHac)
                     KV(tr("p_poolDs"), p.poolDs)
                     KV(tr("p_health"), p.health)

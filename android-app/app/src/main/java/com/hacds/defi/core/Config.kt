@@ -25,7 +25,7 @@ data class AppConfig(
         //   ② 把运维 IP 写进公开仓库，等于把攻击面一起发出去。
         // 这三个域名由 Cloudflare Tunnel 转到源站，端口只在隧道内部可见。
         const val DEFAULT_NODE = "https://api.hacds.com"
-        const val DEFAULT_CONTRACT = "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"
+        const val DEFAULT_CONTRACT = "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h"
         const val DEFAULT_INDEXER = "https://indexer.hacds.com"
         const val DEFAULT_TREASURY = "1FbwjELGMmaomNQq3ZZ6hdgQ17GRGwzAzK"
         // ⚠ #3000 已删除预言机（评分改由合约链上直读基因）。这个字段只为
@@ -35,7 +35,16 @@ data class AppConfig(
         const val DEFAULT_ORACLE = ""
         // #3000 版资产 serial。旧版 #2000 已作废（契约、预言机、资产均已停用）。
         // ⚠ 部署新合约并发行新资产后，此值必须与链上实际 serial 一致。
-        const val HACDS_SERIAL = 3000L
+        const val HACDS_SERIAL = 4000L
+
+        // ---- 金库分红合约 B（2026-11-18）----
+        //
+        // 地址由「部署者 15fv6cNE… + nonce 3」推导。主网实际部署后若与此不符，
+        // 只需改这一处 —— 页签会在 share_serial() 校验失败时自动隐藏。
+        const val VAULT_ADDR = "duEkx1E3owCP2VhTq6LzvLUGeMJpjZXm4"
+
+        /** 股权资产 serial，必须与合约 B 的 SHARE_SERIAL 常量一致。 */
+        const val SHARE_SERIAL = 4001L
     }
 
     /** 是否配置了网络（冷端可能为空）。 */

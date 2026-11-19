@@ -87,7 +87,11 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
+            // 2026-11-15 审计 M-8 / A-51：开启 R8 混淆 + 资源收缩。
+            // 原实现 isMinifyEnabled=false，release 包完整暴露类名与字符串，
+            // 逆向成本极低。规则见 proguard-rules.pro。
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {

@@ -18,7 +18,7 @@
 <!-- 横幅 -->
 <!--
   ⚠ 合约上线后改回 banner.mainnet（见 assets/js/i18n.js:18）。
-  #3000 需等 Hacash 主网 HVM 升级后才可部署，当前必须如实标「待部署」。
+  #4000 需等 Hacash 主网 HVM 升级后才可部署，当前必须如实标「待部署」。
 -->
 <div class="banner" id="banner">
   <span data-i18n="banner.testnet"></span>
@@ -190,6 +190,14 @@
         <h3 data-i18n="feat.hacd.t"></h3>
         <p data-i18n="feat.hacd.d"></p>
       </div>
+      <!-- 2026-11-18 新增：金库分红（合约 B） -->
+      <div class="card feat">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M3 11h18M8 7V4m8 3V4"/><circle cx="12" cy="15.5" r="2"/></svg>
+        </div>
+        <h3 data-i18n="feat.vault.t"></h3>
+        <p data-i18n="feat.vault.d"></p>
+      </div>
     </div>
   </div>
 </section>
@@ -245,8 +253,8 @@
   └── 无 admin / 无 pause / 无 upgrade</div>
 
         <div class="note mt-4" style="font-size:12.5px">
-          <b>源码状态</b>　<b>#3000 源码与两轮上线前安全审计报告已在
-          <a href="https://github.com/s6050105/HacdsDeFi/tree/v3000" target="_blank" rel="noopener">v3000 分支公开</a>。</b><br>
+          <b>源码状态</b>　<b>#4000 源码与两轮上线前安全审计报告已在
+          <a href="https://github.com/s6050105/HacdsDeFi/tree/v4000" target="_blank" rel="noopener">v4000 分支公开</a>。</b><br>
           尚未部署的原因：评分依赖 Hacash 主网 VM 的 HACD 基因只读视图
           （<code>hacd_visual_gene_batch</code> 等，随 v1.3.0 引入）。
           需节点升级到 v1.3.0 且块高 ≥ 800,000 后才可用。

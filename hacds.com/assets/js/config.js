@@ -15,14 +15,14 @@ window.HACDS_CONFIG = {
   localIndexer: 'http://127.0.0.1:8124',
   useLocal: location.hostname === 'localhost' || location.hostname === '127.0.0.1',
 
-  // 合约地址：#3000 部署后替换
-  // 当前链上是 #2000（VKNw...），#3000 未部署。
-  // 官网按 #3000 规格构建，部署后改这一行即可。
-  contract: 'T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH',
+  // 合约地址：#4000 部署后替换
+  // 当前链上是 #2000（VKNw...），#4000 未部署。
+  // 官网按 #4000 规格构建，部署后改这一行即可。
+  contract: 'bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h',
 
-  // hacds 资产（#3000 定稿）
+  // hacds 资产（2026-11-18：serial 从 3000 改为 4000）
   asset: {
-    serial: 3000,
+    serial: 4000,
     // decimal=0：1 个最小单位 = 1 个 hacds
     decimal: 0,
     supply: '5963298700000000',              // atoms

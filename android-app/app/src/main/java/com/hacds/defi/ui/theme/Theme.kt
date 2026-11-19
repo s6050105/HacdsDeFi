@@ -46,6 +46,14 @@ val Gold      = Color(0xFFF7AF34)   // --gold   HACD / 钻石强调（唯一保�
 // 兼容旧代码的别名（BrandGold 等在多处被引用，保留避免大改）
 val BrandGold = Gold
 val BrandGoldDark = Color(0xFFB87D14)
+
+// ---- 金库分红（2026-11-18）----
+// 与网页端 --vault-gold 对齐：PC 用 #c9982a（亮）/ #e8c76a（暗），
+// Android 只有深色主题，取 #E8C76A 更醒目，同时在 HACD 金上略偏亮以区分。
+val VaultGold     = Color(0xFFE8C76A)   // 主色：边框、强调数字
+val VaultGoldSoft = Color(0xFFF5E0A0)   // 浅色：高光
+val VaultGoldBg   = Color(0x1AE8C76A)   // 卡片底（10% alpha）
+val VaultGoldBd   = Color(0x4DE8C76A)   // 边框（30% alpha）
 val BrandBgDark = Bg
 val BrandSurfaceDark = Card
 

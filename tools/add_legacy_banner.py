@@ -4,10 +4,10 @@ import sys
 
 BASE = pathlib.Path(r"D:\hacds_server-main\白皮书")
 
-# 三语横幅。{ver} = 本文档描述的版本，#3000 一律填 #2000。
+# 三语横幅。{ver} = 本文档描述的版本，#4000 一律填 #2000。
 ZH = """> ⚠️ **本文档描述的是已停用的 #2000 版本，请勿作为当前实现依据。**
 >
-> #3000 已删除**预言机、证书与管理员**，架构有重大变化：
+> #4000 已删除**预言机、证书与管理员**，架构有重大变化：
 > HACD 评分改为合约链上直读基因自算，无证书流、无 `init_admin` / `set_paused` / `set_oracle`，
 > 资产参数改为 serial 3000 / decimal 0，合约地址改为 `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`。
 >
@@ -17,12 +17,12 @@ ZH = """> ⚠️ **本文档描述的是已停用的 #2000 版本，请勿作为
 > - [发行参数](../hacds_exchange/发行参数-正式.md)
 > - [终审安全报告](../安全审计/上线前安全审计报告-2026-10-27-终审.md)
 >
-> #3000 版的本文档将在合约部署后随正式版发布。
+> #4000 版的本文档将在合约部署后随正式版发布。
 """
 
 EN = """> ⚠️ **This document describes the retired #2000 version. Do not use it as the current implementation reference.**
 >
-> #3000 removes the **oracle, certificates, and the admin**: HACD scoring is now computed
+> #4000 removes the **oracle, certificates, and the admin**: HACD scoring is now computed
 > on-chain from the diamond gene, with no certificate stream and no `init_admin` / `set_paused` /
 > `set_oracle`. Asset parameters are now serial 3000 / decimal 0, and the contract address is
 > `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`.
@@ -33,12 +33,12 @@ EN = """> ⚠️ **This document describes the retired #2000 version. Do not use
 > - [Deployment parameters](../hacds_exchange/发行参数-正式.md)
 > - [Final audit report](../安全审计/上线前安全审计报告-2026-10-27-终审.md)
 >
-> The #3000 edition of this document will ship with the official release after the contract is deployed.
+> The #4000 edition of this document will ship with the official release after the contract is deployed.
 """
 
 TR = """> ⚠️ **Bu belge, kullanımdan kaldırılmış #2000 sürümünü açıklar. Güncel uygulama referansı olarak kullanmayın.**
 >
-> #3000, **oracle, sertifika ve yöneticiyi** kaldırır: HACD puanlaması artık elmas geninden
+> #4000, **oracle, sertifika ve yöneticiyi** kaldırır: HACD puanlaması artık elmas geninden
 > zincir üzerinde hesaplanır; sertifika akışı ve `init_admin` / `set_paused` / `set_oracle` yoktur.
 > Varlık parametreleri serial 3000 / decimal 0 olarak değişti; kontrat adresi
 > `T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH`.
@@ -49,7 +49,7 @@ TR = """> ⚠️ **Bu belge, kullanımdan kaldırılmış #2000 sürümünü aç
 > - [Dağıtım parametreleri](../hacds_exchange/发行参数-正式.md)
 > - [Nihai güvenlik denetimi](../安全审计/上线前安全审计报告-2026-10-27-终审.md)
 >
-> Bu belgenin #3000 sürümü, kontrat dağıtıldıktan sonra resmi sürümle birlikte yayımlanacaktır.
+> Bu belgenin #4000 sürümü, kontrat dağıtıldıktan sonra resmi sürümle birlikte yayımlanacaktır.
 """
 
 FILES = {

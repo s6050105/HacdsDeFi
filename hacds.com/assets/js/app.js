@@ -9,6 +9,11 @@
   const TX = window.HacdsTx;
   const CFG = window.HACDS_CONFIG;
 
+  // 金库分红合约 B（2026-11-18）
+  // 地址由「部署者 15fv6cNE… + nonce 3」推导。主网实际部署后若与此不符，只改这里。
+  const VAULT_ADDR   = 'duEkx1E3owCP2VhTq6LzvLUGeMJpjZXm4';
+  const SHARE_SERIAL = 4001;
+
   const S = {
     addr: null,
     overview: null,
@@ -17,6 +22,10 @@
     swapDir: 0,        // 0 = HAC→hacds, 1 = hacds→HAC
     pool: [],
     busy: false,
+    // ---- 金库分红 ----
+    tab: 'hacd',       // 当前页签
+    vault: null,       // 最近一次查询的数据
+    vaultAt: 0,        // 缓存时间戳（30 秒）
   };
 
   const $ = s => document.querySelector(s);
@@ -102,8 +111,11 @@
     // Tabs
     $$('.tab').forEach(b => {
       b.addEventListener('click', () => {
+        S.tab = b.dataset.tab;
         $$('.tab').forEach(x => x.classList.toggle('on', x === b));
         $$('.panel').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== b.dataset.tab));
+        // 切到金库页签时刷新（30 秒缓存，来回切不会狂发请求）
+        if (S.tab === 'vault') { refreshVault().then(renderVaultPanel); }
       });
     });
 
@@ -131,6 +143,12 @@
 
     // HACD
     $('#btnLoadMine').addEventListener('click', loadMyHacd);
+
+    /* ---------- 金库分红（2026-11-18）---------- */
+    on('#btnVaultStake', doVaultStake);
+    on('#btnVaultUnstake', doVaultUnstake);
+    on('#btnVaultStakeNow', doVaultStake);
+    on('#btnVaultRefresh', async () => { await refreshVault(true); renderVaultPanel(); });
 
     /* ---------- 资金：HAC / hacds 与合约的充提 ---------- */
     const on = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', fn); };
@@ -219,7 +237,14 @@
       if (p.utilization != null) $('#pUtil').textContent = API.fmtBps(p.utilization, 1);
       if (p.coverage != null) $('#pCov').textContent = API.fmtBps(p.coverage, 1);
       if (p.poolPrice != null && Number(p.poolPrice) > 0) {
-        $('#pPrice').textContent = API.fmt(Number(p.poolPrice) / 1e8, 8);
+        // ⚠ 2026-11-20：不要用合约 pool_price() 的返回值（整数除法会把 2.5 截成 2，
+        //   小比值直接变 0）。用两个储备自己算。
+        const ph = Number(p.poolHac) || 0;
+        const pd = Number(p.poolDs) || 0;
+        const price = pd > 0 ? (ph / 1e8) / pd : 0;
+        $('#pPrice').textContent = price > 0
+          ? (price < 1e-6 ? price.toExponential(4) : price.toFixed(8))
+          : '—';
       }
 
       // 储备覆盖率（索引器 /backing）——独立刷新，失败不影响主面板
@@ -231,6 +256,8 @@
     } catch (e) {
       log(t('log.refreshFail') + errMsg(e), 'err');
     }
+    // 金库数据单独拉：它依赖合约 B，失败不影响主面板
+    refreshVault().catch(() => {});
   }
 
   /**
@@ -240,6 +267,233 @@
    *   数据来自索引器（不是节点），索引器可能没跑或 Worker 没配 INDEXER_ORIGIN。
    *   那种情况下主面板仍应正常工作，只把这一格显示成「不可用」。
    */
+  /* ==========================================================================
+     金库分红（2026-11-18）
+
+     语义（见 hacds_exchange/钱包-金库分红页签-设计.md）：
+       · 待结算   = 尚未 claim 的增量
+       · 待提现   = 已 claim、仍在合约里的 due
+       · 总计可提取 = 两者之和
+     ⚠ get_claimable 返回「总计」，claim 后数值不变 —— 不能写成"可领取"
+     ========================================================================== */
+
+  /** 页签是否显示：持有 3001 或已质押 > 0（只看钱包余额的话质押后会消失）。 */
+  function vaultVisible() {
+    if (!S.addr) return false;
+    const v = S.vault;
+    return (v && (v.hold > 0 || v.staked > 0));
+  }
+
+  /** 刷新金库数据（30 秒缓存）。 */
+  async function refreshVault(force) {
+    if (!S.addr) { S.vault = null; return; }
+    const now = Date.now();
+    if (!force && S.vault && now - S.vaultAt < 30000) return;
+    const prev = S.vault;   // 失败时兜底用（§9 网络失败）
+
+    try {
+      // 串行调用：节点 sandboxcall 有每 IP 并发上限
+      //
+      // ① 先校验合约身份（设计文档 §9）：
+      //    VAULT_ADDR 配错时（比如指到主协议 A），get_shares 之类的函数
+      //    要么不存在、要么语义完全不同。用 share_serial() 做身份校验 ——
+      //    合约 B 必然返回 3001，别的合约不会。
+      const serial = await API.callViewAt(VAULT_ADDR, 'share_serial');
+      if (serial == null || Number(serial) !== SHARE_SERIAL) {
+        console.warn('[vault] 金库合约校验失败：share_serial =', serial,
+                     '（期望', SHARE_SERIAL, '，地址', VAULT_ADDR, '）');
+        S.vault = null; updateVaultTab(); return;
+      }
+
+      const shares = await API.callViewAt(VAULT_ADDR, 'get_shares', S.addr + ':address');
+      if (shares == null) {
+        // ② 网络/合约失败：若之前成功过，保留上次数据并标记过期（§9）
+        if (prev) { S.vault = { ...prev, stale: true }; S.vaultAt = now; updateVaultTab(); return; }
+        S.vault = null; updateVaultTab(); return;
+      }
+      const due   = await API.callViewAt(VAULT_ADDR, 'get_due', S.addr + ':address');
+      const claim = await API.callViewAt(VAULT_ADDR, 'get_claimable', S.addr + ':address');
+      const rpu   = await API.callViewAt(VAULT_ADDR, 'get_current_rpu');
+      const tdiv  = await API.callViewAt(VAULT_ADDR, 'get_total_dividend');
+      const rsv   = await API.callViewAt(VAULT_ADDR, 'get_reserve');
+
+      // 钱包持有的 3001
+      let hold = 0;
+      const ov = S.overview || {};
+      for (const a of (ov.otherAssets || [])) {
+        if (Number(a.serial) === SHARE_SERIAL) hold = Number(a.amount) || 0;
+      }
+      // 若 overview 没有 otherAssets，直接查一次
+      if (!ov.otherAssets) {
+        try {
+          const bal = await fetch(`${API.baseNode()}/query/balance?address=${S.addr}&assets=true`)
+            .then(r => r.json());
+          for (const a of ((bal.list || [])[0] || {}).assets || []) {
+            if (Number(a.serial) === SHARE_SERIAL) hold = Number(a.amount) || 0;
+          }
+        } catch (e) { /* 忽略 */ }
+      }
+
+      S.vault = {
+        hold,
+        staked: Number(shares) || 0,
+        due: Number(due) || 0,
+        claimable: Number(claim) || 0,
+        pending: Math.max(0, (Number(claim) || 0) - (Number(due) || 0)),
+        rpu: Number(rpu) || 0,
+        totdiv: Number(tdiv) || 0,
+        reserve: Number(rsv) || 0,
+        stale: false,
+      };
+      S.vaultAt = now;
+      updateVaultTab();
+      if (S.tab === 'vault') renderVaultPanel();
+    } catch (e) {
+      // 金库不可用不影响主面板
+      S.vault = null;
+      updateVaultTab();
+    }
+  }
+
+  /** 更新页签的显隐与金色圆点。 */
+  function updateVaultTab() {
+    const btn = document.querySelector('[data-tab="vault"]');
+    if (!btn) return;
+    const vis = vaultVisible();
+    btn.classList.toggle('hidden', !vis);
+    const hasReward = !!(S.vault && S.vault.due > 0);
+    btn.classList.toggle('has-reward', hasReward);
+  }
+
+  /** 渲染金库面板。 */
+  function renderVaultPanel() {
+    const d = S.vault;
+    const wrap = document.querySelector('[data-panel="vault"]');
+    if (!wrap) return;
+    if (!S.addr) {
+      $('#vaultHoldings').innerHTML = `<span class="muted">${esc(t('app.needConnect'))}</span>`;
+      return;
+    }
+    if (!d) {
+      $('#vaultHoldings').innerHTML = `<span class="muted">${esc(t('vault.loading'))}</span>`;
+      return;
+    }
+
+    const fmtHac = z => (Number(z || 0) / 1e8).toFixed(8);
+    const fmtN = n => Number(n || 0).toLocaleString('en-US');
+    const unstaked = Math.max(0, d.hold - d.staked);
+
+    // 数据过期提示（设计文档 §9「网络失败」）
+    const staleEl = document.getElementById('vaultStale');
+    if (staleEl) {
+      staleEl.classList.toggle('hidden', !d.stale);
+      if (d.stale) staleEl.textContent = t('vault.staleData');
+    }
+
+    // ① 我的权益
+    $('#vaultHoldings').innerHTML = [
+      `<div><span class="muted">${esc(t('vault.walletHolds'))}</span><b>${fmtN(d.hold)}</b></div>`,
+      `<div><span class="muted">${esc(t('vault.staked'))}</span><b class="gold">${fmtN(d.staked)}</b></div>`,
+      `<div><span class="muted">${esc(t('vault.unstaked'))}</span><b class="${unstaked > 0 ? 'warn' : ''}">${fmtN(unstaked)}</b></div>`,
+    ].join('');
+
+    // 未质押警告
+    const warn = $('#vaultWarn');
+    if (warn) {
+      warn.classList.toggle('hidden', unstaked <= 0);
+      const wt = $('#vaultWarnText');
+      if (wt) wt.textContent = t('vault.warnUnstaked', { n: fmtN(unstaked) });
+    }
+
+    // ② 分红
+    const body = $('#vaultDividendBody');
+    const card = $('#vaultDividend');
+    if (body) {
+      if (d.staked <= 0) {
+        card && card.classList.add('dim');
+        body.innerHTML = `<p class="muted">${esc(t('vault.emptyStake'))}</p>`;
+      } else {
+        card && card.classList.remove('dim');
+        body.innerHTML =
+          `<div class="proto-grid">` +
+            `<div><span class="muted">${esc(t('vault.pendingSettle'))}</span><b>${fmtHac(d.pending)} HAC</b></div>` +
+            `<div><span class="muted">${esc(t('vault.pendingWithdraw'))}</span><b>${fmtHac(d.due)} HAC</b></div>` +
+          `</div>` +
+          `<div class="vault-total">` +
+            `<span class="muted">${esc(t('vault.totalClaimable'))}</span>` +
+            `<b class="amount primary gold">${fmtHac(d.claimable)} HAC</b>` +
+          `</div>` +
+          `<button class="gold-btn wide" id="btnVaultClaim" ${d.claimable <= 0 ? 'disabled' : ''}>` +
+            `${esc(t('vault.claimAndWithdraw'))}</button>`;
+        const cb = $('#btnVaultClaim');
+        if (cb) cb.addEventListener('click', doVaultClaim);
+      }
+    }
+
+    // ③ 全局
+    const g = $('#vaultGlobal');
+    if (g) {
+      // ⚠ 2026-11-18 修正：rpu 是 ×1e12 的定点数，且单位是 **zhu**（不是 HAC）。
+      //   合约里 `mul_div(shares, rpu_delta, RPU_SCALE)` 得到 zhu，
+      //   所以每份 HAC = rpu / 1e12 / 1e8 = rpu / 1e20。
+      //   （原写法 rpu/1e12 把 zhu 当 HAC 显示，数值会大 1e8 倍。）
+      const per = d.rpu > 0 ? (d.rpu / 1e20) : 0;
+      g.innerHTML = [
+        `<div><span class="muted">${esc(t('vault.totalDividend'))}</span><b>${fmtHac(d.totdiv)} HAC</b></div>`,
+        `<div><span class="muted">${esc(t('vault.rentReserve'))}</span><b>${fmtHac(d.reserve)} HAC</b></div>`,
+        `<div><span class="muted">${esc(t('vault.perShare'))}</span><b>${per.toFixed(8)}</b></div>`,
+      ].join('');
+    }
+  }
+
+  /** 官网不能签名 —— 构建后交给钱包。 */
+  async function doVaultStake() {
+    const d = S.vault;
+    if (!d || !S.addr) return log(t('app.needConnect'), 'warn');
+    const n = Number(prompt(t('vault.stakeAmount'), String(d.hold - d.staked)));
+    if (!(n > 0)) return;
+    try {
+      const res = await TX.transfer('asset-from-to', {
+        main: S.addr, from: S.addr, to: VAULT_ADDR,
+        serial: String(SHARE_SERIAL), atoms: String(Math.floor(n)),
+      });
+      if (res && res.ok === false) return log(res.error || t('vault.stakeFail'), 'warn');
+      await sendTx(res, t('vault.stakeOk', { n: String(Math.floor(n)) }));
+      await refreshVault(true);
+    } catch (e) { log(t('vault.stakeFail') + errMsg(e), 'err'); }
+  }
+
+  async function doVaultUnstake() {
+    const d = S.vault;
+    if (!d || !S.addr) return log(t('app.needConnect'), 'warn');
+    const n = Number(prompt(t('vault.unstakeAmount'), String(d.staked)));
+    if (!(n > 0)) return;
+    try {
+      const res = await TX.transfer('asset-from-to', {
+        main: S.addr, from: VAULT_ADDR, to: S.addr,
+        serial: String(SHARE_SERIAL), atoms: String(Math.floor(n)),
+      });
+      if (res && res.ok === false) return log(res.error || t('vault.unstakeFail'), 'warn');
+      await sendTx(res, t('vault.unstakeOk', { n: String(Math.floor(n)) }));
+      await refreshVault(true);
+    } catch (e) { log(t('vault.unstakeFail') + errMsg(e), 'err'); }
+  }
+
+  /** 领取分红：官网只做 claim（提现需在钱包里完成，或由钱包 combo 一步做完）。 */
+  async function doVaultClaim() {
+    const d = S.vault;
+    if (!d || !S.addr) return log(t('app.needConnect'), 'warn');
+    if (d.claimable <= 0) return;
+    const hac = (d.claimable / 1e8).toFixed(8);
+    if (!confirm(t('vault.claimConfirm', { hac }))) return;
+    try {
+      const res = await TX.build('claim', [], S.addr, { target: VAULT_ADDR });
+      if (res && res.ok === false) return log(res.error || t('vault.claimFailed'), 'warn');
+      await sendTx(res, t('vault.claimOk', { hac }));
+      await refreshVault(true);
+    } catch (e) { log(t('vault.claimFailed') + errMsg(e), 'err'); }
+  }
+
   async function refreshBacking() {
     const el = $('#pBacking');
     if (!el) return;
@@ -325,7 +579,7 @@
     }
 
     const hac = Number(p.ammHac) / 1e8;      // zhu → HAC（HAC 仍是 1e8 zhu）
-    const ds = Number(p.ammDs);              // #3000 decimal=0：atoms 原值就是个数，不 ÷1e8
+    const ds = Number(p.ammDs);              // #4000 decimal=0：atoms 原值就是个数，不 ÷1e8
     const FEE = 0.005;
 
     if (!inp || isNaN(Number(inp))) {
@@ -739,7 +993,7 @@
     const name = ($('#redeemName').value || '').trim().toUpperCase();
     const el = $('#redeemCost');
     if (!/^[A-Z]{6}$/.test(name)) { el.textContent = '—'; return; }
-    // #2000 赎回无手续费；#3000 有 0.5% + 挑钻石溢价
+    // #2000 赎回无手续费；#4000 有 0.5% + 挑钻石溢价
     // 这里显示基础估计，实际以合约为准
     el.textContent = '≈ 20 hacds';
   }
@@ -903,7 +1157,7 @@
       // from-to 形态需要显式 from = 合约
       if (cfg.sub.endsWith('from-to')) req.from = CFG.contract;
       if (cfg.unit === 'hac') req.hac = raw;
-      else { req.serial = '3000'; req.atoms = String(Math.floor(Number(raw))); }
+      else { req.serial = '4000'; req.atoms = String(Math.floor(Number(raw))); }
 
       const res = await TX.transfer(cfg.sub, req);
       await sendTx(res, cfg.label);
@@ -941,7 +1195,7 @@
       if (!amt || Number(amt) <= 0) return log(t('fund.needAmt'), 'warn');
       // 我 → 他人：用 asset-to（发送方隐含为交易主地址），不需要 from
       sub = 'asset-to';
-      req = { main: S.addr, to, serial: '3000', atoms: String(Math.floor(Number(amt))) };
+      req = { main: S.addr, to, serial: '4000', atoms: String(Math.floor(Number(amt))) };
       label = t('xfer.doDs');
 
     } else if (kind === 'other') {

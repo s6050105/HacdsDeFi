@@ -46,7 +46,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 # 常量（与合约/钱包一致）
 # --------------------------------------------------------------------------
 DEFAULT_NODE = "http://127.0.0.1:8082"
-DEFAULT_CONTRACT = "T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH"
+DEFAULT_CONTRACT = "bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h"
 
 #: 借贷相关函数 —— 这些在合约上被调用时，tx.main 即借款人
 #: 借贷相关函数 —— 这些在合约上被调用时，tx.main 即借款人。
@@ -76,6 +76,14 @@ CORS_ALLOWED_ORIGINS = set(filter(None, os.environ.get(
 #: 用于 /api/diamond/details 的入参校验 —— 名字会被拼进节点 URL，
 #: 不校验就是一个 SSRF / 注入面（虽然只到本机节点）。
 DIAMOND_NAME_RE = re.compile(r"^[WTYUIAHXVMEKBSZN]{6}$")
+
+# 钻石详情缓存（2026-11-15 审计 H-8）。
+# 钻石的编号/基因/归属几乎不变，5 分钟 TTL 足够；
+# 上限 4096 条（≈ 200 颗 × 20 批次）防止内存无限增长。
+DIAMOND_CACHE_TTL = 300
+DIAMOND_CACHE_MAX = 4096
+_DIAMOND_CACHE = {}
+_DIAMOND_CACHE_LOCK = threading.Lock()
 
 
 def sha3_256(b: bytes) -> bytes:
@@ -223,6 +231,11 @@ class Indexer:
         self.window = window
         self.workers = max(1, int(workers))
         self.watch = {}          # addr -> {first,last,calls,fns,manual,note}
+        # 2026-11-20：addr -> set(contract)，记录该地址和哪些合约交互过。
+        # vault_addr_batches 靠它只回 B 的股东，避免 A 的地址混进去白付手续费。
+        self.contract_touch = {}
+        # 金库合约 B 的地址（--vault 传入；未配置时 vault_shareholders 退化为全部地址）
+        self.vault_addr = None
         self.last_scanned = 0
         self.chain = []          # [(height, block_hash, {addr: calls})] 最近 N 块，用于重组检测（C-4）
         self.lock = threading.Lock()
@@ -332,6 +345,15 @@ class Indexer:
         with self.lock:
             return list(self.watch.keys())
 
+    def _contract_set(self):
+        """本索引器关心的合约地址集合。
+
+        `--contract` 支持用逗号分隔多个地址（如 A,B）。这样同一个索引器
+        能同时跟踪主协议和金库分红合约的转账，地址台账不会漏。
+        """
+        raw = str(self.contract or "")
+        return {x.strip() for x in raw.split(",") if x.strip()}
+
     # ---- 扫块 ----
     def _record(self, main, fn, height, delta=1):
         """把 height 处命中的 fn 计入台账。delta=+1 记入（扫描），-1 撤销（重组回退）。"""
@@ -352,6 +374,35 @@ class Indexer:
             w["last"] = max(w.get("last") or 0, height)
             w["calls"] = w.get("calls", 0) + 1
             w.setdefault("fns", {})[fn] = w["fns"].get(fn, 0) + 1
+
+    def _record_contract_touch(self, actor, contract):
+        """记下「actor 这个地址和 contract 交互过」。2026-11-20 新增。
+
+        为什么要单独记：`vault_addr_batches` 需要只返回**合约 B 的股东**，
+        否则会把 A 的用户地址也塞进 `pay_rent_shares`，产生一堆白付手续费的
+        空交易（B 里没有那些键）。
+
+        actor  = 发起交易的人（main），是真正需要续租账本键的人。
+        contract = 与之交互的合约（A 或 B）。
+        """
+        if not actor or not contract:
+            return
+        with self.lock:
+            self.contract_touch.setdefault(actor, set()).add(contract)
+
+    def vault_shareholders(self):
+        """返回与金库合约 B 交互过的地址列表（股东）。
+
+        与 `addresses()` 的区别：只回 B 的，不回 A 的。靠 `contract_touch`
+        台账筛。若某地址在两个合约都出现过（例如既用 A 也质押 B），会被
+        正确归入 B 的股东集合。
+        """
+        vault = getattr(self, "vault_addr", None)
+        if not vault:
+            # 没配 --vault 时退化为全部地址（保持旧行为，避免漏续）
+            return self.addresses()
+        with self.lock:
+            return [a for a, cs in self.contract_touch.items() if vault in cs]
 
     def _current_hash(self, height):
         try:
@@ -378,7 +429,57 @@ class Indexer:
                 continue
             main = d.get("main_address")
             for a in (d.get("actions") or []):
-                if a.get("kind") != 44:
+                kind = a.get("kind")
+
+                # ---- kind 19：TransferAssetFromTo ----
+                # ⚠ 2026-11-17：原实现只认 kind=44（合约调用），于是
+                #   `asset-from-to` 这类**资产转账**完全不记账。
+                #
+                #   但资产转账同样会触发合约钩子：
+                #     from = 合约 → PermitAsset
+                #     to   = 合约 → PayableAsset
+                #   两种都会创建/读写信箱键（due:<addr>、u:<addr> 等），
+                #   这些键同样需要续租。
+                #
+                #   实测后果：35 个股东用 asset-from-to 质押份额后，
+                #   索引器 watched 仍然是 0 → keeper 拿不到地址清单 →
+                #   地址键无人续租 → 10,000 块后全部过期（本链已发生 4 次）。
+                if kind == 19:
+                    frm = a.get("from")
+                    to = a.get("to")
+                    ast = a.get("asset") or {}
+                    serial = ast.get("serial")
+                    # 只记与**本合约**相关的转账（转给合约 / 从合约转出）
+                    # ⚠ 支持多个合约（本索引器可能同时服务 A 与 B）
+                    contracts = self._contract_set()
+                    for who in (frm, to):
+                        if not who:
+                            continue
+                        if who not in contracts:
+                            continue
+                        actor = main or frm or to
+                        self._record(actor, "asset_transfer", height)
+                        # 2026-11-20: record which contract this address touched,
+                        # so vault_addr_batches can filter B shareholders only.
+                        self._record_contract_touch(actor, who)
+                    continue
+
+                # ---- kind 6：TransferHacdFromTo（HACD 转账，同样触发钩子）----
+                if kind == 6:
+                    frm = a.get("from")
+                    to = a.get("to")
+                    contracts = self._contract_set()
+                    for who in (frm, to):
+                        if not who or who not in contracts:
+                            continue
+                        self._record(main or frm or to, "hacd_transfer", height)
+                        per_fn.setdefault(main or frm or to, {})
+                        per_fn[main or frm or to]["hacd_transfer"] = \
+                            per_fn[main or frm or to].get("hacd_transfer", 0) + 1
+                    continue
+
+                # ---- kind 44：合约调用（原有逻辑）----
+                if kind != 44:
                     continue
                 fn = match_contract_fn(a.get("codes"))
                 if not fn or not main:
@@ -400,7 +501,14 @@ class Indexer:
         else:
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
                 results = list(ex.map(self.scan, heights))
-        found = sum(sum(per.values()) for (_h, _bh, per) in results)
+        # ⚠ 2026-11-17 修复：per 是 {addr: {fn: count}} 嵌套结构，
+        #   原写法 `sum(per.values())` 在累加 dict → TypeError。
+        #   这是索引器的既有 bug，只要 scan 有命中就会触发。
+        found = sum(
+            sum(cnt for cnt in fns.values())
+            for (_h, _bh, per) in results
+            for fns in per.values()
+        )
         return found, results
 
     def _append_chain(self, results):
@@ -705,6 +813,45 @@ class Indexer:
             "dropped": dropped,
         }
 
+    def vault_addr_batches(self, max_addrs: int = 10) -> dict:
+        """金库分红合约 B 的**股东地址**分批（2026-11-18）。
+
+        与 `rent_batches` 的区别：B 的 `pay_rent_shares(addrs, period)` 收的是
+        **连排的 21 字节地址**（不是键），因为它自己拼 chk:/due:/sh: 三个键。
+        所以这里只回地址，不回键。
+
+        ⚠ 地址来源：台账里出现过的地址。B 的股东必然是
+          「质押过 / claim 过 / 收到过分红」的其中之一，
+          这些动作都会在主网转账里留下记录，扫描时会进台账。
+
+        max_addrs 默认 10：period=100 时 10 个地址 = 30 键 = 108,000 gas，
+        正好卡在 storage 桶 111,911 以内（见 vault.fitsh 的 STORAGE_BUDGET）。
+        period 更大时 keeper 会自己再往下切。
+        """
+        batches = []
+        # 2026-11-20：只回**金库 B 的股东**（与 B 交互过的地址），
+        #   而不是全部台账地址。原来会把 A 的用户也塞进来，导致
+        #   pay_rent_shares 对 B 里不存在的键白付手续费。
+        source = self.vault_shareholders()
+        if not source and self.vault_addr:
+            # 台账里还没有 B 的交互记录（刚重启/刚上线）：退化为全部地址，
+            # 宁可多付几笔手续费，也不要漏续真实股东。
+            source = self.addresses()
+        for addr in source:
+            try:
+                a21 = self._addr_to_21(addr)
+            except Exception:
+                continue
+            batches.append(a21.hex())
+        # 按 max_addrs 切片
+        out = []
+        for i in range(0, len(batches), max_addrs):
+            out.append({"blob": "".join(batches[i:i + max_addrs]),
+                        "count": len(batches[i:i + max_addrs])})
+        return {"batches": out,
+                "total": len(batches),
+                "max_addrs": max_addrs}
+
     def summary(self):
         snap = self.snapshot()
         return {
@@ -883,7 +1030,18 @@ class Handler(BaseHTTPRequestHandler):
         return self._send({"ret": 0, "list": out})
 
     def _one_diamond(self, name):
-        """查一颗钻石。失败返回 None，**不抛** —— 单颗查不到不该毁掉整批。"""
+        """查一颗钻石。失败返回 None，**不抛** —— 单颗查不到不该毁掉整批。
+
+        ⚠ 2026-11-15 审计 H-8：加了 TTL 缓存。
+          200 颗 × 2 重试 × 10s 最坏 4,050 秒，单请求就能把索引器拖死。
+          钻石的编号/基因/归属几乎不变，缓存 5 分钟即可避免重复打节点。
+        """
+        now = time.time()
+        with _DIAMOND_CACHE_LOCK:
+            hit = _DIAMOND_CACHE.get(name)
+            if hit and now - hit[0] < DIAMOND_CACHE_TTL:
+                return hit[1]
+
         try:
             d = http_get_json(f"{IDX.node}/query/diamond?name={name}", timeout=10.0, tries=2)
         except Exception:                                          # noqa: BLE001
@@ -908,8 +1066,13 @@ class Handler(BaseHTTPRequestHandler):
         num = item.get("number")
         if num is None:
             num = item.get("diamond_number") or 0
-        return {"name": name, "number": num, "visual_gene": vg,
-                "belong": item.get("belong") or item.get("address") or ""}
+        out = {"name": name, "number": num, "visual_gene": vg,
+               "belong": item.get("belong") or item.get("address") or ""}
+        with _DIAMOND_CACHE_LOCK:
+            if len(_DIAMOND_CACHE) > DIAMOND_CACHE_MAX:
+                _DIAMOND_CACHE.clear()          # 有界，防内存无限增长
+            _DIAMOND_CACHE[name] = (now, out)
+        return out
 
     def do_GET(self):                                             # noqa: N802
         self._t0 = time.time()
@@ -954,6 +1117,17 @@ class Handler(BaseHTTPRequestHandler):
                     mx = 10
                 mx = max(1, min(10, mx))      # 合约单笔上限 10 键
                 return self._send({"ret": 0, **IDX.rent_batches(mx)})
+
+            if path == "/vault_addr_batches":
+                # 金库分红合约 B 的股东地址分批（2026-11-18）。
+                # B 没有接受键清单的续租函数，只有 pay_rent_shares(addrs, period)，
+                # 收连排 21 字节地址 —— 所以这里回地址而不是键。
+                try:
+                    mx = int((qs.get("max") or ["10"])[0])
+                except ValueError:
+                    mx = 10
+                mx = max(1, min(50, mx))
+                return self._send({"ret": 0, **IDX.vault_addr_batches(mx)})
             # ---- 只读模式：拦截所有写操作 ----
             WRITE_PATHS = {"/sync", "/watch/add", "/watch/remove",
                            "/api/diamond/details"}
@@ -1037,7 +1211,7 @@ def selftest():
         chk("地址首字节 = 0x00（普通地址）",
             Indexer._addr_to_21("15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q")[0], 0)
         chk("合约地址首字节 = 0x01",
-            Indexer._addr_to_21("T1A8kaeWqK6wMUw5UMHCA6tMQ1iBdECyH")[0], 1)
+            Indexer._addr_to_21("bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h")[0], 1)
 
         ix.add("15fv6cNEapTNqYhigMPr38pC1XRKn3Wh5q")
         rk = ix.rent_keys()
@@ -1094,6 +1268,18 @@ def main():
     global READ_ONLY
     READ_ONLY = bool(args.read_only)
     IDX = Indexer(args.node, args.contract, args.state, args.window, args.workers)
+    # 2026-11-20：从 --contract "A,B" 里认出金库合约 B。
+    #   约定：--vault 显式传入优先；否则取 --contract 列表里的**第二个**地址
+    #   （安装脚本就是按 "A,B" 顺序传的）。
+    _vault = (getattr(args, "vault", "") or "").strip()
+    if not _vault:
+        parts = [x.strip() for x in str(args.contract).split(",") if x.strip()]
+        if len(parts) >= 2:
+            _vault = parts[1]
+    IDX.vault_addr = _vault or None
+    if IDX.vault_addr:
+        print("[indexer] 金库合约 B = %s（vault_addr_batches 只回它的股东）"
+              % IDX.vault_addr, flush=True)
     if READ_ONLY:
         print("[indexer] 只读模式：/sync、/watch/add、/watch/remove 已禁用", flush=True)
 
