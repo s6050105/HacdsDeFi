@@ -308,6 +308,7 @@
       const shares = await API.callViewAt(VAULT_ADDR, 'get_shares', S.addr + ':address');
       if (shares == null) {
         // ② 网络/合约失败：若之前成功过，保留上次数据并标记过期（§9）
+        console.warn('[vault] get_shares 返回空，地址', S.addr);
         if (prev) { S.vault = { ...prev, stale: true }; S.vaultAt = now; updateVaultTab(); return; }
         S.vault = null; updateVaultTab(); return;
       }
@@ -317,21 +318,27 @@
       const tdiv  = await API.callViewAt(VAULT_ADDR, 'get_total_dividend');
       const rsv   = await API.callViewAt(VAULT_ADDR, 'get_reserve');
 
-      // 钱包持有的 3001
+      // 钱包持有多少份股权（serial 4001）
+      //
+      // ⚠ 2026-11-20 修复：这里原本读 `ov.otherAssets`，但 API.balance()
+      //   返回的字段叫 `assets` —— `otherAssets` 在任何地方都不存在，
+      //   于是 hold 恒为 0，兜底分支又调用了不存在的 API.baseNode()，
+      //   抛 TypeError 被外层 catch 吞掉 → S.vault = null → 页签永久隐藏。
+      //   这就是股东反馈「网页版不显示金库页签」的原因。
+      //   现在直接读 balance() 已经返回的 assets，不再自己拼 URL。
       let hold = 0;
       const ov = S.overview || {};
-      for (const a of (ov.otherAssets || [])) {
+      for (const a of (ov.assets || [])) {
         if (Number(a.serial) === SHARE_SERIAL) hold = Number(a.amount) || 0;
       }
-      // 若 overview 没有 otherAssets，直接查一次
-      if (!ov.otherAssets) {
+      // overview 尚未加载（cold start）时补查一次；用 API.balance 而不是裸 fetch
+      if (!ov.assets) {
         try {
-          const bal = await fetch(`${API.baseNode()}/query/balance?address=${S.addr}&assets=true`)
-            .then(r => r.json());
-          for (const a of ((bal.list || [])[0] || {}).assets || []) {
+          const bal = await API.balance(S.addr);
+          for (const a of (bal.assets || [])) {
             if (Number(a.serial) === SHARE_SERIAL) hold = Number(a.amount) || 0;
           }
-        } catch (e) { /* 忽略 */ }
+        } catch (e) { /* 忽略：拿不到持仓不影响已质押的人看到页签 */ }
       }
 
       S.vault = {
@@ -349,7 +356,11 @@
       updateVaultTab();
       if (S.tab === 'vault') renderVaultPanel();
     } catch (e) {
-      // 金库不可用不影响主面板
+      // 金库不可用不影响主面板。
+      // ⚠ 但**必须留下痕迹**：这个 catch 曾把一个「读错字段名 + 调用不存在的方法」
+      //   的 bug 完整吞掉，股东只看到页签消失、控制台一片安静，排查了很久。
+      //   任何吞掉异常的兜底都要至少写一条 warn。
+      console.warn('[vault] 刷新失败，页签将隐藏：', e && e.message ? e.message : e);
       S.vault = null;
       updateVaultTab();
     }

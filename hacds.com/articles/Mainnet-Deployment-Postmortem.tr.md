@@ -16,7 +16,7 @@ Pay varlığı `HACDS-SHARE` (serial 3001, toplam 10.000 pay) ihraç edildikten 
 | Vault kontrat B'nin `sh:` pay defteri | **0** |
 | Sonuç | `PermitAsset` transfer çıkışına izin vermek için yeterli `sh:` bakiyesi ister → **her zaman 11 döndürür** |
 
-10.000 pay hissenin tamamı kontrat adresinin kendi adına düştü, kontratın iç pay defteri ise boş.
+10.000 payın tamamı kontrat adresinin kendi adına düştü, kontratın iç pay defteri ise boş.
 
 Kontratın 15 harici fonksiyonu var ve **hiçbiri `sh:` defterini başlatamaz**.
 Bu bir kilitlenme. Üstelik kontratın yöneticisi yok, yükseltilemiyor — kimse "bir düzelteyim" diyemez, onu yazan kişi dahil.
@@ -116,7 +116,7 @@ Bu parayı çekirdek geliştirici tek başına karşıladı.
 
 ## 4. Denetimler neden durdurmadı
 
-Bu, üzerinde durmaya en değer bölüm.
+Bu, üzerinde en çok durulmaya değer bölüm.
 
 Proje lansmandan önce 5 tur bağımsız denetim yaptırdı. İlk üç tur sırasıyla 4 bloklayıcı, 2 bloklayıcı ve düzeltme incelemesiydi.
 5. tur (2026-11-15) **No-Go** kararı verdi, gerekçe üç bloklayıcıydı.
@@ -151,7 +151,7 @@ Doğrulama zinciri "bu kaynak kod gerçekten bu bytecode'a derlendi"yi garanti e
 Ama olay bağlamında bu aynı şeydir: **kimse hayatınızı kurtaramaz.**
 
 Bunlar "avantaj" ve "dezavantaj" değil, **aynı madalyonun iki yüzüdür**.
-Madem "kimse değiştiremez"i temel satış argümanı yaptınız, "kendiniz dahil"i de kabul etmek zorundasınız.
+Madem "kimse değiştiremez"i temel satış argümanı olarak seçtiniz, "kendiniz dahil"i de kabul etmek zorundasınız.
 
 Bu, bu olayın en derin dersi. Onu yazan kişi bile tek bir parametre hatası yüzünden bedel ödüyor —
 bu tam da bu mekanizmanın ne kadar mutlak olduğunun kanıtı.
