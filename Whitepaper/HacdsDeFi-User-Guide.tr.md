@@ -83,17 +83,24 @@ Düğüme ulaşılamıyorsa önce ağınızı kontrol edin. **İndeksleyiciye ul
 makinede saklanır; "kurtarma" özelliği yok, müşteri hizmetleri yok, arka kapı
 yok. Bir kâğıda yazın — yalnızca bilgisayarda tutmayın.
 
-Oluşturma bitince adresinizi (`1` ile başlar, yaklaşık 34 karakter) ve 12
-kelimelik anımsatıcıyı gösterir. **Anımsatıcıyı yazıp çevrimdışı saklayın.**
-Cüzdanınızı geri yüklemenin tek yolu budur.
+Oluşturma bitince adresinizi (`1` ile başlar, yaklaşık 34 karakter) gösterir.
 
-### 3.2 Mevcut cüzdanlar: üç içe aktarma yöntemi
+**Hemen yedekleyin.** Cüzdanı geri yüklemenin **yalnızca iki** yolu vardır:
+keystore dosyasını dışa aktarmak (önerilir — şifrelidir, parolanız gerekir) veya
+özel anahtarı dışa aktarmak (düz metin, daha yüksek risk). Anımsatıcı yoktur ve
+sunucu tarafında yedek yoktur — yerel cüzdan dosyası kaybolduysa, uygulama
+kaldırıldıysa ve daha önce dışa aktarmadıysanız bu para geri alınamaz.
+
+### 3.2 Mevcut cüzdanlar: iki içe aktarma yöntemi
 
 | Yöntem | Ne zaman kullanılır |
 |---|---|
-| Anımsatıcı | Başka bir cüzdandan taşınırken |
-| Keystore dosyası | PC ve Android uyumludur; biçim aynıdır (`hacds-keystore v1`) |
-| Özel anahtar | Elinizde eski bir özel anahtar varsa |
+| Keystore dosyası | **Önerilir.** PC ve Android uyumludur; biçim aynıdır (`hacds-keystore v1`) |
+| Özel anahtar | Elinizde eski bir özel anahtar varsa veya hızlı içe aktarma istiyorsanız (düz metin — güvenli tutun) |
+
+> ⚠ Bu cüzdan **anımsatıcıyı desteklemez** (12 kelimelik kurtarma yoktur).
+> Varlıklarınızı anımsatıcıyla yönetiyorsanız cüzdanı başka bir yerde oluşturup
+> **özel anahtarını** içe aktarın.
 
 ### 3.3 Birden fazla cüzdan yönetimi
 
@@ -640,8 +647,9 @@ Kartların sağ üst köşesindeki `▾` ile.
 
 ## 13. Güvenlik notları
 
-1. **Anımsatıcıyı ve parolayı çevrimdışı saklayın.** Kurtarma özelliği yok,
-   müşteri hizmetleri yok.
+1. **Dışa aktardığınız keystore dosyasını veya özel anahtarı çevrimdışı saklayın, parolayı da unutmayın.**
+   Kurtarma özelliği yok, müşteri hizmetleri yok. Bu cüzdanda anımsatıcı yoktur;
+   parolayı kaybedip daha önce dışa aktarmadıysanız para gider.
 2. **Tüm birikiminizi içine koymayın.** Kontrat yükseltilemez; bir hata
    bulunursa düzeltilemez.
 3. **Tek nokta, payların kimde olduğudur.** Kontratta çekim fonksiyonu yok,

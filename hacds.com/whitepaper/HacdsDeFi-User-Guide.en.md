@@ -86,16 +86,24 @@ encrypted and stored on this machine; there is no "recovery" feature, no support
 desk, no back door. Write it on paper — do not keep it only on the computer.
 
 When creation finishes, it shows your address (starts with `1`, about 34
-characters) and a 12-word mnemonic. **Write the mnemonic down and store it
-offline.** It is the only way to restore your wallet.
+characters).
 
-### 3.2 Existing wallets: three import methods
+**Back it up immediately.** There are only **two** ways to recover a wallet:
+export the keystore file (recommended — encrypted, needs your password) or
+export the private key (plaintext, higher risk). There is no mnemonic and no
+server-side backup — if the local wallet file is gone, the app was uninstalled,
+and you never exported, the funds are unrecoverable.
+
+### 3.2 Existing wallets: two import methods
 
 | Method | When to use |
 |---|---|
-| Mnemonic | Migrating from another wallet |
-| Keystore file | PC and Android are interchangeable; same format (`hacds-keystore v1`) |
-| Private key | For legacy private keys you still have |
+| Keystore file | **Recommended.** PC and Android are interchangeable; same format (`hacds-keystore v1`) |
+| Private key | For legacy private keys, or when you just want a quick import (plaintext — keep it safe) |
+
+> ⚠ This wallet **does not support mnemonics** (there is no 12-word recovery).
+> If you manage assets with mnemonics, generate the wallet elsewhere and import
+> its **private key** instead.
 
 ### 3.3 Managing multiple wallets
 
@@ -645,8 +653,9 @@ Click the `▾` in their top-right corner.
 
 ## 13. Security notes
 
-1. **Keep the mnemonic and the password offline.** There is no recovery feature
-   and no support desk.
+1. **Keep an exported keystore or private key offline, and remember the password.**
+   There is no recovery feature and no support desk. This wallet has no mnemonic;
+   if you lose the password and never exported, the funds are gone.
 2. **Do not put your entire net worth in.** The contract cannot be upgraded; if a
    bug is found, it cannot be fixed.
 3. **Holding of shares is the single point.** There is no withdrawal function in
