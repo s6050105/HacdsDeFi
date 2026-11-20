@@ -1,6 +1,6 @@
 # HacdsDeFi Kullanım Kılavuzu
 
-2026-11-18　PC cüzdanı 0.4.4 / Android 0.2.3 için
+2026-11-18　PC cüzdanı 0.4.4 / Android 0.2.4 için
 
 > Bu belge #4000 kontratına karşılık gelir (adres
 > `bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h`, hacds varlık serial 4000,
@@ -33,7 +33,7 @@ Tutarın geçtiği her yerde birim belirtilmiştir. **Hata yapılması en kolay 
 |---|---|---|
 | PC | `HacdsDeFi-Setup-0.4.4-x64.exe` | Kurulum paketi, çift tıklayıp kurun |
 | PC | `HacdsDeFi-0.4.4-x64.exe` | Taşınabilir, çift tıklayıp çalıştırın |
-| Android | `HacdsDeFi-0.2.3-arm64.apk` | "Bilinmeyen kaynaklardan kurulum"a izin vermelisiniz |
+| Android | `HacdsDeFi-0.2.4-arm64.apk` | "Bilinmeyen kaynaklardan kurulum"a izin vermelisiniz |
 
 PC için ikisinden birini seçin. Telefonlar arm64 olmalı (son yılların tüm yaygın
 modelleri).

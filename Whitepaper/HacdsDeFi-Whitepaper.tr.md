@@ -609,7 +609,7 @@ zamanda tüm Hacash ekosistemindeki en saf geek sözleşme ruhudur.
 | Saldırı testleri | 43 saldırı senaryosu (yeniden giriş, önden koşma, fiyat manipülasyonu, alt taşma vb.) |
 | Sunucu tarafı | Tam düğüm / indeksleyici / oluşturma servisi / keeper hepsi çevrimiçi, açılışta otomatik başlıyor |
 | PC cüzdanı | v0.4.4, Windows kurulum paketi + kurulumsuz sürüm |
-| Android | v0.2.3, imzalı APK, arm64 |
+| Android | v0.2.4, imzalı APK, arm64 |
 | Web sitesi | hacds.com (teknik rapor, belgeler, web konsolu) |
 
 ### 6.2 Dağıtım

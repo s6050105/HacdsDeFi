@@ -620,7 +620,7 @@ entire Hacash ecosystem.
 | Attack tests | 43 attack scenarios (reentrancy, front-running, price manipulation, underflow, etc.) |
 | Server side | Full node / indexer / build service / keeper all online, autostart on boot |
 | PC wallet | v0.4.4, Windows installer + portable build |
-| Android | v0.2.3, signed APK, arm64 |
+| Android | v0.2.4, signed APK, arm64 |
 | Website | hacds.com (whitepaper, docs, web console) |
 
 ### 6.2 Deployment

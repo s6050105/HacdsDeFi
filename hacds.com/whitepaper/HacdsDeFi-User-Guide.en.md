@@ -1,6 +1,6 @@
 # HacdsDeFi User Guide
 
-2026-11-18　For PC wallet 0.4.4 / Android 0.2.3
+2026-11-18　For PC wallet 0.4.4 / Android 0.2.4
 
 > This document corresponds to contract #4000 (address
 > `bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h`, hacds asset serial 4000,
@@ -35,7 +35,7 @@ Every place an amount appears, the unit is stated. **This is the easiest place t
 |---|---|---|
 | PC | `HacdsDeFi-Setup-0.4.4-x64.exe` | Installer, double-click to install |
 | PC | `HacdsDeFi-0.4.4-x64.exe` | Portable, double-click to run |
-| Android | `HacdsDeFi-0.2.3-arm64.apk` | Must allow "install from unknown sources" |
+| Android | `HacdsDeFi-0.2.4-arm64.apk` | Must allow "install from unknown sources" |
 
 Pick one of the two PC builds. Phones must be arm64 (every mainstream device of
 recent years).

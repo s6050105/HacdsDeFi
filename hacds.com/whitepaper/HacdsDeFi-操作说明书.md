@@ -1,6 +1,6 @@
 # HacdsDeFi 操作说明书
 
-2026-11-18　适用 PC 钱包 0.4.4 / 安卓 0.2.3
+2026-11-18　适用 PC 钱包 0.4.4 / 安卓 0.2.4
 
 > 本文档对应合约 #4000（地址 `bw2sRCNPw3DsvAyS9o8CeMbJJhQ9NJ37h`，hacds 资产 serial 4000，
 > 股权资产 serial 4001）。
@@ -29,7 +29,7 @@
 |---|---|---|
 | PC | `HacdsDeFi-Setup-0.4.4-x64.exe` | 安装版，双击装好 |
 | PC | `HacdsDeFi-0.4.4-x64.exe` | 免安装版，双击直接运行 |
-| 安卓 | `HacdsDeFi-0.2.3-arm64.apk` | 需允许"安装未知来源应用" |
+| 安卓 | `HacdsDeFi-0.2.4-arm64.apk` | 需允许"安装未知来源应用" |
 
 PC 两选一即可。手机只支持 arm64（近年所有主流机型）。
 

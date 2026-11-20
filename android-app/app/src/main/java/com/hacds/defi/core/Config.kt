@@ -77,7 +77,23 @@ data class AppConfig(
 class ConfigStore(ctx: Context) {
     private val sp = ctx.getSharedPreferences("hacds_cfg", Context.MODE_PRIVATE)
 
-    fun load(): AppConfig {
+    fun load(): AppConfig = try {
+        loadInner()
+    } catch (e: Exception) {
+        // 兜底：读到任何无法处理的历史数据都退回默认配置，绝不崩溃。
+        android.util.Log.e("ConfigStore", "读取配置失败，已回退默认值", e)
+        AppConfig()
+    }
+
+    /**
+     * 真正的读取逻辑，外层 [load] 只负责兜底。
+     *
+     * ⚠ 为什么套一层：load() 在应用启动路径上被调用，这里任何未捕获异常
+     *   = 启动即崩溃。而 SharedPreferences 里躺着的是**历史版本写的、
+     *   当前版本无法预期的**数据。宁可退回默认配置（用户手动改一下网络设置
+     *   就能恢复），也不能让应用起不来。
+     */
+    private fun loadInner(): AppConfig {
         if (!sp.contains("node") && !sp.contains("contract")) return AppConfig()
 
         // ⚠ 旧版残留配置迁移（2026-11-20）
@@ -102,7 +118,17 @@ class ConfigStore(ctx: Context) {
             //     英文/土文用户升级后界面突然变中文，属于无谓的体验损失。）
             val keepLang = sp.getString("lang", "zh-CN") ?: "zh-CN"
             val fixed = AppConfig(lang = keepLang)
-            save(fixed)
+            // ⚠ save() 内部会做端点校验并**抛异常**（审计 H-10）。load() 是在
+            //   应用启动路径上被调用的 —— 老用户若存着 http:// 或内网地址，
+            //   这里一抛就是**启动即崩溃**，比原来「资金不显示」严重得多。
+            //   迁移是尽力而为：写失败就跳过，只把修正后的值返回给内存使用，
+            //   绝不因为写盘失败而让应用起不来。
+            try {
+                save(fixed)
+            } catch (e: Exception) {
+                android.util.Log.w("ConfigStore",
+                    "旧配置迁移写盘失败（不影响本次启动）：${e.message}")
+            }
             fixed
         } else {
             AppConfig(
